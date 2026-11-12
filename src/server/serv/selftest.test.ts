@@ -21,8 +21,6 @@ describe("SERV self-test", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain("flip_judge");
     expect(ids).toContain("check_rules");
-    expect(ids).toContain("telegram_reply");
-    expect(ids).toContain("need_extract");
     expect(ids).toContain("find_plan");
   });
 

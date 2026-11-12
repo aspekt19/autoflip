@@ -1,14 +1,11 @@
 import type { Metadata } from "next";
 import { AgentKeys } from "@/components/AgentKeys";
-import { resolveProductFlags } from "@/domain/product-flags";
 
 export const metadata: Metadata = { title: "Agents" };
 
-/** Scout link follows the runtime flag. Do not bake SCOUT_UI_ENABLED. */
 export const dynamic = "force-dynamic";
 
 export default function DevelopersPage() {
-  const scout = resolveProductFlags().scout;
   return (
     <div className="sub">
       <div className="sheet-page site-frame prose">
@@ -51,14 +48,9 @@ export default function DevelopersPage() {
             Failures return <code>credit_spent: false</code>. Reuse the same <code>Idempotency-Key</code> (or JSON-RPC{" "}
             <code>id</code>) to retry without a second charge. Keys are rate-limited to 30 calls per minute.
           </p>
-          <p>
-            Optional x402 v2 (USDC on Base) pay-per-check/find stays <strong>disabled by default</strong> behind{" "}
-            <code>X402_AGENT_PAYMENTS_ENABLED</code>. When enabled, a missing payment with no credits returns HTTP 402 +{" "}
-            <code>PAYMENT-REQUIRED</code>; settlement happens only after results are delivered.
-          </p>
         </section>
 
-        <AgentKeys scoutEnabled={scout} />
+        <AgentKeys />
 
         <section>
           <h2>Discovery</h2>
@@ -232,28 +224,10 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
         </section>
 
         <section>
-          <h2>Scout grants (owner → operator)</h2>
-          <p>
-            Live Scout spend is not created by minting a key. After you create a key above, copy the binding card (
-            <code>ownerUserId</code> + <code>apiKeyHash</code>) and send it to your operator through a channel they trust.
-            Never paste the <code>af_</code> token into chat.
-            {scout ? (
-              <>
-                {" "}
-                Then open a signed session on <a href="/scout">/scout</a> with the key that stays in this browser.
-              </>
-            ) : (
-              <> Scout is not available in this preview, so this page does not link to it.</>
-            )}
-          </p>
-        </section>
-
-        <section>
           <h2>Saved searches and storage</h2>
           <p>
             Persistent storage is Upstash Redis (<code>UPSTASH_REDIS_REST_URL</code> / <code>UPSTASH_REDIS_REST_TOKEN</code>
             ). Locally, keys and credits fall back to <code>.data/kv.json</code>. Site report credits are the default.
-            Optional x402 agent payments stay off until <code>X402_AGENT_PAYMENTS_ENABLED</code> is explicitly set.
           </p>
         </section>
       </div>

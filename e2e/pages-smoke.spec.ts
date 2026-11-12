@@ -1,27 +1,22 @@
 import { expect, test, type ConsoleMessage, type Page } from "@playwright/test";
 
+/** Header + footer routes, plus account/auth pages the menu reaches. Scout is gone. */
 const PAGES = [
   "/",
   "/find",
+  "/check",
   "/resale",
   "/radar",
-  "/check",
+  "/reports",
+  "/where-serv-runs",
   "/pricing",
+  "/proof",
   "/credits",
   "/account",
-  "/proof",
-  "/where-serv-runs",
-  "/verify",
-  "/developers",
   "/privacy",
   "/terms",
   "/login",
   "/login/finish",
-  "/reports",
-  "/favorites",
-  "/compare",
-  "/compare-cars",
-  "/scout",
   "/activity",
   "/report/sample",
 ];

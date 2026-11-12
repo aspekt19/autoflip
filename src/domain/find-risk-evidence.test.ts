@@ -11,7 +11,7 @@ import {
   riskFactsFromPacket,
 } from "./find-risk-evidence";
 import { explicitNeedFromText } from "./need";
-import type { FreeGovEvidencePacket } from "./scout/free-gov";
+import type { FreeGovEvidencePacket } from "./free-gov";
 
 function recallPacket(overrides: {
   parkIt?: boolean;

@@ -3,16 +3,9 @@
  * Poll GET /api/v1/find/:run_id/status and GET /api/v1/find/:run_id.
  */
 import { getKv } from "@/io/kv";
-import { agentX402PaymentsLive } from "@/io/x402";
 import { authenticateAgentRequest, authFailureResponse } from "@/server/agent-auth";
 import { agentError, jsonError } from "@/server/agent-envelope";
 import { createAgentFindRun } from "@/server/agent-find";
-import {
-  agentX402ChallengeResponse,
-  beginAgentX402FromPayload,
-  beginAgentX402Payment,
-  type AgentX402Verified,
-} from "@/server/agent-x402";
 import { runtimeDeps } from "@/server/deps";
 import { originOf } from "@/server/secrets";
 
@@ -50,21 +43,6 @@ export async function POST(request: Request) {
     request.headers.get("idempotency-key")?.trim() ||
     (typeof body.idempotencyKey === "string" ? body.idempotencyKey : null);
 
-  const resource = `${origin}/api/v1/find`;
-  let x402Payment: AgentX402Verified | null = null;
-  const fromHeader = await beginAgentX402Payment(request, resource);
-  if (fromHeader.kind === "rejected") {
-    return Response.json(fromHeader.body, { status: fromHeader.status, headers: auth.headers });
-  }
-  if (fromHeader.kind === "verified") x402Payment = fromHeader.value;
-  else if (typeof body.payment === "string") {
-    const fromBody = await beginAgentX402FromPayload(body.payment, resource);
-    if (fromBody.kind === "rejected") {
-      return Response.json(fromBody.body, { status: fromBody.status, headers: auth.headers });
-    }
-    if (fromBody.kind === "verified") x402Payment = fromBody.value;
-  }
-
   const created = await createAgentFindRun(
     auth.caller,
     {
@@ -73,15 +51,11 @@ export async function POST(request: Request) {
       zip: typeof body.zip === "string" ? body.zip : null,
       budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : null,
       idempotencyKey,
-      x402Payment,
     },
     { ...runtimeDeps(), kv, origin },
   );
 
   if (!created.ok) {
-    if (created.status === 402 && agentX402PaymentsLive() && !x402Payment) {
-      return agentX402ChallengeResponse(resource);
-    }
     return jsonError(created.status, created.body, auth.headers);
   }
 

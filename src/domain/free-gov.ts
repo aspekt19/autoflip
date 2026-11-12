@@ -19,7 +19,16 @@ import {
   type FindFuelEvidence,
 } from "@/domain/find-fuel-match";
 import type { Listing } from "@/domain/types";
-import type { EvidenceFact, ScoutToolId } from "./types";
+
+export type ClaimKind = "seller_claim" | "verified" | "assumed" | "unknown";
+
+export type EvidenceFact = {
+  key: string;
+  value: unknown;
+  kind: ClaimKind;
+  source: string;
+  note: string | null;
+};
 
 export const FREE_GOV_TIMEOUT_MS = 12_000;
 /** Bounded cache for free public endpoints (demo engineering policy, not provider TTL). */
@@ -778,4 +787,4 @@ async function runFuel(
 }
 
 /** Type helper for runner tool unions. */
-export type FreeGovScoutToolId = FreeGovToolId | ScoutToolId;
+export type FreeGovScoutToolId = FreeGovToolId;

@@ -21,7 +21,7 @@ type BindingCard = {
   revokedAt: string | null;
 };
 
-export function AgentKeys({ scoutEnabled = false }: { scoutEnabled?: boolean }) {
+export function AgentKeys() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [bindings, setBindings] = useState<BindingCard[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -167,15 +167,6 @@ export function AgentKeys({ scoutEnabled = false }: { scoutEnabled?: boolean }) 
             An operator grant needs <code>ownerUserId</code> and <code>apiKeyHash</code> — not the{" "}
             <code>af_</code> token. Copy the card below and send it only through a channel your
             operator trusts to identify you.
-            {scoutEnabled ? (
-              <>
-                {" "}
-                After the grant lands, open a signed Scout session on <a href="/scout">/scout</a> with the{" "}
-                <code>af_</code> key in this browser.
-              </>
-            ) : (
-              <> Scout is not available in this preview.</>
-            )}
           </p>
           {(freshBinding ? [freshBinding] : liveBindings.slice(0, 1)).map((binding) => (
             <div key={binding.keyId} className="warn-box binding-card">

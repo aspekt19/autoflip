@@ -11,7 +11,6 @@ import { needFromResaleSearchInput, parseResaleSearchInput } from "@/domain/resa
 import { buildFindPickComputedReport } from "./find-settle-serv";
 import { clampFlipPublishedAction } from "./resale-settle-serv";
 import { describeServCallFailure } from "./resale-serv-call";
-import { buildKeyedAutonomyDiag } from "./find-next-check-orchestrator";
 import type { BestDealCandidate } from "@/domain/find-best-deal";
 import { FIND_NEXT_CHECK_RUBRIC_ID } from "@/domain/decision-proof-view";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
@@ -280,21 +279,7 @@ describe("P1 artificial call cap removed", () => {
   });
 });
 
-describe("P1 next-check honesty: drain does not claim SERV parse failure", () => {
-  it("buildKeyedAutonomyDiag uses honesty override for free-gov drain", () => {
-    const diag = buildKeyedAutonomyDiag({
-      keyed: true,
-      mintSaidKeyed: true,
-      autonomousServ: false,
-      source: "deterministic_fallback",
-      failureDiag: null,
-      honestyOverride:
-        "Deterministic free public check (bounded_free_gov_drain) — SERV was not called this hop.",
-    });
-    expect(diag.configHint).toMatch(/SERV was not called this hop/i);
-    expect(diag.configHint).not.toMatch(/parse\/clamp\/refusal/i);
-  });
-
+describe("P1 next-check honesty rubric id", () => {
   it("exposes FIND_NEXT_CHECK_RUBRIC_ID for proof records", () => {
     expect(FIND_NEXT_CHECK_RUBRIC_ID).toBe("lemonless.find_next_check_rubric.v1");
   });

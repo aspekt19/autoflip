@@ -17,7 +17,7 @@ import {
 } from "./find-next-check-loop";
 import { buildGroundedShortlist } from "./find-path";
 import { emptyNeed, softPrefGapsFromText } from "./need";
-import type { FreeGovEvidencePacket } from "./scout/free-gov";
+import type { FreeGovEvidencePacket } from "./free-gov";
 
 function recallPacket(opts?: {
   parkIt?: boolean;

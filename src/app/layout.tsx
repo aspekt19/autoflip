@@ -94,7 +94,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
-        {/* Scout nav: Header fetches /api/scout capabilities at runtime — do not bake SCOUT_UI_ENABLED here. */}
         <Header />
         <main id="main">
           <PageFade>{children}</PageFade>
@@ -121,14 +120,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/check">Check a car</a>
             <FooterProductLink />
             <a href="/reports">Reports</a>
-            <a href="/favorites">Saved cars</a>
-            <a href="/compare-cars">Compare cars</a>
             <a href="/pricing">Pricing</a>
             <a href="/where-serv-runs">Where SERV runs</a>
             <a href="/proof">Proof</a>
-            <a href="/verify">Verify</a>
             <a href="/account">Account</a>
-            <a href="/developers">For AI agents</a>
             <a href="/privacy">Privacy</a>
             <a href="/terms">Terms</a>
           </p>

@@ -38,7 +38,6 @@ import {
 import { shouldInvokeServForFindNextCheck } from "./find-serv-budget";
 import { proposeFindNextChecks } from "./find-next-checks";
 import { emptyNeed } from "./need";
-import { PROFILES } from "@/server/serv/profiles";
 import { assertStrictJsonSchemaSubset } from "@/server/serv/strict-json-schema";
 
 const NOW = new Date("2026-11-09T12:00:00Z");
@@ -464,9 +463,6 @@ describe("A3 target clamp", () => {
     expect(clampFindNextCheckTargetKeys(["e", "nope", "a", "b", "c", "d"], allowed)).toEqual(["e", "a", "b"]);
     const schema = buildFindNextCheckChoiceSchema(["free_car_consistency", "compare_observed_asks"], allowed);
     expect(assertStrictJsonSchemaSubset(schema.schema)).toEqual([]);
-    const prompt = PROFILES.find_next_check.system;
-    expect(prompt).not.toMatch(/BEFORE compare_observed_asks/);
-    expect(prompt).toMatch(/most likely to change which car/);
     const checks = proposeFindNextChecks({
       need: need(),
       softGaps: [],

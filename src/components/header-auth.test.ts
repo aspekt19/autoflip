@@ -121,10 +121,11 @@ describe("login unavailable state and email gating", () => {
     expect(finishClient).toMatch(/localStorage\.removeItem\(EMAIL_LINK_STORAGE_KEY\)/);
     expect(finishClient).toMatch(/callbackUrl/);
     const checkPage = read("src/app/check/page.tsx");
-    expect(checkPage).toMatch(/3 free VIN or listing checks/);
+    expect(checkPage).toMatch(/3\s+free checks per UTC month/);
     expect(checkPage).not.toMatch(/Full report: costs 1 report credit/);
     expect(checkPage).not.toMatch(/Lemonless looks up that VIN in its listings data rather than reading the listing page/);
-    expect(checkPage).toMatch(/Paste any listing link/);
+    expect(checkPage).toMatch(/Enter a VIN/);
+    expect(checkPage).not.toMatch(/Paste any listing link/);
     const auth = read("src/auth.ts");
     expect(auth).toMatch(/strategy:\s*"jwt"/);
     expect(auth).toMatch(/id:\s*"email-link"/);

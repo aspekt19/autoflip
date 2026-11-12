@@ -6,7 +6,7 @@ import {
   isFindFreeGovCheckId,
   selectFindFreeGovCandidates,
 } from "./find-free-gov";
-import { unsupportedFreeGovPort } from "./scout/free-gov";
+import { unsupportedFreeGovPort } from "./free-gov";
 
 describe("find free-gov execute (offline / labeled NOT live)", () => {
   it("maps check ids and selects VIN-bearing cards for vPIC only", () => {

@@ -2,14 +2,11 @@ import { describe, expect, it } from "vitest";
 import { findDecidePathEnabled, shouldAutoStartFindDecide } from "./find-decide-path";
 
 describe("findDecidePathEnabled", () => {
-  it("defaults on", () => {
+  it("stays on after the next-check loop was removed", () => {
     expect(findDecidePathEnabled({})).toBe(true);
-  });
-
-  it("respects off switches", () => {
-    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "0" })).toBe(false);
-    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "false" })).toBe(false);
-    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "off" })).toBe(false);
+    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "0" })).toBe(true);
+    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "false" })).toBe(true);
+    expect(findDecidePathEnabled({ FIND_DECIDE_PATH: "off" })).toBe(true);
   });
 });
 

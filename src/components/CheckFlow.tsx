@@ -130,7 +130,7 @@ export function CheckFlow() {
 
 function CheckFlowForm() {
   const router = useRouter();
-  const [kind, setKind] = useState<CheckKind>("link");
+  const [kind, setKind] = useState<CheckKind>("vin");
   const [url, setUrl] = useState("");
   const [vin, setVin] = useState("");
   const [paste, setPaste] = useState("");
@@ -216,7 +216,7 @@ function CheckFlowForm() {
         paste?: string;
         optionalZip?: string;
       };
-      if (saved.checkKind === "link" || saved.checkKind === "vin" || saved.checkKind === "paste") {
+      if (saved.checkKind === "vin" || saved.checkKind === "paste") {
         setKind(saved.checkKind);
       }
       if (saved.checkKind === "vin" && typeof saved.lookup === "string") setVin(saved.lookup);
@@ -427,16 +427,6 @@ function CheckFlowForm() {
   return (
     <div className="panel check-flow">
       <div className="pills" role="radiogroup" aria-label="How to check">
-        <label className="pill" htmlFor="check-kind-link">
-          <input
-            id="check-kind-link"
-            type="radio"
-            name="check-kind"
-            checked={kind === "link"}
-            onChange={() => setKind("link")}
-          />
-          By listing link
-        </label>
         <label className="pill" htmlFor="check-kind-vin">
           <input
             id="check-kind-vin"

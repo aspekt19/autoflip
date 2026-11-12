@@ -34,8 +34,6 @@ export type AgentFindCreateInput = {
   zip?: string | null;
   budgetUsd?: number | null;
   idempotencyKey?: string | null;
-  /** Pre-verified x402 payment — settle only when cars are delivered. */
-  x402Payment?: import("./agent-x402").AgentX402Verified | null;
 };
 
 export type AgentFindRunStatus =
@@ -65,14 +63,6 @@ export type AgentFindRunRecord = {
   need: StructuredNeed | null;
   /** Shared lemonless.decision_proof.v1 rows from need parse (+ settle when present). */
   proofRecords: DecisionProofRecord[];
-  /** Serialized x402 payment (flag-gated). Settled only on successful delivery. */
-  x402?: {
-    paymentPayload: unknown;
-    requirement: import("@/io/x402").PaymentRequirements;
-    resourceUrl: string;
-    version: 1 | 2;
-    facilitatorUrl: string;
-  } | null;
 };
 
 function runKey(runId: string): string {
@@ -189,20 +179,16 @@ export async function createAgentFindRun(
   }
 
   const spendKey = findSearchSpendKey(caller.userId, `agent-find:${clientKey}`);
-  const payWithX402 = Boolean(input.x402Payment);
-  if (!payWithX402) {
-    if (await creditEventSeen(deps.kv, spendKey)) {
-      // Prior successful settle for this idempotency key — recreate a completed pointer if needed.
-    } else {
-      const balance = await creditBalance(deps.kv, caller.userId);
-      if (balance < 1) {
-        await deps.kv.delete(idem);
-        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
-      }
+  if (await creditEventSeen(deps.kv, spendKey)) {
+    // Prior successful settle for this idempotency key — recreate a completed pointer if needed.
+  } else {
+    const balance = await creditBalance(deps.kv, caller.userId);
+    if (balance < 1) {
+      await deps.kv.delete(idem);
+      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
     }
   }
 
-  const { serializeAgentX402ForStore } = await import("./agent-x402");
   const run: AgentFindRunRecord = {
     run_id: randomUUID(),
     user_id: caller.userId,
@@ -215,12 +201,11 @@ export async function createAgentFindRun(
     updated_at: new Date().toISOString(),
     idempotency_key: clientKey,
     spend_key: spendKey,
-    input: { ...input, text, idempotencyKey: clientKey, x402Payment: undefined },
+    input: { ...input, text, idempotencyKey: clientKey },
     error: null,
     result: null,
     need: null,
     proofRecords: [],
-    x402: input.x402Payment ? serializeAgentX402ForStore(input.x402Payment) : null,
   };
   await saveRun(deps.kv, run);
   await deps.kv.set(idem, run.run_id);
@@ -490,33 +475,8 @@ export async function advanceAgentFindRun(
 
     // Debit only when cars are delivered — empty inventory never charges.
     let creditSpent = false;
-    let x402TxHash: string | null = null;
     if (carsDelivered) {
-      if (fresh.x402) {
-        const { restoreAgentX402FromStore, settleAgentX402Payment } = await import("./agent-x402");
-        const settled = await settleAgentX402Payment(restoreAgentX402FromStore(fresh.x402), {
-          fetch: deps.fetch ?? fetch,
-        });
-        if (!settled.ok) {
-          fresh.error = agentError({
-            error_code: "payment_settle_failed",
-            message: settled.error,
-            credit_spent: false,
-            retry_safe: true,
-            next_steps: {
-              action: "retry_payment",
-              summary: "Find completed but x402 settlement failed. Retry with a fresh PAYMENT-SIGNATURE or use site credits.",
-              request: { method: "POST", url: `${deps.origin}/api/v1/find` },
-              docs: `${deps.origin}/developers`,
-            },
-          });
-          await mark(fresh, "failed", "failed");
-          await saveRun(deps.kv, fresh);
-          return fresh;
-        }
-        creditSpent = true;
-        x402TxHash = settled.txHash;
-      } else {
+      {
         const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
         if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
           fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
@@ -605,10 +565,9 @@ export async function advanceAgentFindRun(
           carsDelivered,
         },
       }),
-      ...(x402TxHash ? { txHash: x402TxHash, payment: "x402" } : {}),
     };
 
-    if (creditSpent && !fresh.x402) {
+    if (creditSpent) {
       await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
     }
     fresh.result = success;

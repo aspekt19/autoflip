@@ -50,9 +50,6 @@ import { proposeFindNextChecks } from "@/domain/find-next-checks";
 import { findNextCheckPendingLabel } from "@/domain/find-next-check-pending";
 import { shouldAutoStartFindDecide } from "@/domain/find-decide-path";
 import {
-  FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
-  rematchRefineFromReplan,
-  shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
   shouldResumeFindLoop,
 } from "@/domain/find-next-check-ui";
@@ -63,8 +60,6 @@ import {
   formatGroundedShortlistLine,
   findSettledStatusLine,
   formatBuyerBestDeal,
-  formatBuyerLoopStatus,
-  formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
   formatOfficialRecallNumber,
   formatRecallCheckSummary,
@@ -303,7 +298,7 @@ function AssistantFlow({
   const [yearMin, setYearMin] = useState(entryNeed?.yearMin != null ? String(entryNeed.yearMin) : "");
   const [yearMax, setYearMax] = useState(entryNeed?.yearMax != null ? String(entryNeed.yearMax) : "");
   const [dealRadarUi, setDealRadarUi] = useState(false);
-  const [checkKind, setCheckKind] = useState<"link" | "vin">("link");
+  const [checkKind, setCheckKind] = useState<"link" | "vin">("vin");
   const [lookup, setLookup] = useState("");
   const [vinPrice, setVinPrice] = useState("");
   const [vinMiles, setVinMiles] = useState("");
@@ -652,7 +647,7 @@ function AssistantFlow({
           resumedFindTokens.add(token);
           autoNextCheckTokenRef.current = token;
           queueMicrotask(() => {
-            void applyLiveNextCheck({ token, auto: true });
+            void applyLiveFindDecide({ token, auto: true });
           });
         }
       }
@@ -700,7 +695,7 @@ function AssistantFlow({
       };
       checkRestored.current = true;
       if (saved.mode === "flip" || saved.mode === "personal") setMode(saved.mode);
-      if (saved.checkKind === "link" || saved.checkKind === "vin") setCheckKind(saved.checkKind);
+      if (saved.checkKind === "vin") setCheckKind("vin");
       if (typeof saved.lookup === "string") setLookup(saved.lookup);
       if (typeof saved.vinPrice === "string") setVinPrice(saved.vinPrice);
       if (typeof saved.vinMiles === "string") setVinMiles(saved.vinMiles);
@@ -965,465 +960,6 @@ function AssistantFlow({
     }
   }
 
-  /**
-   * Live Find next-check via owner-bound searchContextToken.
-   * Server loads need/listings, claims keyed SERV, applies, rematches with NEW need.
-   * Client yearMin/yearMax UI state is never sent as rematch authority.
-   */
-  async function applyLiveNextCheck(opts?: { token?: string; auto?: boolean }) {
-    if (variant !== "find") return;
-    const token = opts?.token ?? searchContextToken;
-    if (!token) {
-      if (!opts?.auto) setError("Search context missing — run Find again before next check.");
-      return;
-    }
-    setError(null);
-    setNextCheckNote(null);
-    setPending("next-check");
-    setPendingCheckLabel(findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto) }));
-    let continueToken: string | null = null;
-    // Count this hop when it was triggered by auto-continue/auto-start chain.
-    if (opts?.auto) autoContinueCountRef.current += 1;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 290_000);
-    try {
-      const response = await fetch("/api/find/next-check", {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchContextToken: token }),
-      });
-      const body = (await response.json()) as {
-        ok?: boolean;
-        message?: string;
-        chosenId?: string;
-        source?: string;
-        autonomousServ?: boolean;
-        research?: boolean;
-        servNote?: string | null;
-        needAfter?: StructuredNeed;
-        appliedCheckIds?: string[];
-        searchContextToken?: string;
-        replan?: { need: StructuredNeed; refine: { yearMin?: number; yearMax?: number; make?: string; model?: string }; note: string };
-        rematch?: {
-          ok?: boolean;
-          status?: number;
-          body?: {
-            directions?: MatchGroup[];
-            sample?: boolean;
-            message?: string;
-            headline?: string;
-            nextStep?: string;
-            scope?: string;
-            emptyReason?: FindEmptyReason | null;
-            partialFailure?: boolean;
-            affordabilityAssessed?: boolean;
-            searchContextToken?: string | null;
-            servNextCheckEnabled?: boolean;
-          };
-        } | null;
-        loop?: { continue?: boolean; reason?: string; detail?: string };
-        honesty?: string;
-      };
-      if (!response.ok || !body.ok || !body.replan?.need) {
-        setFindLoopOpen(false);
-        const reason =
-          body.message ||
-          body.loop?.detail ||
-          body.honesty ||
-          "Next check could not be applied.";
-        setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
-        setError(reason);
-        setNextCheckNote(reason);
-        return;
-      }
-      const pickProofs = Array.isArray(
-        (body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords,
-      )
-        ? ((body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords as DecisionProofRecord[])
-        : [];
-      const nextCheckProofs = Array.isArray(
-        (body as { nextCheckProofRecords?: DecisionProofRecord[] }).nextCheckProofRecords,
-      )
-        ? ((body as { nextCheckProofRecords?: DecisionProofRecord[] }).nextCheckProofRecords as DecisionProofRecord[])
-        : [];
-      if (pickProofs.length > 0 || nextCheckProofs.length > 0) {
-        setProofRecords((prev) => [...prev, ...nextCheckProofs, ...pickProofs]);
-      }
-      // Always adopt NEW need from server apply — never stale same-tick UI years.
-      const nextNeed = body.needAfter ?? body.replan.need;
-      setNeed(nextNeed);
-      if (body.replan.refine.yearMin != null) setYearMin(String(body.replan.refine.yearMin));
-      else if (nextNeed.yearMin != null) setYearMin(String(nextNeed.yearMin));
-      if (body.replan.refine.yearMax != null) setYearMax(String(body.replan.refine.yearMax));
-      else if (nextNeed.yearMax != null) setYearMax(String(nextNeed.yearMax));
-      if (Array.isArray(body.appliedCheckIds)) setAppliedNextChecks(body.appliedCheckIds);
-      else if (body.chosenId) setAppliedNextChecks((prev) => [...prev, body.chosenId!]);
-      const nextTok =
-        typeof body.searchContextToken === "string" ? body.searchContextToken : token;
-      if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
-      const keyedDiag = (body as {
-        keyedAutonomyDiag?: {
-          keyed?: boolean;
-          mintSaidKeyed?: boolean | null;
-          source?: string;
-          failureCategory?: string | null;
-          failureReasonCode?: string | null;
-          configHint?: string | null;
-        };
-        failureDiag?: { category?: string; reasonCode?: string } | null;
-      }).keyedAutonomyDiag;
-      const failCat =
-        keyedDiag?.failureCategory ??
-        (body as { failureDiag?: { category?: string } | null }).failureDiag?.category ??
-        null;
-      const failCode =
-        keyedDiag?.failureReasonCode ??
-        (body as { failureDiag?: { reasonCode?: string } | null }).failureDiag?.reasonCode ??
-        null;
-      const freeNote =
-        typeof (body as { freeEvidenceNote?: string | null }).freeEvidenceNote === "string"
-          ? (body as { freeEvidenceNote?: string }).freeEvidenceNote
-          : null;
-      const clamp = (body as {
-        clampDiag?: {
-          deniedCheckId?: string | null;
-          allowlistIds?: string[];
-          aliasApplied?: string | null;
-        } | null;
-      }).clampDiag;
-      const receipts = Array.isArray((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts)
-        ? ((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts as FreeGovReceiptUiRow[])
-        : [];
-      const serverBestDeal = (body as { bestDeal?: BestDealResult | null }).bestDeal;
-      const serverBaseline = (body as { baseline?: FindBaselineDelta | null }).baseline ?? serverBestDeal?.baseline ?? null;
-      if (serverBestDeal && typeof serverBestDeal === "object") {
-        setBestDeal(serverBestDeal);
-      }
-      if (serverBaseline && typeof serverBaseline === "object") {
-        setBaselineView(formatBaselineForBuyer(serverBaseline));
-      }
-      const serverLog = (body as { decisionLog?: FindDecisionLogEntry[] }).decisionLog;
-      if (Array.isArray(serverLog)) {
-        const labels = [
-          ...(serverBestDeal?.allRanked ?? serverBestDeal?.ranked ?? []).map((car) => ({
-            key: car.key,
-            year: car.year,
-            make: car.make,
-            model: car.model,
-            trim: car.trim ?? null,
-            priceUsd: car.priceUsd,
-            miles: car.miles,
-            city: car.city ?? null,
-            state: car.state ?? null,
-            dealer: car.dealer ?? null,
-          })),
-        ];
-        setDecisionView({ entries: serverLog, labels });
-      }
-      const settlePass = (body as { pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null })
-        .pickSecondPass;
-      if (settlePass && typeof settlePass === "object") setPickSecondPass(settlePass);
-      const settleVerdict = (body as { pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null })
-        .pickAgentVerdict;
-      if (settleVerdict && typeof settleVerdict === "object") setPickAgentVerdict(settleVerdict);
-      if (receipts.length > 0) {
-        setFreeGovReceiptsForShortlist(receipts);
-        // Buyer-visible plain lines; raw receipts only in machine/agent channel.
-        setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
-        setFreeGovAgentPayload(formatFreeGovReceiptsForAgents(receipts, serverBaseline));
-      }
-      const coverage = (body as { riskCoverage?: { note?: string } | null }).riskCoverage;
-      const toolCov = (
-        body as {
-          freeGovCoverage?: {
-            note?: string;
-            anyUnchecked?: boolean;
-            fuel?: { unchecked?: number; checked?: number; eligible?: number };
-          } | null;
-        }
-      ).freeGovCoverage;
-      if (toolCov && typeof toolCov.anyUnchecked === "boolean") {
-        setFreeGovAnyUnchecked(toolCov.anyUnchecked);
-      }
-      if (toolCov?.fuel && typeof toolCov.fuel.unchecked === "number") {
-        setFuelCheckPending(toolCov.fuel.unchecked > 0);
-      } else if (toolCov && toolCov.anyUnchecked === false) {
-        setFuelCheckPending(false);
-      }
-      // Soft-scrub technical coverage notes for buyers (never garble NMVTIS-approved).
-      const scrubCoverage = (note: string) =>
-        note
-          .replace(/\bMMY\b/g, "year/make/model")
-          .replace(/\bvPIC\b/g, "VIN decode")
-          .replace(
-            /\bNMVTIS-approved history\s*\+\s*inspection before purchase\b/gi,
-            "an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy",
-          )
-          .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)")
-          .trim();
-      // Prefer one plain coverage sentence — avoid duplicating year/make/model jargon.
-      const toolNote =
-        toolCov && typeof toolCov.note === "string" && toolCov.note.trim()
-          ? scrubCoverage(toolCov.note)
-          : "";
-      const riskNote =
-        coverage && typeof coverage.note === "string" && coverage.note.trim()
-          ? scrubCoverage(coverage.note)
-          : "";
-      const coverageBits = toolNote
-        ? riskNote && !toolNote.includes(riskNote.slice(0, 40)) && riskNote.length > 0
-          ? [toolNote, riskNote]
-          : [toolNote]
-        : riskNote
-          ? [riskNote]
-          : [];
-      if (coverageBits.length > 0) {
-        setRiskCoverageNote(coverageBits.join(" "));
-      }
-      void freeNote;
-      void failCat;
-      void failCode;
-      void clamp;
-      void keyedDiag;
-      const listingCount = groups.reduce((n, g) => n + g.listings.length, 0);
-      const mergedReceiptsForFuel =
-        receipts.length > 0 ? receipts : freeGovReceiptsForShortlist;
-      // Always summarize cumulative fuel receipts so the checklist reflects final outcomes
-      // even when the latest step was recalls/safety (not free_gov_fuel).
-      const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel));
-      const nextFuelOutcome = fuelOutcome.attempted > 0 ? fuelOutcome : null;
-      if (nextFuelOutcome) setFuelCheckOutcome(nextFuelOutcome);
-      const recallOutcome = summarizeRecallCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel));
-      const fuelPending =
-        toolCov?.fuel && typeof toolCov.fuel.unchecked === "number"
-          ? toolCov.fuel.unchecked > 0
-          : false;
-      const step = formatBuyerLoopStep({
-        chosenId: body.chosenId ?? "",
-        listingCount: listingCount || undefined,
-        fuelOutcome: nextFuelOutcome ?? undefined,
-        fuelPending: body.chosenId === "free_gov_fuel" ? fuelPending : undefined,
-        recallOutcome: body.chosenId === "free_gov_recalls" ? recallOutcome : undefined,
-      });
-      const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
-      const willContinue = shouldAutoContinueFindNextCheck({
-        servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
-        autonomousServ: Boolean(body.autonomousServ),
-        searchContextToken: nextTok,
-        autoContinueCount: autoContinueCountRef.current,
-        loop: body.loop
-          ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
-          : null,
-      });
-      const shortlistEmpty = !(serverBestDeal?.ranked?.length);
-      const settleBit = toolCov
-        ? buyerCheckActivityLine({
-            anyUnchecked: Boolean(toolCov.anyUnchecked),
-            continuing: willContinue,
-            shortlistEmpty,
-          })
-        : null;
-      // Drop contradictory “not running” + “caught up/stopped” pairs when unchecked remain.
-      const progressParts = [step, status, settleBit].filter(Boolean) as string[];
-      const progressLine =
-        toolCov?.anyUnchecked && status && /stopped on the current evidence|caught up/i.test(status)
-          ? progressParts.filter((part) => part !== status).join(" ")
-          : progressParts.join(" ");
-      setNextCheckNote(progressLine);
-      setPendingCheckLabel(
-        findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto), progressLine }),
-      );
-      setFindLoopOpen(Boolean(body.loop?.continue));
-      const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
-      try {
-        sessionStorage.setItem(
-          "af-find-loop",
-          JSON.stringify({ token: nextTok, settled: checksSettled }),
-        );
-      } catch {
-        /* ignore */
-      }
-      if (willContinue) {
-        continueToken = nextTok;
-      } else {
-        // No further auto hops — clear the “still checking” spinner state.
-        setFindLoopOpen(false);
-        setPendingCheckLabel(null);
-        if (
-          body.loop?.continue &&
-          autoContinueCountRef.current >= FIND_NEXT_CHECK_AUTO_CONTINUE_MAX &&
-          toolCov?.anyUnchecked
-        ) {
-          // Bound hit — settle the spinner honestly rather than looping forever.
-          const pauseReason =
-            "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running.";
-          setNextCheckNote((prev) => [prev, pauseReason].filter(Boolean).join(" "));
-        } else if (body.loop?.continue === false && body.loop?.detail) {
-          setNextCheckNote((prev) => [prev, body.loop?.detail].filter(Boolean).join(" "));
-        }
-      }
-
-      // Prefer server rematch (NEW need). Fallback client rematch uses replan only — never yearMin UI state.
-      if (body.research && body.rematch?.body) {
-        const matchBody = body.rematch.body;
-        if (!body.rematch.ok) {
-          const reason = matchBody.emptyReason ?? "provider_failure";
-          const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
-          setFindLoopOpen(false);
-          setPendingCheckLabel(null);
-          setError(copy.detail);
-          setNextCheckNote(copy.detail);
-          setMatchHeadline(matchBody.headline ?? copy.headline);
-          setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
-          setMatchMessage(copy.detail);
-          setEmptyReason(reason);
-          setGroups([]);
-          return;
-        }
-        const nextGroups = (matchBody.directions ?? []).map((group) => ({
-          ...group,
-          listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
-        }));
-        setGroups(nextGroups);
-        const rematchPool = readinessCarsFromUnknown((matchBody as { compsPool?: unknown }).compsPool);
-        setMarketPool(
-          rematchPool.length > 0
-            ? rematchPool
-            : readinessCarsFromUnknown(nextGroups.flatMap((group) => group.listings)),
-        );
-        setSample(Boolean(matchBody.sample));
-        setAffordability(matchBody.affordabilityAssessed !== false);
-        setMatchScope(matchBody.scope ?? null);
-        setMatchHeadline(matchBody.headline ?? null);
-        setMatchNextStep(matchBody.nextStep ?? null);
-        setMatchMessage(matchBody.message ?? null);
-        setEmptyReason(matchBody.emptyReason ?? null);
-        setPartialFailure(Boolean(matchBody.partialFailure));
-        if (typeof matchBody.searchContextToken === "string") {
-          setSearchContextToken(matchBody.searchContextToken);
-        }
-        if (typeof matchBody.servNextCheckEnabled === "boolean") {
-          setServNextCheckEnabled(matchBody.servNextCheckEnabled);
-        }
-        setStage("results");
-      } else if (body.research) {
-        // Server did not rematch — client rematch with NEW need/refine only (stale-year fix).
-        setPending("match");
-        const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 290_000);
-        try {
-          const matchResponse = await fetch("/api/match", {
-            method: "POST",
-            signal: controller.signal,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              need: nextNeed,
-              // Owned continuation — next-check rematch is not a second Find purchase.
-              searchContextToken: nextTok,
-              refine: rematchRefineFromReplan({
-                replanRefine: body.replan.refine,
-                needAfter: nextNeed,
-                uiYearMin: yearMin,
-                uiYearMax: yearMax,
-              }),
-            }),
-          });
-          const matchBody = (await matchResponse.json()) as {
-            balance?: number;
-            directions?: MatchGroup[];
-            sample?: boolean;
-            message?: string;
-            headline?: string;
-            nextStep?: string;
-            scope?: string;
-            emptyReason?: FindEmptyReason | null;
-            partialFailure?: boolean;
-            affordabilityAssessed?: boolean;
-            searchContextToken?: string | null;
-            servNextCheckEnabled?: boolean;
-            error?: string;
-          };
-          if (typeof matchBody.balance === "number") publishCreditBalance(matchBody.balance);
-          else void refreshPublishedCreditBalance();
-          if (
-            matchResponse.status === 401 ||
-            (matchResponse.status === 403 &&
-              (matchBody.error === "auth_required" ||
-                matchBody.error === "auth_unconfigured" ||
-                matchBody.error === "email_unverified" ||
-                matchBody.error === "email_required"))
-          ) {
-            rememberFlow();
-            router.push(`/login?callbackUrl=${encodeURIComponent("/find")}`);
-            return;
-          }
-          if (matchResponse.status === 403 && matchBody.error === "credits_required") {
-            rememberFlow();
-            router.push("/credits?need=1&return=%2Ffind");
-            return;
-          }
-          if (matchBody.error === "auth_unconfigured" || matchBody.error === "money_store_unconfigured") {
-            const plain = buyerFacingFailure(matchBody.error, null, "Sign-in is not available yet.");
-            setError(plain);
-            setMatchMessage(plain);
-            setGroups([]);
-            return;
-          }
-          if (!matchResponse.ok) {
-            const reason = matchBody.emptyReason ?? "provider_failure";
-            const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
-            setError(copy.detail);
-            setMatchHeadline(matchBody.headline ?? copy.headline);
-            setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
-            setMatchMessage(copy.detail);
-            setEmptyReason(reason);
-            setGroups([]);
-            return;
-          }
-          const nextGroups = (matchBody.directions ?? []).map((group) => ({
-            ...group,
-            listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
-          }));
-          setGroups(nextGroups);
-          setSample(Boolean(matchBody.sample));
-          setAffordability(matchBody.affordabilityAssessed !== false);
-          setMatchScope(matchBody.scope ?? null);
-          setMatchHeadline(matchBody.headline ?? null);
-          setMatchNextStep(matchBody.nextStep ?? null);
-          setMatchMessage(matchBody.message ?? null);
-          setEmptyReason(matchBody.emptyReason ?? null);
-          setPartialFailure(Boolean(matchBody.partialFailure));
-          if (typeof matchBody.searchContextToken === "string") {
-            setSearchContextToken(matchBody.searchContextToken);
-          }
-          if (typeof matchBody.servNextCheckEnabled === "boolean") {
-            setServNextCheckEnabled(matchBody.servNextCheckEnabled);
-          }
-          setStage("results");
-        } finally {
-          window.clearTimeout(timer);
-        }
-      }
-    } catch (err) {
-      setFindLoopOpen(false);
-      setPendingCheckLabel(null);
-      const timedOut = err instanceof DOMException && err.name === "AbortError";
-      const reason = timedOut
-        ? "That check took too long, so it stopped. Nothing is running now. You can try again."
-        : "Next check failed — try again.";
-      setError(reason);
-      setNextCheckNote(reason);
-    } finally {
-      window.clearTimeout(timer);
-      setPending(null);
-      if (!continueToken) setPendingCheckLabel(null);
-    }
-    // Continue loop after pending clears — evidence→replan until server stop reason.
-    if (continueToken) {
-      void applyLiveNextCheck({ token: continueToken, auto: true });
-    }
-  }
 
   async function findCars() {
     if (!need) return;
@@ -1705,7 +1241,7 @@ function AssistantFlow({
       if (autoDecidePath) {
         void applyLiveFindDecide({ token: autoNextToken, auto: true });
       } else {
-        void applyLiveNextCheck({ token: autoNextToken, auto: true });
+        void applyLiveFindDecide({ token: autoNextToken, auto: true });
       }
     }
   }
@@ -3259,9 +2795,6 @@ function AssistantFlow({
         >
           <ModePills mode={mode} onMode={setMode} />
           <div className="pills">
-            <label className="pill">
-              <input type="radio" name="check" checked={checkKind === "link"} onChange={() => setCheckKind("link")} /> By listing link
-            </label>
             <label className="pill">
               <input type="radio" name="check" checked={checkKind === "vin"} onChange={() => setCheckKind("vin")} /> By VIN
             </label>

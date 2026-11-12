@@ -21,7 +21,7 @@ import {
   type FreeGovEvidencePacket,
   type FreeGovToolId,
   type ScoutFreeGovPort,
-} from "./scout/free-gov";
+} from "./free-gov";
 import type { FuelFact, Listing } from "./types";
 
 export const FIND_FREE_GOV_CHECK_IDS = [

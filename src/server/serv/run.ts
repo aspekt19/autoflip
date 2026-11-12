@@ -724,15 +724,7 @@ export async function runServ(
   };
   const post = async (body: unknown, useStream: boolean) => {
     const remain = deadline - Date.now();
-    // Production-only: personal_alert_review splits the deadline and retries once on timeout.
-    if (experiment || id !== "personal_alert_review") return postOnce(body, useStream, remain);
-    const firstWait = Math.min(8_000, Math.floor(timeoutMs / 2));
-    try {
-      return await postOnce(body, useStream, firstWait);
-    } catch (error) {
-      if (!isTimeout(error) || deadline - Date.now() < 1_000) throw error;
-      return await postOnce(body, useStream, deadline - Date.now());
-    }
+    return postOnce(body, useStream, remain);
   };
 
   const postProse = async (body: unknown, useStream: boolean) => {

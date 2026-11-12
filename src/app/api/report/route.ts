@@ -1,11 +1,9 @@
 import { claimsFindAnalysisHandoff, verifyFindAnalysisContext } from "@/server/find-analysis-context";
 import { prechargeAnalysisGate } from "@/domain/find-analysis-handoff";
 import { decideReportCharge } from "@/domain/report-chargeability";
-import { fitHeadline } from "@/domain/fit";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
 import { findUserReport, persistReport, readPersistedReport, rememberUserReport, reportReusable } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
-import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
@@ -27,8 +25,6 @@ import {
   ledgerOwnerId,
   requireVerifiedAccountForChecks,
 } from "@/server/session";
-import { sendLinkedTelegram } from "@/server/telegram-notify";
-import { originOf } from "@/server/secrets";
 import { freeCheckMonthKey } from "@/domain/free-check-quota";
 
 export const dynamic = "force-dynamic";
@@ -362,7 +358,6 @@ export async function POST(request: Request) {
   if (!assembled.ok) {
     if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), id, freeCheckKey);
-    await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
 
@@ -428,14 +423,6 @@ export async function POST(request: Request) {
         await completeFindAnalysis(getKv(), analysisIdentity, saved.id, heldClaimId);
       }
       if (usedFreeCheck && freeCheckKey) await commitFreeCheck(getKv(), id, freeCheckKey);
-      const carSaved = saved.computed.subject;
-      const readySaved = reportReadyMessage({
-        car: `${carSaved.year} ${carSaved.make} ${carSaved.model}`,
-        recommendation: fitHeadline(saved.computed),
-        origin: originOf(request),
-        reportId: saved.id,
-      });
-      await sendLinkedTelegram(id, readySaved.text, readySaved.reply_markup.inline_keyboard[0]?.[0]);
       return Response.json({
         ...saved,
         balance: spentBalance,
@@ -447,7 +434,6 @@ export async function POST(request: Request) {
     if (!usedFreeCheck) await compensateSpendCredit(id, spendKey);
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), id, freeCheckKey);
     if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
-    await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json(
       {
         error: "save_failed",
@@ -458,14 +444,6 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
-  const car = assembled.report.computed.subject;
-  const ready = reportReadyMessage({
-    car: `${car.year} ${car.make} ${car.model}`,
-    recommendation: fitHeadline(assembled.report.computed),
-    origin: originOf(request),
-    reportId: assembled.report.id,
-  });
-  await sendLinkedTelegram(id, ready.text, ready.reply_markup.inline_keyboard[0]?.[0]);
   return Response.json({
     ...assembled.report,
     balance: spentBalance,

@@ -3,17 +3,15 @@ import type { ProductFlags } from "@/domain/product-flags";
 export type PrimaryNavLink = { href: string; label: string };
 
 /** Secondary destinations collapsed into the desktop "More" menu when the pill is crowded. */
-export const NAV_MORE_HREFS = new Set(["/scout", "/reports", "/favorites", "/compare-cars"]);
+export const NAV_MORE_HREFS = new Set(["/reports"]);
 
 /**
- * Primary header links. Resale is the main Lemonless mode and stays in the nav
- * whenever resaleEvaluate is on; Deal Radar sits next to it when enabled —
- * never replaces Resale.
- * "How it decides" points at /where-serv-runs so Proof / Verify stay one click away.
+ * Primary header links. Resale stays whenever resaleEvaluate is on; Deal Radar
+ * sits next to it when enabled. Frozen surfaces (compare, saved cars, verify,
+ * public API) stay out of the nav.
  */
 export function primaryNavLinks(input: {
   flags: ProductFlags | null;
-  showScout: boolean;
 }): PrimaryNavLink[] {
   const resaleEvaluate = input.flags == null ? true : input.flags.resaleEvaluate;
   const dealRadar = input.flags?.dealRadar === true;
@@ -22,12 +20,10 @@ export function primaryNavLinks(input: {
     { href: "/check", label: "Check a car" },
     ...(resaleEvaluate ? [{ href: "/resale", label: "Resale" }] : []),
     ...(dealRadar ? [{ href: "/radar", label: "Deal Radar" }] : []),
-    ...(input.showScout ? [{ href: "/scout", label: "Scout" }] : []),
     { href: "/reports", label: "Reports" },
-    { href: "/favorites", label: "Saved cars" },
-    { href: "/compare-cars", label: "Compare cars" },
     { href: "/where-serv-runs", label: "How it decides" },
     { href: "/pricing", label: "Pricing" },
+    { href: "/proof", label: "Proof" },
   ];
 }
 

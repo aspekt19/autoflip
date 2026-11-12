@@ -12,17 +12,15 @@ import { primaryNavLinks, splitPrimaryNavLinks } from "./header-nav";
 import { useAccountLoad } from "./use-account-load";
 
 /**
- * Primary nav. Product surface visibility follows runtime GET /api/product-flags
- * (and Scout capabilities) — never a build-time bake of those flags.
+ * Primary nav. Product surface visibility follows runtime GET /api/product-flags.
  */
-export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean }) {
+export function Header() {
   const pathname = usePathname();
   const accountLoad = useAccountLoad(pathname);
   /** Purchase events can move the count before the next /api/account response. */
   const [liveCredits, setLiveCredits] = useState<number | null>(null);
-  /** null = not yet known; prefer runtime flags over build-time prop. */
+  /** null = not yet known; prefer runtime flags over a build-time bake. */
   const [flags, setFlags] = useState<ProductFlags | null>(null);
-  const [scoutUiRuntime, setScoutUiRuntime] = useState<boolean | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
@@ -31,8 +29,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   const navId = useId();
   const moreId = useId();
 
-  const showScout = scoutUiRuntime ?? scoutNavEnabled;
-  const navLinks = primaryNavLinks({ flags, showScout });
+  const navLinks = primaryNavLinks({ flags });
   const { core: coreLinks, more: moreLinks } = splitPrimaryNavLinks(navLinks);
 
   useEffect(() => {
@@ -57,21 +54,6 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
       })
       .catch(() => {
         // Leave null so defaults (resale on, radar off) apply via local fallbacks.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/scout")
-      .then((response) => response.json())
-      .then((body: { capabilities?: { uiEnabled?: boolean } }) => {
-        if (!cancelled) setScoutUiRuntime(Boolean(body.capabilities?.uiEnabled));
-      })
-      .catch(() => {
-        // Leave null so build-time prop remains a last-resort hint; never invent true.
       });
     return () => {
       cancelled = true;

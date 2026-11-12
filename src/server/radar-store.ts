@@ -1,5 +1,4 @@
 import type { Kv } from "@/io/kv";
-import { LINK_TTL_MS } from "@/io/telegram";
 import type { SavedSearch, WatchAlert } from "@/domain/radar-watch";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { creditSet } from "@/io/credit-book";
@@ -178,57 +177,6 @@ export async function lastCheckNow(kv: Kv): Promise<number | null> {
 
 export async function markCheckNow(kv: Kv, nowMs: number): Promise<void> {
   await kv.set(CHECK_NOW, String(nowMs));
-}
-
-export async function telegramChat(kv: Kv, ownerId: string): Promise<string | null> {
-  return kv.get(`telegram:chat:${ownerId}`);
-}
-
-export async function telegramOwner(kv: Kv, chatId: string): Promise<string | null> {
-  return kv.get(`telegram:owner:${chatId}`);
-}
-
-export async function telegramPaused(kv: Kv, ownerId: string): Promise<boolean> {
-  return (await kv.get(`telegram:paused:${ownerId}`)) === "1";
-}
-
-export async function setTelegramPaused(kv: Kv, ownerId: string, paused: boolean): Promise<void> {
-  if (paused) await kv.set(`telegram:paused:${ownerId}`, "1");
-  else await kv.delete(`telegram:paused:${ownerId}`);
-}
-
-export async function saveTelegramCode(kv: Kv, code: string, ownerId: string, now = Date.now()): Promise<void> {
-  await kv.set(`telegram:code:${code}`, JSON.stringify({ ownerId, expiresAt: now + LINK_TTL_MS }));
-}
-
-export async function bindTelegram(
-  kv: Kv,
-  code: string,
-  chatId: string,
-  now = Date.now(),
-): Promise<{ ok: true; ownerId: string } | { ok: false; reason: "expired" | "used" }> {
-  const raw = await kv.get(`telegram:code:${code}`);
-  if (!raw) return { ok: false, reason: "used" };
-  let ownerId = raw;
-  let expiresAt: number | null = null;
-  if (raw.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(raw) as { ownerId?: string; expiresAt?: number };
-      if (!parsed.ownerId) return { ok: false, reason: "used" };
-      ownerId = parsed.ownerId;
-      expiresAt = typeof parsed.expiresAt === "number" ? parsed.expiresAt : null;
-    } catch {
-      return { ok: false, reason: "used" };
-    }
-  }
-  if (expiresAt !== null && now > expiresAt) {
-    await kv.delete(`telegram:code:${code}`);
-    return { ok: false, reason: "expired" };
-  }
-  await kv.set(`telegram:chat:${ownerId}`, chatId);
-  await kv.set(`telegram:owner:${chatId}`, ownerId);
-  await kv.delete(`telegram:code:${code}`);
-  return { ok: true, ownerId };
 }
 
 export async function ensureDemoAccount(kv: Kv, now = new Date()): Promise<void> {

@@ -10,7 +10,7 @@ import {
   assessAskingPrice,
   assessListingAskingPrice,
   type AskingPriceAssessment,
-} from "@/domain/scout/asking-price";
+} from "@/domain/asking-price";
 import type { Listing } from "@/domain/types";
 
 export type PurchaseAskResolution = {

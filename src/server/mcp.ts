@@ -1,7 +1,6 @@
 import { priceBadge } from "@/domain/price-badge";
 import { scoreRadar } from "@/domain/radar";
 import type { Mode } from "@/domain/types";
-import { paymentsConfigured, readX402Config, requirementsFor, type PaymentRequirements } from "@/io/x402";
 import { agentProof, plannedProof, type AgentProof } from "@/server/serv";
 
 const PROTOCOL = "2025-06-18";
@@ -11,7 +10,7 @@ export function toolList() {
     {
       name: "check_car",
       description:
-        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check (SERV plan/decide/second-check + decision journal in proofRecords). Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Optional x402 v2 USDC-on-Base payment when X402_AGENT_PAYMENTS_ENABLED is on (default off). Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1).",
+        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check (SERV plan/decide/second-check + decision journal in proofRecords). Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1).",
       inputSchema: {
         type: "object",
         properties: {
@@ -19,10 +18,6 @@ export function toolList() {
           url: { type: "string", description: "Public listing URL" },
           text: { type: "string", description: "Pasted listing text when the site blocks fetch" },
           zip: { type: "string" },
-          payment: {
-            type: "string",
-            description: "Optional base64 x402 PAYMENT-SIGNATURE (only when agent x402 payments are enabled).",
-          },
           idempotencyKey: { type: "string" },
         },
       },
@@ -31,7 +26,7 @@ export function toolList() {
     {
       name: "find_cars",
       description:
-        "Start an async Find from a natural-language buyer request. Same decide path as the site (free-gov → find_triage → find_decide → find_challenge / POST /api/find/decide). Returns run_id; poll find_cars_status / find_cars_result. Completed results include proofRecords + decision journal rows. Costs 1 report credit after a successful search (or optional x402 settle-on-delivery when enabled). Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+        "Start an async Find from a natural-language buyer request. Same decide path as the site (free-gov → find_triage → find_decide → find_challenge / POST /api/find/decide). Returns run_id; poll find_cars_status / find_cars_result. Completed results include proofRecords + decision journal rows. Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
       inputSchema: {
         type: "object",
         properties: {
@@ -40,10 +35,6 @@ export function toolList() {
           zip: { type: "string" },
           budgetUsd: { type: "number" },
           idempotencyKey: { type: "string" },
-          payment: {
-            type: "string",
-            description: "Optional base64 x402 PAYMENT-SIGNATURE (only when agent x402 payments are enabled).",
-          },
         },
         required: ["text"],
       },
@@ -174,7 +165,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis. Optional x402 PAYMENT-SIGNATURE when X402_AGENT_PAYMENTS_ENABLED is on (disabled by default).",
+        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis.",
       inputSchema: {
         type: "object",
         properties: {
@@ -182,7 +173,6 @@ export function toolList() {
           vin: { type: "string" },
           url: { type: "string" },
           zip: { type: "string" },
-          payment: { type: "string", description: "Base64 x402 payment payload after the human approves the session payment." },
         },
         required: ["mode"],
       },
@@ -191,29 +181,17 @@ export function toolList() {
   ];
 }
 
-export function paymentRequiredBody(resource: string): {
+export function paymentRequiredBody(_resource: string): {
   error: string;
   message: string;
-  accepts?: PaymentRequirements[];
   next_action: string;
   proof: AgentProof;
 } {
-  const config = readX402Config();
   const proof = agentProof([plannedProof("agent_guard"), plannedProof("check_rules"), plannedProof("agent_explain")], ["fairValueUsd", "priceGap", "score"]);
-  if (!paymentsConfigured(config)) {
-    return {
-      error: "payments_not_configured",
-      message: "The agent payment endpoint is not configured yet (payee, network, or asset is empty). No charge was attempted.",
-      next_action: "Set X402_PAY_TO, X402_NETWORK, and X402_ASSET, then retry.",
-      proof,
-    };
-  }
   return {
-    error: "payment_required",
-    message: "A full report is a paid request.",
-    accepts: [requirementsFor(resource, config)],
-    next_action:
-      "Pay this resource using the x402 requirements, then call full_report again with the payment payload.",
+    error: "api_key_required",
+    message: "A full report costs 1 credit on the API key account. No charge was attempted.",
+    next_action: "Send Authorization: Bearer af_… for an account with a report credit, then retry.",
     proof,
   };
 }

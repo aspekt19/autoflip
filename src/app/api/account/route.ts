@@ -1,7 +1,6 @@
 import { balanceOf, isDemoUser, ledgerOwnerId, authenticatedSession, existingUserId } from "@/server/session";
 import { monthKey } from "@/io/quota";
 import { ASSUMPTIONS } from "@/domain/assumptions";
-import { readX402Config, paymentsConfigured } from "@/io/x402";
 import { getKv, storageMode } from "@/io/kv";
 import { plansFor } from "@/server/plan-book";
 import { quotaSnapshot } from "@/io/persistent-quota";
@@ -44,9 +43,7 @@ export async function GET() {
     stripeConfigured: stripe,
     listingsConfigured: Boolean(process.env.AUTODEV_API_KEY?.trim()),
     servConfigured: Boolean(process.env.SERV_API_KEY?.trim()),
-    telegramConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_USERNAME),
     storage: storageMode(),
-    agentPaymentsConfigured: paymentsConfigured(readX402Config()),
     quota: {
       used: quota.total,
       radarUsed: quota.radar,

@@ -6,8 +6,8 @@ describe("modelFor kronos-multipath", () => {
     expect(BASE_MODEL).toBe("gpt-6.1-sol");
   });
 
-  it("emits the combined OpenServ suffix for find_plan / need_extract / find_next_check", () => {
-    for (const id of ["find_plan", "need_extract", "find_next_check"] as const) {
+  it("emits the combined OpenServ suffix for find_plan", () => {
+    for (const id of ["find_plan"] as const) {
       expect(PROFILES[id].feature).toBe("kronos-multipath");
       expect(modelFor(id)).toBe("gpt-6.1-sol-serv-kronos-multipath");
       expect(modelFor(id, "gpt-5.4-mini-serv-multipath")).toBe("gpt-5.4-mini-serv-kronos-multipath");

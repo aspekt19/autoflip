@@ -1,11 +1,10 @@
 /**
- * PR B kill-switch: SERV triage → decide → challenge path (replaces next-check loop).
- * Default ON. Set FIND_DECIDE_PATH=0 to keep the legacy next-check loop.
+ * Find always uses the one-shot decide path. The next-check loop is gone.
  */
-
-export function findDecidePathEnabled(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): boolean {
-  const raw = (env.FIND_DECIDE_PATH ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
+export function findDecidePathEnabled(
+  _env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): boolean {
+  return true;
 }
 
 /**
