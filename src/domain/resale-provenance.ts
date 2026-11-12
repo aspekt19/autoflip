@@ -28,7 +28,7 @@ export function listingAskProvenance(vin: string, askDisplay: string): ResaleFie
     field: "Ask",
     display: askDisplay,
     kind: "autodev_listing",
-    source: `Auto.dev listing VIN ${vin}`,
+    source: `Asking price on the listing for ${vin}.`,
   };
 }
 

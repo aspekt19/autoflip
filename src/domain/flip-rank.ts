@@ -1,6 +1,7 @@
 import { ASSUMPTIONS } from "./assumptions";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { RepairAbility } from "./need";
+import { daysToSellEstimate, DAYS_TO_SELL_UNUSABLE_AFTER } from "./resale-days";
 import { pricedBelowSimilarLine, resaleSanityReason } from "./resale-sanity";
 import { reconUsd } from "./recon";
 import { roundDollars } from "./stats";
@@ -30,6 +31,8 @@ export type FlipEstimate = {
   assumption: string | null;
   /** True when the listing-age proxy is past the user's sell window. */
   sellWindowExceeded?: boolean;
+  /** True when this car must not be the pick: over the window, or days unknown while a window is set. */
+  sellWindowBlocked?: boolean;
   sellWindowNote?: string | null;
 };
 
@@ -98,8 +101,12 @@ export function rankFlipCandidates(pool: Listing[], now: Date, options?: FlipRan
 
 export function topFlipCandidates(pool: Listing[], now: Date, limit = 5, options?: FlipRankOptions): FlipEstimate[] {
   return rankFlipCandidates(pool, now, options)
-    .filter((item) => !item.excluded)
+    .filter((item) => !item.excluded && !item.sellWindowBlocked)
     .slice(0, limit);
+}
+
+export function sellWindowBlockedCount(pool: Listing[], now: Date, options?: FlipRankOptions): number {
+  return rankFlipCandidates(pool, now, options).filter((item) => item.sellWindowBlocked && !item.excluded).length;
 }
 
 export function flipAlertWhy(item: FlipEstimate): string {
@@ -124,12 +131,20 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
   const evaluation = evaluateListingPrice(listing, pool, { mode: "flip" });
   const age = listingAgeDays(listing, now);
   const speed = speedOf(evaluation.sampleSize, age);
+  const days = daysToSellEstimate({
+    speed: age != null && age > DAYS_TO_SELL_UNUSABLE_AFTER ? "unknown" : speed.label,
+    listingAgeDays: age,
+  });
+  const speedBasis = age != null && age > DAYS_TO_SELL_UNUSABLE_AFTER ? days.basis : speed.basis;
   const asking = listing.priceUsd ?? 0;
   const priced = exampleCost(listing.miles, options?.repairAbility, options?.asIs);
   const sellWithin = options?.sellWithinDays ?? null;
-  const sellWindowExceeded = sellWithin != null && age != null && age > sellWithin;
-  const sellWindowNote = sellWindowExceeded
-    ? `Days to sell (${age}) is past the ${sellWithin}-day window you set.`
+  const sellWindowExceeded = sellWithin != null && days.days != null && days.days > sellWithin;
+  const sellWindowBlocked = sellWithin != null && (days.days == null || days.days > sellWithin);
+  const sellWindowNote = sellWindowBlocked
+    ? days.days == null
+      ? `Days to sell are unknown, so this car is not treated as selling within ${sellWithin} days.`
+      : `Days to sell (${days.days}) is past the ${sellWithin}-day window you set.`
     : null;
   const cost = priced.usd;
   const target = options?.targetProfitUsd ?? null;
@@ -142,13 +157,14 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     profitMidUsd: null as number | null,
     profitHighUsd: null as number | null,
     confidence: "low" as const,
-    speed: speed.label,
-    speedBasis: speed.basis,
+    speed: age != null && age > DAYS_TO_SELL_UNUSABLE_AFTER ? ("unknown" as const) : speed.label,
+    speedBasis,
     excluded: true,
     score: Number.NEGATIVE_INFINITY,
     clearsTarget: null as boolean | null,
     assumption: priced.assumption,
     sellWindowExceeded,
+    sellWindowBlocked,
     sellWindowNote,
   };
   const sanity = options?.enforceSanity
@@ -211,14 +227,15 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     profitMidUsd,
     profitHighUsd,
     confidence,
-    speed: speed.label,
-    speedBasis: speed.basis,
+    speed: age != null && age > DAYS_TO_SELL_UNUSABLE_AFTER ? "unknown" : speed.label,
+    speedBasis,
     excluded: false,
     excludeReason: null,
     score,
     clearsTarget,
     assumption: priced.assumption,
     sellWindowExceeded,
+    sellWindowBlocked,
     sellWindowNote,
   };
 }

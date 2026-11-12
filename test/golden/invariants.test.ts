@@ -37,7 +37,7 @@ describe("golden invariants", () => {
   it("allowlists only the remaining recorded-inventory gap", () => {
     expect(dispositionFor("G1", [])).toBe("pass");
     expect(dispositionFor("G2", [])).toBe("pass");
-    expect(dispositionFor("G4", ["G4.recon", "G4.days"])).toBe("known_failure");
+    expect(dispositionFor("G4", [])).toBe("pass");
     expect(dispositionFor("G4", ["G4.miles"])).toBe("unexpected");
     expect(dispositionFor("G3", ["I5"])).toBe("unexpected");
     expect(dispositionFor("G6", [])).toBe("pass");

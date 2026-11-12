@@ -15,12 +15,7 @@ export type KnownFailure = {
   checks: readonly string[];
 };
 
-export const KNOWN_FAILURES: Partial<Record<GoldenCaseId, KnownFailure>> = {
-  G4: {
-    summary: "No recorded inventory, so there is no pick to check as-is recon or the 30-day flag.",
-    checks: ["G4.recon", "G4.days"],
-  },
-};
+export const KNOWN_FAILURES: Partial<Record<GoldenCaseId, KnownFailure>> = {};
 
 export type GateDisposition = "pass" | "known_failure" | "known_cleared" | "unexpected";
 

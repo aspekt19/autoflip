@@ -13,7 +13,7 @@ import {
   type RunObservation,
   type RunRecord,
 } from "@/domain/run";
-import type { SearchFormEdits, SearchSpec } from "@/domain/search-spec";
+import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
 
@@ -172,6 +172,8 @@ export async function syncRunSafely(kv: Kv, input: SyncRunInput): Promise<string
 
 type ResaleCar = {
   vin?: string | null;
+  profitLowUsd?: number | null;
+  profitMidUsd?: number | null;
   listing?: {
     year?: number | null;
     make?: string | null;
@@ -186,6 +188,26 @@ type ResaleCar = {
   } | null;
 };
 
+function resaleFormEdits(input: {
+  budgetUsd: number;
+  zip: string | null;
+  distanceMiles: number | null;
+  yearMin: number | null;
+  yearMax: number | null;
+  milesMax: number | null;
+  sellWithinDays: number | null;
+}): SearchFormEdits {
+  return {
+    priceMaxUsd: { value: input.budgetUsd, dirty: true },
+    zip: { value: input.zip, dirty: true },
+    radiusMi: { value: input.distanceMiles, dirty: true },
+    yearMin: { value: input.yearMin, dirty: input.yearMin != null },
+    yearMax: { value: input.yearMax, dirty: input.yearMax != null },
+    milesMax: { value: input.milesMax, dirty: input.milesMax != null },
+    sellWithinDays: { value: input.sellWithinDays, dirty: input.sellWithinDays != null },
+  };
+}
+
 /** Record a resale job step onto the Run. Plan-only steps stay in progress. */
 export async function syncResaleRun(
   kv: Kv,
@@ -193,12 +215,22 @@ export async function syncResaleRun(
     ownerId: string;
     runId?: string | null;
     note: string;
+    search?: {
+      budgetUsd: number;
+      zip: string | null;
+      distanceMiles: number | null;
+      yearMin: number | null;
+      yearMax: number | null;
+      milesMax: number | null;
+      sellWithinDays: number | null;
+    } | null;
     client: {
       best?: ResaleCar | null;
       alternatives?: ResaleCar[] | null;
       proofRecords?: unknown;
       verdictAction?: string | null;
       confidence?: string | null;
+      reviewNote?: string | null;
       chargedCredit?: boolean;
       providerQueriesUsed?: number | null;
       done?: boolean;
@@ -207,29 +239,46 @@ export async function syncResaleRun(
     };
   },
 ): Promise<string | null> {
+  const bestVin = input.client.best?.vin ?? null;
   const cars = [input.client.best, ...(input.client.alternatives ?? [])].flatMap((car) => {
     if (!car) return [];
     const row = listingFromCar({ ...car.listing, vin: car.vin });
-    return row ? [row] : [];
+    if (!row) return [];
+    const margin = car.profitLowUsd != null ? car.profitLowUsd : car.profitMidUsd;
+    const summary =
+      typeof margin === "number"
+        ? `Priced below similar listings by $${Math.abs(Math.round(margin)).toLocaleString("en-US")} (after costs).`
+        : null;
+    return [{ ...row, picked: car.vin === bestVin, summary }];
   });
   const queries = typeof input.client.providerQueriesUsed === "number" ? input.client.providerQueriesUsed : 0;
   const finished = input.client.done === true || Boolean(input.client.emptyReason);
   const sources: SourceId[] = [];
   if (queries > 0) sources.push("cars_for_sale");
   if (cars.length > 1) sources.push("similar_cars");
+  const formEdits = input.search ? resaleFormEdits(input.search) : null;
+  const spec = formEdits
+    ? buildSearchSpec({ note: input.note, mode: "flip", formEdits })
+    : null;
+  const failureReasons: FailureReasonId[] = [];
+  if (finished && !bestVin) failureReasons.push("no_qualifying_flip");
+  if (finished && input.client.reviewNote) failureReasons.push("review_unavailable");
   return syncRunSafely(kv, {
     runId: input.runId,
     ownerId: input.ownerId,
     kind: "resale",
     mode: "flip",
     note: input.note,
+    formEdits,
+    spec,
     proofs: proofsFromRecords(input.client.proofRecords),
     listings: finished || cars.length > 0 ? cars : undefined,
-    picks: input.client.best?.vin ? [input.client.best.vin] : undefined,
+    picks: bestVin ? [bestVin] : undefined,
     sources,
     queryCount: finished || queries > 0 ? queries : undefined,
     verdict: finished ? (input.client.verdictAction ?? null) : null,
     confidence: finished ? (input.client.confidence ?? null) : null,
+    failureReasons,
     creditsCharged: input.client.chargedCredit ? 1 : 0,
     terminal: finished,
   });

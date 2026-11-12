@@ -98,6 +98,8 @@ export async function runReportVerdictChallenge(input: {
   transportPolicy?: ServDeps["transportPolicy"];
   /** Clamped wall-clock timeout for this challenge call (AbortSignal via runServ). */
   timeoutMs?: number;
+  /** Resale: bare gpt-6.1-sol, no prompt-guard tool and no feature suffix. */
+  bareModel?: boolean;
 }): Promise<{ result: AgentSecondPassResult; proof: ServProof | null; rawText: string | null }> {
   if (!input.hasBudget) {
     return {
@@ -136,6 +138,7 @@ export async function runReportVerdictChallenge(input: {
     // challenge as "did not finish" after a response id with an empty body.
     transportPolicy: input.transportPolicy ?? "production",
     ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.bareModel ? { bareRetry: true, disableFeatureSuffix: true } : {}),
   };
   const judged = await runServ(
     "verdict_challenge",

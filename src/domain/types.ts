@@ -15,6 +15,8 @@ export type Listing = {
   zip: string | null;
   dealer: string | null;
   vdp: string | null;
+  /** Dealer or listing page when the feed has one besides the history-report URL. */
+  dealerUrl?: string | null;
   primaryImage: string | null;
   carfaxUrl: string | null;
   used: boolean | null;

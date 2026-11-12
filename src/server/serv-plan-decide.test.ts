@@ -78,6 +78,7 @@ describe("serv-plan-decide façade", () => {
       proofRecords: [],
       verdictAction: "pass" as const,
       confidence: "Low" as const,
+      reviewNote: null,
       ranJudge: false,
       ranDecide: false,
       checkpoint: {

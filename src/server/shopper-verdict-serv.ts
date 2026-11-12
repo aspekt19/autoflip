@@ -169,6 +169,11 @@ export async function runShopperVerdictServ(input: {
    * When 0, decide is skipped for call cap (caller usually journals first).
    */
   maxAdditionalServCalls?: number;
+  /**
+   * Resale only. Call gpt-6.1-sol with no feature suffix and no prompt-guard or shadow tool.
+   * Those extras made the live review return no usable JSON, and code then published High confidence.
+   */
+  bareModel?: boolean;
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -220,6 +225,7 @@ export async function runShopperVerdictServ(input: {
       baseUrl: input.servBaseUrl,
       model: input.model,
       transportPolicy,
+      ...(input.bareModel ? { bareRetry: true, disableFeatureSuffix: true } : {}),
       ...(typeof input.decideTimeoutMs === "number" ? { timeoutMs: input.decideTimeoutMs } : {}),
     };
     const decideUser = {
@@ -386,6 +392,7 @@ export async function runShopperVerdictServ(input: {
         fetchImpl,
         transportPolicy,
         ...(typeof challengeTimeoutMs === "number" ? { timeoutMs: challengeTimeoutMs } : {}),
+        bareModel: input.bareModel === true,
       });
   challengeProof = challenge.proof;
 

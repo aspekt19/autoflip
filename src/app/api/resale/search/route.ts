@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       ownerId: id,
       runId: typeof body?.runId === "string" ? body.runId : null,
       note,
+      search: result.job.input,
       client,
     });
     logResaleStage("route_ok", deadline.startedAtMs, {

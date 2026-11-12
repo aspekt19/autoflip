@@ -59,7 +59,9 @@ export function RunReport({ run }: { run: RunView }) {
       ) : null}
       {model.listings.map((car) => (
         <section key={car.vin} data-vin={car.vin}>
+          {car.picked ? <h2>Best flip</h2> : null}
           <h2>{car.title}</h2>
+          {car.summary ? <p>{car.summary}</p> : null}
           <p className="support">
             {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
             {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}

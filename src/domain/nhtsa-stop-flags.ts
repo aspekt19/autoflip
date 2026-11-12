@@ -207,7 +207,7 @@ export function resaleRecallRiskLine(input: ResaleRecallRiskInput): string {
   }
   const count = input.recallCampaignCount ?? 0;
   const campaigns =
-    count === 1 ? "1 NHTSA campaign" : `${count} NHTSA campaigns`;
+    count === 1 ? "1 government recall campaign" : `${count} government recall campaigns`;
   if (input.openParkIt) {
     return `${campaigns} checked for this year/make/model — park-it / do-not-drive stop is open (not VIN-cleared; confirm applicability and repair).`;
   }
@@ -226,6 +226,7 @@ export function withResaleRecallRisk(
   const without = risks.filter(
     (line) =>
       !/open recalls are not checked/i.test(line) &&
+      !/government recall campaign/i.test(line) &&
       !/NHTSA campaign/i.test(line) &&
       !/park-it or park-outside stop/i.test(line),
   );

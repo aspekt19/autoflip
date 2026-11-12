@@ -13,6 +13,8 @@ export const FAILURE_IDS = [
   "decision_failed",
   "second_check_incomplete",
   "not_enough_evidence",
+  "no_qualifying_flip",
+  "review_unavailable",
 ] as const;
 export type FailureReasonId = (typeof FAILURE_IDS)[number];
 
@@ -59,6 +61,8 @@ const FAILURE_COPY: Record<FailureReasonId, string> = {
   decision_failed: "The decision did not finish.",
   second_check_incomplete: "The second check did not finish.",
   not_enough_evidence: "There is not enough information for a verdict.",
+  no_qualifying_flip: "Skip. No car is estimated to sell within the window you set, or none was priced below similar listings after costs.",
+  review_unavailable: "SERV did not decide this one.",
 };
 
 const JOURNAL_COPY: Record<JournalStepId, { title: string; ok: string; failed: string; skipped: string; running: string }> = {

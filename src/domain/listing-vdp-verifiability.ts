@@ -149,32 +149,49 @@ function looksLikeGenericModelPath(pathname: string, search: string, hash: strin
  * Assess feed VDP honesty for Resale ranking and UI.
  * A generic Autolist model page with #vin= is not a direct listing.
  */
+function absoluteHttp(value: string | null | undefined): string | null {
+  const raw = value?.trim() ?? "";
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return null;
+  }
+}
+
+export function isCarfaxHref(href: string | null | undefined): boolean {
+  if (!href) return false;
+  try {
+    const host = new URL(href).hostname.replace(/^www\./i, "").toLowerCase();
+    return host === "carfax.com" || host.endsWith(".carfax.com");
+  } catch {
+    return false;
+  }
+}
+
 export function listingVdpVerifiability(input: {
   vdp?: string | null;
+  /** Dealer or listing page when the feed has one besides a history-report URL. */
+  dealerUrl?: string | null;
   dealer?: string | null;
   vin?: string | null;
   year?: number | null;
   trim?: string | null;
 }): ListingVdpVerifiability {
+  const dealerPage = absoluteHttp(input.dealerUrl);
+  if (dealerPage && !isCarfaxHref(dealerPage)) {
+    return listingVdpVerifiability({ ...input, vdp: dealerPage, dealerUrl: null });
+  }
   const seller = sellerLinkHonesty({ dealer: input.dealer, vdp: input.vdp });
-  // Carfax / history hosts may be stripped by buyerListingHref — still label them
-  // honestly before the generic "no link" path.
-  try {
-    const raw = typeof input.vdp === "string" ? input.vdp.trim() : "";
-    if (/^https?:\/\//i.test(raw)) {
-      const rawHost = new URL(raw).hostname.replace(/^www\./i, "").toLowerCase();
-      if (rawHost === "carfax.com" || rawHost.endsWith(".carfax.com")) {
-        return {
-          href: null,
-          direct: false,
-          flag: "No direct dealer listing link — this URL is a Carfax page, not the dealer’s vehicle page.",
-          sellerMismatchNote: seller.note,
-          pageMismatchNote: null,
-        };
-      }
-    }
-  } catch {
-    /* fall through */
+  const carfax = absoluteHttp(input.vdp);
+  if (carfax && isCarfaxHref(carfax)) {
+    return {
+      href: carfax,
+      direct: false,
+      flag: null,
+      sellerMismatchNote: seller.note,
+      pageMismatchNote: null,
+    };
   }
   const href = buyerListingHref(input.vdp);
   if (!href) {

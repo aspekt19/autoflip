@@ -11,8 +11,8 @@ import {
   emptyResaleJournal,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
-import { topFlipCandidates } from "@/domain/flip-rank";
-import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
+import { sellWindowBlockedCount, topFlipCandidates } from "@/domain/flip-rank";
+import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
 import { buildResaleCandidatePnls, type ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
   needFromResaleSearchInput,
@@ -68,7 +68,10 @@ export type ResaleSearchOkBody = {
   best: ResaleCandidatePnl | null;
   alternatives: ResaleCandidatePnl[];
   verdictAction: "buy" | "negotiate" | "pass" | "needs_inspection";
+  /** Same word as the headline. Skip only when no car was picked. */
+  verdictLabel: string;
   confidence: "High" | "Medium" | "Low";
+  reviewNote: string | null;
   agentVerdict: AgentVerdict;
   journal: ResaleDecisionJournal;
   /** Shared lemonless.decision_proof.v1 — plan/triage/pick/challenge + shopper. */
@@ -322,14 +325,16 @@ export async function runResaleSearch(
       ? match.body.compsPool
       : match.body.directions.flatMap((group) => group.listings);
 
-  const ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, {
+  const rankOptions = {
     repairAbility: input.repairAbility,
     targetProfitUsd: input.targetProfitUsd,
     milesMax: input.milesMax,
     asIs: input.asIs,
     sellWithinDays: input.sellWithinDays,
-    enforceSanity: true,
-  });
+    enforceSanity: true as const,
+  };
+  const windowBlocked = sellWindowBlockedCount(poolListings, new Date(), rankOptions);
+  const ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, rankOptions);
 
   const pnls = buildResaleCandidatePnls(ranked, {
     repairAbility: input.repairAbility,
@@ -405,24 +410,33 @@ export async function runResaleSearch(
     emptyPool,
     journalSteps: journal.steps.length,
   });
-  const headline = emptyPool
-    ? match.body.headline ?? "No flip candidates in this budget"
-    : settled.best
-      ? `Best flip: ${settled.best.listing.year} ${settled.best.listing.make} ${settled.best.listing.model}`
-      : "Resale search complete";
-
-  const message = emptyPool
-    ? match.body.message ??
-      "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
-    : settled.best?.profitMidUsd != null
-      ? `${pricedBelowSimilarLine(settled.best.profitMidUsd)}${
-          settled.best.profitScopeLabel ? ` ${settled.best.profitScopeLabel}` : ""
-        }.${settled.best.sellWindowNote ? ` ${settled.best.sellWindowNote}` : ""} Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
-      : `Best candidate found but profit band is thin. Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`;
+  const margin =
+    settled.best == null
+      ? null
+      : settled.best.profitLowUsd != null
+        ? settled.best.profitLowUsd
+        : settled.best.profitMidUsd;
+  const buyer = resaleBuyerCopy({
+    outcome: settled.best ? "pick" : "skip",
+    action: settled.verdictAction,
+    confidence: settled.confidence,
+    marginUsd: margin,
+    skipReason: emptyPool
+      ? windowBlocked > 0 && input.sellWithinDays != null
+        ? `No car is estimated to sell within ${input.sellWithinDays} days.`
+        : "No listings cleared the price comparison inside this budget."
+      : null,
+    reviewNote: settled.reviewNote,
+    carTitle: settled.best
+      ? `${settled.best.listing.year} ${settled.best.listing.make} ${settled.best.listing.model}`
+      : null,
+  });
+  const headline = buyer.headline;
+  const message = buyer.message;
 
   const nextStep = emptyPool
     ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."
-    : "Review the P&L, verify title/history, and inspect before buying. Deal Radar can watch this budget later.";
+    : "Review the costs, confirm the title, and inspect the car before you buy.";
 
   return {
     ok: true,
@@ -435,7 +449,9 @@ export async function runResaleSearch(
       best: settled.best,
       alternatives: settled.alternatives,
       verdictAction: settled.verdictAction,
+      verdictLabel: buyer.verdictLabel,
       confidence: settled.confidence,
+      reviewNote: settled.reviewNote,
       agentVerdict: settled.agentVerdict,
       journal,
       proofRecords: [...planProofRecords, ...settled.proofRecords],
@@ -445,8 +461,7 @@ export async function runResaleSearch(
       providerQueriesUsed: match.body.providerQueriesUsed,
       scope: match.body.scope,
       emptyReason: emptyPool ? match.body.emptyReason ?? "no_flip_candidates" : null,
-      creditNote:
-        "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.",
+      creditNote: resaleCardCopy.creditNote,
     },
   };
 }

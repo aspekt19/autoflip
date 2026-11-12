@@ -85,9 +85,7 @@ export function ServDecisionJournal({
             return (
               <li key={`${view.tech.step}-${view.tech.timestamp ?? index}-${view.tech.runId ?? view.tech.status}`}>
                 <p>{plainDecisionEngineText(view.sentences)}</p>
-                <p>
-                  <strong>{plainDecisionEngineText(view.originMarker)}</strong>
-                </p>
+                {view.originMarker ? <p className="hint">{view.originMarker}</p> : null}
               </li>
             );
           })}

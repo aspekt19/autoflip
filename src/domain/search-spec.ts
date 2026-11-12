@@ -41,6 +41,7 @@ export type SearchSpec = {
   soft: {
     models: Soft<{ make: string; model: string }[]>;
     priorities: Soft<string[]>;
+    sellWithinDays?: Soft<number>;
   };
   /** Derived inventory queries. Never empty: a budget-only query has no make or model. */
   queries: SearchQuery[];
@@ -58,6 +59,7 @@ export type SearchFormEdits = {
   drivetrain?: FormEdit<"awd_4wd" | null>;
   bodyStyles?: FormEdit<string[] | null>;
   excludeMakes?: FormEdit<string[] | null>;
+  sellWithinDays?: FormEdit<number | null>;
 };
 
 export type ServPlanHint = {
@@ -238,6 +240,15 @@ export function buildSearchSpec(input: {
     excludeMakes,
     titleClean,
   };
+  const sellDirty = dirtyNumber(form.sellWithinDays);
+  const sellNote = note.match(/\b(?:sell\s+within|within)\s+(\d{1,3})\s+days\b/i);
+  const sellFromNote = sellNote ? Number(sellNote[1]) : null;
+  const sellWithinDays =
+    sellDirty != null && sellDirty >= 1 && sellDirty <= 365
+      ? { value: sellDirty, source: "form" as const, weight: "prefer" as const }
+      : sellFromNote != null && sellFromNote >= 1 && sellFromNote <= 365
+        ? { value: sellFromNote, source: "note" as const, weight: "prefer" as const }
+        : undefined;
   const specWithoutIds = {
     v: 1 as const,
     mode: input.mode ?? "personal",
@@ -246,6 +257,7 @@ export function buildSearchSpec(input: {
     soft: {
       models: { value: servModels, source: servModels.length ? ("serv" as const) : ("default" as const), weight: "prefer" as const },
       priorities: { value: intake.priorities ?? [], source: "note" as const, weight: "prefer" as const },
+      ...(sellWithinDays ? { sellWithinDays } : {}),
     },
     queries,
   };
