@@ -349,6 +349,7 @@ function buildFindCheckpoint(input: {
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
+    briefConfirmed: input.state.briefConfirmed === true,
   };
 }
 
@@ -391,6 +392,7 @@ function restoreFindStateFromCheckpoint(
       radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
     };
   }
+  state.briefConfirmed = checkpoint.briefConfirmed === true;
   const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {
@@ -1774,6 +1776,8 @@ export async function runFindAgentLoop(input: {
   shopperReply?: string | null;
   /** Shopper confirmed the pending submit_brief card. */
   briefConfirmed?: boolean;
+  /** Chat path: reject search_listings / submit_picks until the brief is confirmed. */
+  requireBriefConfirm?: boolean;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = input.mode ?? resolveFindAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1782,6 +1786,7 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  state.requireBriefConfirm = input.requireBriefConfirm === true;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1831,6 +1836,7 @@ export async function runFindAgentLoop(input: {
       ...(messages ?? []),
       { role: "user", content: `Shopper confirmed the search brief:\n${card}` },
     ];
+    state.briefConfirmed = true;
     if (input.checkpoint) {
       input.checkpoint.pendingBrief = null;
       input.checkpoint.pendingBriefCallId = null;

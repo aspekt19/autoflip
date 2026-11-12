@@ -26,6 +26,7 @@ type Session = {
   status: "open" | "awaiting_user" | "searching" | "done" | "failed";
   pendingQuestion: string | null;
   pendingBrief: ShopperBrief | null;
+  confirmedBrief: ShopperBrief | null;
   spendKey: string;
   charged: boolean;
   result: Record<string, unknown> | null;
@@ -38,7 +39,10 @@ async function load(kv: Kv, id: string): Promise<Session | null> {
   const raw = await kv.get(key(id));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Session;
+    const parsed = JSON.parse(raw) as Session;
+    parsed.confirmedBrief = parsed.confirmedBrief ?? null;
+    parsed.pendingBrief = parsed.pendingBrief ?? null;
+    return parsed;
   } catch {
     return null;
   }
@@ -55,6 +59,7 @@ export async function runResaleChatTurn(input: {
   message?: string | null;
   continue?: boolean;
   confirmBrief?: boolean;
+  skipCredit?: boolean;
   servKey: string;
   autodevKey: string;
   servBaseUrl?: string;
@@ -82,6 +87,7 @@ export async function runResaleChatTurn(input: {
       status: "searching",
       pendingQuestion: null,
       pendingBrief: null,
+      confirmedBrief: null,
       spendKey: resaleSearchSpendKey(input.userId, idem),
       charged: false,
       result: null,
@@ -94,6 +100,20 @@ export async function runResaleChatTurn(input: {
       body: { ok: true, status: "done", sessionId: session.sessionId, messages: session.messages, result: session.result, charged: session.charged },
     };
   } else if (confirmBrief) {
+    if (!session.pendingBrief) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          ok: false,
+          error: "brief_required",
+          message: "There is no search brief to confirm. Wait for SERV to propose one.",
+          sessionId: session.sessionId,
+          messages: session.messages,
+        },
+      };
+    }
+    session.confirmedBrief = session.pendingBrief;
     session.messages.push({
       role: "user",
       content: "Confirmed — go ahead with this brief.",
@@ -152,6 +172,7 @@ export async function runResaleChatTurn(input: {
     checkpoint: session.checkpoint,
     shopperReply,
     briefConfirmed: confirmBrief,
+    requireBriefConfirm: true,
     budgetMs: RESALE_INTERNAL_BUDGET_MS,
     deadline: makeAgentLoopDeadline(RESALE_INTERNAL_BUDGET_MS),
     deps: {
@@ -213,13 +234,15 @@ export async function runResaleChatTurn(input: {
   const best = bestVin ? agent.pnlByVin.get(bestVin) ?? alternatives[0] ?? null : null;
   const shouldCharge = Boolean(best) || (agent.verdict.picks.length === 0 && Boolean(agent.verdict.summary?.trim()));
   let charged = session.charged;
-  if (shouldCharge && !charged) {
+  if (shouldCharge && !charged && !input.skipCredit) {
     if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
     else charged = (await creditSpend(input.kv, input.userId, session.spendKey)).ok;
   }
   const balance = await creditBalance(input.kv, input.userId);
   const summary = agent.verdict.summary?.trim() || "Resale search finished.";
   session.messages.push({ role: "assistant", content: summary, at: new Date().toISOString() });
+  const journalMeta = summarizeResaleAgentJournal(agent.journal);
+  const passReason = agent.verdict.picks.length === 0 ? agent.verdict.summary : null;
   const result = {
     ok: true,
     best,
@@ -232,8 +255,19 @@ export async function runResaleChatTurn(input: {
       ? "1 report credit used for this delivered Resale verdict."
       : "No report credit charged — chat turns without a delivered verdict stay free.",
     transcript: session.messages,
-    journalMeta: summarizeResaleAgentJournal(agent.journal),
-    passReason: agent.verdict.picks.length === 0 ? agent.verdict.summary : null,
+    journalMeta,
+    passReason,
+    confirmedBrief: session.confirmedBrief,
+    agentLoop: {
+      agentMode: agent.agentMode,
+      toolRounds: agent.toolRounds,
+      verdictReached: true,
+      relaxedConditions: agent.relaxedConditions,
+      journalServCalls: journalMeta.servCalls,
+      journalToolCalls: journalMeta.toolCalls,
+      carsFound: agent.knownVins.length,
+      passReason,
+    },
   };
   session.result = result;
   session.charged = charged;

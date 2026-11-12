@@ -34,6 +34,8 @@ export type FindChatSession = {
   status: "open" | "awaiting_user" | "searching" | "done" | "failed";
   pendingQuestion: string | null;
   pendingBrief: ShopperBrief | null;
+  /** Set once the shopper confirms the card; kept after pendingBrief is cleared. */
+  confirmedBrief: ShopperBrief | null;
   spendKey: string;
   charged: boolean;
   result: Record<string, unknown> | null;
@@ -52,6 +54,7 @@ export async function loadFindChatSession(kv: Kv, sessionId: string): Promise<Fi
     const parsed = JSON.parse(raw) as FindChatSession;
     if (!parsed || typeof parsed !== "object" || typeof parsed.sessionId !== "string") return null;
     if (!("pendingBrief" in parsed)) (parsed as FindChatSession).pendingBrief = null;
+    if (!("confirmedBrief" in parsed)) (parsed as FindChatSession).confirmedBrief = null;
     return parsed;
   } catch {
     return null;
@@ -97,6 +100,8 @@ export async function runFindChatTurn(input: {
   continue?: boolean;
   /** Shopper confirmed the pending submit_brief card. */
   confirmBrief?: boolean;
+  /** Eval/internal: do not charge report credits. */
+  skipCredit?: boolean;
   servKey: string;
   autodevKey: string;
   servBaseUrl?: string;
@@ -162,6 +167,7 @@ export async function runFindChatTurn(input: {
       status: "searching",
       pendingQuestion: null,
       pendingBrief: null,
+      confirmedBrief: null,
       spendKey: findSearchSpendKey(input.userId, idem),
       charged: false,
       result: null,
@@ -182,6 +188,20 @@ export async function runFindChatTurn(input: {
       },
     };
   } else if (confirmBrief) {
+    if (!session.pendingBrief) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          ok: false,
+          error: "brief_required",
+          message: "There is no search brief to confirm. Wait for SERV to propose one.",
+          sessionId: session.sessionId,
+          messages: session.messages,
+        },
+      };
+    }
+    session.confirmedBrief = session.pendingBrief;
     session.messages.push({
       role: "user",
       content: "Confirmed — go ahead with this brief.",
@@ -221,6 +241,7 @@ export async function runFindChatTurn(input: {
     checkpoint: session.checkpoint,
     shopperReply,
     briefConfirmed: confirmBrief,
+    requireBriefConfirm: true,
     budgetMs: FIND_DECIDE_ROUTE_MS,
     deadline: makeAgentLoopDeadline(FIND_DECIDE_ROUTE_MS),
     deps: {
@@ -334,7 +355,7 @@ export async function runFindChatTurn(input: {
   });
 
   let charged = session.charged;
-  if (shouldCharge && !charged) {
+  if (shouldCharge && !charged && !input.skipCredit) {
     if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
     else charged = (await creditSpend(input.kv, input.userId, session.spendKey)).ok;
   }
@@ -373,6 +394,7 @@ export async function runFindChatTurn(input: {
     charged,
     balance,
     transcript: session.messages,
+    confirmedBrief: session.confirmedBrief,
   };
 
   session.result = result;

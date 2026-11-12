@@ -1,6 +1,6 @@
 /**
  * Live-SERV offline eval report shapes.
- * Find: understandNeed → match → decide (orchestrator), never debitFindDelivery.
+ * Find/Resale: SERV chat intake (ask → confirm brief → search), never charges credits.
  * Resale: runResaleAgentLoop in-process, never charges report credits.
  */
 
@@ -35,7 +35,9 @@ export type LiveEvalFailureStep =
   | "understand"
   | "match"
   | "decide"
+  | "chat"
   | "resale_agent"
+  | "resale_chat"
   | "spend_cap"
   | "missing_keys";
 
@@ -56,6 +58,8 @@ export type LiveEvalPick = {
   priceUsd?: number | null;
   /** Odometer from verified listing join (not SERV prose). */
   miles?: number | null;
+  /** Live listing VDP URL from the verified Auto.dev record, when present. */
+  vdp?: string | null;
 };
 
 export type LiveEvalRelaxedCondition = {

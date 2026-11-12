@@ -345,3 +345,36 @@ describe("search_listings funnel", () => {
     expect(String(executed.summary)).toMatch(/cause=http_error/);
   });
 });
+
+describe("search waits for brief confirmation", () => {
+  const deps = {
+    fetch: (async () => new Response("should not run", { status: 500 })) as typeof fetch,
+    autodevKey: "test",
+    autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+  };
+
+  it("rejects search_listings until the brief is confirmed", async () => {
+    const state = createFindAgentToolState();
+    state.requireBriefConfirm = true;
+    const blocked = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", zip: "43215" },
+      deps,
+      state,
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.result.error).toBe("brief_not_confirmed");
+  });
+
+  it("allows ask_shopper and submit_brief before confirm", async () => {
+    const state = createFindAgentToolState();
+    state.requireBriefConfirm = true;
+    const asked = await executeFindAgentTool(
+      "ask_shopper",
+      { question: "What is your budget?" },
+      deps,
+      state,
+    );
+    expect(asked.ok).toBe(true);
+  });
+});

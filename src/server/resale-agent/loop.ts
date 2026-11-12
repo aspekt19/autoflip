@@ -318,6 +318,7 @@ function buildResaleCheckpoint(input: {
     submitNudgeSent: input.submitNudgeSent,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    briefConfirmed: input.state.briefConfirmed === true,
   };
 }
 
@@ -354,6 +355,7 @@ function restoreResaleStateFromCheckpoint(
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
   state.pnlByVin = deserializePnlByVin(checkpoint.pnlByVin);
+  state.briefConfirmed = checkpoint.briefConfirmed === true;
   const journal = checkpoint.journal as unknown as ResaleAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromResaleJournal(journal));
   return {
@@ -1692,6 +1694,7 @@ export async function runResaleAgentLoop(input: {
   budgetMs?: number;
   shopperReply?: string | null;
   briefConfirmed?: boolean;
+  requireBriefConfirm?: boolean;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = input.mode ?? resolveResaleAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1700,6 +1703,7 @@ export async function runResaleAgentLoop(input: {
   const restored = restoreResaleStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  state.requireBriefConfirm = input.requireBriefConfirm === true;
   const shopperContext = input.shopperContext ?? input.deps.shopperContext;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
@@ -1744,6 +1748,12 @@ export async function runResaleAgentLoop(input: {
       ),
     ];
     messages = [...(messages ?? []), { role: "user" as const, content: `Shopper confirmed the search brief:\n${card}` }];
+    state.briefConfirmed = true;
+    if (pendingBrief.budget.maxUsd != null) state.shopperFacts.budgetUsd = pendingBrief.budget.maxUsd;
+    if (pendingBrief.zip) state.shopperFacts.zip = pendingBrief.zip;
+    if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
+      state.shopperFacts.radiusMi = pendingBrief.radiusMi;
+    }
     if (input.checkpoint) {
       input.checkpoint.pendingBrief = null;
       input.checkpoint.pendingBriefCallId = null;

@@ -152,6 +152,10 @@ export type FindAgentToolState = {
   userHardKeys: Set<SearchFilterKey>;
   /** Facts SERV recorded from the chat (budget / ZIP / radius). */
   shopperFacts: FindAgentShopperFacts;
+  /** When true, search / comps / submit_picks run only after brief confirm. */
+  requireBriefConfirm: boolean;
+  /** Shopper confirmed the pending submit_brief card. */
+  briefConfirmed: boolean;
 };
 
 export type FindAgentToolDeps = {
@@ -811,6 +815,8 @@ export function createFindAgentToolState(
     searchFingerprints: [],
     userHardKeys: new Set(userHardKeys ?? []),
     shopperFacts: { budgetUsd: null, zip: null, radiusMi: null },
+    requireBriefConfirm: false,
+    briefConfirmed: false,
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -869,12 +875,25 @@ export function parseRecordShopperFactsArgs(raw: unknown): ToolArgResult<{
   return { ok: true, value: { budgetUsd, zip, radiusMi } };
 }
 
+const PRE_BRIEF_TOOLS = new Set(["ask_shopper", "record_shopper_facts", "submit_brief"]);
+
 export async function executeFindAgentTool(
   name: string,
   rawArgs: unknown,
   deps: FindAgentToolDeps,
   state: FindAgentToolState,
 ): Promise<ExecuteToolResult> {
+  if (state.requireBriefConfirm && !state.briefConfirmed && !PRE_BRIEF_TOOLS.has(name)) {
+    return {
+      name: name as FindAgentToolName,
+      ok: false,
+      result: {
+        error: "brief_not_confirmed",
+        message: "Search and verdict tools run only after the shopper confirms the brief.",
+      },
+      summary: `${name} rejected: brief not confirmed`,
+    };
+  }
   const govDeps: GovDeps = { fetch: deps.fetch };
   const autodevDeps: AutodevDeps = {
     fetch: deps.fetch,
