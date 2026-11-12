@@ -87,6 +87,8 @@ export type LiveEvalCaseResult = {
   servResponseIds?: string[];
   /** Wall duration for this query in ms (alias of elapsedMs for report consumers). */
   durationMs?: number;
+  /** 1 when a car/flip VIN was chosen; 0 otherwise. Reported separately from ok. */
+  chosenListingCount?: number;
 };
 
 export type LiveEvalReport = {

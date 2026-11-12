@@ -67,6 +67,21 @@ describe("find vertical slice (offline)", () => {
     expect(replan.note).toMatch(/Nationwide/i);
   });
 
+  it("clarify_year_band / clarify_miles_cap never invent 2015 or 100000", () => {
+    const need = explicitNeedFromText(SCENARIO2, "personal");
+    const year = applyFindNextCheck(need, "clarify_year_band");
+    expect(year.need.yearMin).toBeNull();
+    expect(year.need.yearBandResolved).toBe(true);
+    expect(year.research).toBe(false);
+    expect(year.note).toMatch(/does not invent/i);
+
+    const miles = applyFindNextCheck(need, "clarify_miles_cap");
+    expect(miles.need.milesMax).toBeNull();
+    expect(miles.need.milesCapResolved).toBe(true);
+    expect(miles.research).toBe(false);
+    expect(miles.note).toMatch(/does not invent/i);
+  });
+
   it("shortlist drops models outside year floor", () => {
     const need = {
       ...explicitNeedFromText(SCENARIO2, "personal"),

@@ -17,6 +17,7 @@ import { buildPurchaseReadiness } from "@/domain/purchase-readiness";
 import { resaleEdgeSentence } from "@/domain/resale-presentation";
 import { highMileageFlipExplanation } from "@/domain/resale-sanity";
 import type { BestDealResult } from "@/domain/find-best-deal";
+import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
@@ -329,15 +330,49 @@ function resaleFormEdits(input: {
   milesMax: number | null;
   sellWithinDays: number | null;
 }): SearchFormEdits {
-  return {
-    priceMaxUsd: { value: input.budgetUsd, dirty: true },
-    zip: { value: input.zip, dirty: true },
-    radiusMi: { value: input.distanceMiles, dirty: true },
-    yearMin: { value: input.yearMin, dirty: input.yearMin != null },
-    yearMax: { value: input.yearMax, dirty: input.yearMax != null },
-    milesMax: { value: input.milesMax, dirty: input.milesMax != null },
-    sellWithinDays: { value: input.sellWithinDays, dirty: input.sellWithinDays != null },
+  // Resale search inputs are explicit shopper form fields for this product.
+  const edits: SearchFormEdits = {
+    priceMaxUsd: fromShopperInputEvent({
+      kind: "form_edit",
+      field: "priceMaxUsd",
+      value: input.budgetUsd,
+    }),
+    zip: fromShopperInputEvent({ kind: "form_edit", field: "zip", value: input.zip }),
+    radiusMi: fromShopperInputEvent({
+      kind: "form_edit",
+      field: "radiusMi",
+      value: input.distanceMiles,
+    }),
   };
+  if (input.yearMin != null) {
+    edits.yearMin = fromShopperInputEvent({
+      kind: "form_edit",
+      field: "yearMin",
+      value: input.yearMin,
+    });
+  }
+  if (input.yearMax != null) {
+    edits.yearMax = fromShopperInputEvent({
+      kind: "form_edit",
+      field: "yearMax",
+      value: input.yearMax,
+    });
+  }
+  if (input.milesMax != null) {
+    edits.milesMax = fromShopperInputEvent({
+      kind: "form_edit",
+      field: "milesMax",
+      value: input.milesMax,
+    });
+  }
+  if (input.sellWithinDays != null) {
+    edits.sellWithinDays = fromShopperInputEvent({
+      kind: "form_edit",
+      field: "sellWithinDays",
+      value: input.sellWithinDays,
+    });
+  }
+  return edits;
 }
 
 /** Record a resale job step onto the Run. Plan-only steps stay in progress. */

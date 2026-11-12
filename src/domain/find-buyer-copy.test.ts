@@ -41,7 +41,7 @@ import { templateExplanation } from "./template";
 import { runOrderedGates } from "./verdict-gates";
 import { clampDecision, constraintsFromGates } from "./verdict-guardrails";
 import { flipAlertWhy, topFlipCandidates } from "./flip-rank";
-import { prefilterListing } from "./radar-watch";
+import { radarCandidateForServ } from "./radar-watch";
 import type { RecallRecord } from "./types";
 
 function noteCar(vin: string, year: number, priceUsd: number, trim: string): Listing {
@@ -563,7 +563,7 @@ describe("buyer-safe Find copy", () => {
     const pool = [12000, 13000, 15000, 16000].map((price, index) =>
       noteCar(`RADAR00000000000${index}`, 2018, price, "LE"),
     );
-    const radar = prefilterListing(
+    const radar = radarCandidateForServ(
       { ...pool[0]!, priceUsd: 9000 },
       { priceMax: 20000, zip: "68114", radiusMiles: 50, make: "Kia", model: "Sportage" },
       pool,

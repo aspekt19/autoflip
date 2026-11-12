@@ -389,6 +389,120 @@ describe("runFindMatch Stage2A search semantics", () => {
     expect(crossover!.listings.some((l) => l.vin === VIN.honda)).toBe(true);
   });
 
+  it("compsPool keeps over-budget / missing-price / odd-odometer rows (display may hide them)", async () => {
+    // 17-char VINs — no I/O/Q (parser rejects otherwise → empty “ok” outcomes).
+    const OVER = "4T1B11HK5JU000701";
+    const MISSING = "4T1B11HK5JU000702";
+    const ODD = "4T1B11HK5JU000703";
+    const OK = "4T1B11HK5JU000704";
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (!href.includes("api.auto.dev")) return servAllow();
+      return autodevOk([
+        {
+          vin: OK,
+          vehicle: { year: 2019, make: "Toyota", model: "Camry", trim: null },
+          retailListing: {
+            price: 15_000,
+            miles: 40_000,
+            used: true,
+            city: "Bentonville",
+            state: "AR",
+            zip: "72712",
+            vdpURL: null,
+            primaryImage: null,
+          },
+        },
+        {
+          vin: OVER,
+          vehicle: { year: 2019, make: "Toyota", model: "Camry", trim: null },
+          retailListing: {
+            price: 45_000,
+            miles: 30_000,
+            used: true,
+            city: "Bentonville",
+            state: "AR",
+            zip: "72712",
+            vdpURL: null,
+            primaryImage: null,
+          },
+        },
+        {
+          vin: MISSING,
+          vehicle: { year: 2018, make: "Toyota", model: "Camry", trim: null },
+          retailListing: {
+            price: null,
+            miles: 50_000,
+            used: true,
+            city: "Bentonville",
+            state: "AR",
+            zip: "72712",
+            vdpURL: null,
+            primaryImage: null,
+          },
+        },
+        {
+          vin: ODD,
+          vehicle: { year: 2020, make: "Toyota", model: "Camry", trim: null },
+          retailListing: {
+            price: 12_000,
+            miles: 274_026,
+            used: true,
+            city: "Bentonville",
+            state: "AR",
+            zip: "72712",
+            vdpURL: null,
+            primaryImage: null,
+          },
+        },
+      ]);
+    });
+
+    const result = await runFindMatch(
+      {
+        need: {
+          mode: "personal",
+          useCase: "commute",
+          budgetUsd: 20_000,
+          budgetKnown: true,
+          preferredModels: [{ make: "Toyota", model: "Camry" }],
+          preferredMakes: ["Toyota"],
+          openToOtherMakes: false,
+          zip: "72712",
+          distanceMiles: 100,
+          milesMax: null,
+          note: null,
+        },
+      },
+      {
+        autodevKey: "test-key",
+        servKey: "serv",
+        fetch: fetchImpl as typeof fetch,
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+        kv: new MemoryKv(),
+        env: {},
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const compsVins = new Set(result.body.compsPool.map((row) => row.vin));
+    // Hygiene-only compsPool must expose rows that display filters would drop.
+    expect(compsVins.has(OK)).toBe(true);
+    expect(compsVins.has(OVER)).toBe(true);
+    expect(compsVins.has(MISSING)).toBe(true);
+    expect(compsVins.has(ODD)).toBe(true);
+
+    const shownVins = new Set(
+      result.body.directions.flatMap((group) => group.listings.map((row) => row.vin)),
+    );
+    // Display page may still hide product-filter / odd-odo rows.
+    expect(shownVins.has(OK)).toBe(true);
+    expect(shownVins.has(OVER)).toBe(false);
+    expect(shownVins.has(MISSING)).toBe(false);
+    expect(shownVins.has(ODD)).toBe(false);
+  });
+
   it("fail-closes on serverless Memory before Autodev (shared-store)", async () => {
     const fetchSpy = vi.fn(async () => servAllow());
     const result = await runFindMatch(

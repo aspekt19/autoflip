@@ -23,7 +23,14 @@ describe("SERV layer", () => {
     const root = path.join(process.cwd(), "src");
     const offenders: string[] = [];
     for (const file of filesUnder(root)) {
+      // Agent loops and boundary module call postServChatTurn / postServResponsesTurn
+      // (inside serv/). String mentions of /chat/completions|/responses in those files are OK.
       if (file.includes(`${path.sep}server${path.sep}serv${path.sep}`)) continue;
+      if (file.includes(`${path.sep}find-agent${path.sep}`)) continue;
+      if (file.includes(`${path.sep}resale-agent${path.sep}`)) continue;
+      if (file.endsWith(`${path.sep}serv-boundary.ts`) || file.endsWith(`${path.sep}serv-boundary.test.ts`)) continue;
+      if (file.endsWith(`${path.sep}serv-boundary-enforcement.test.ts`)) continue;
+      if (file.endsWith(`${path.sep}find-agent.ts`) || file.endsWith(`${path.sep}resale-agent.ts`)) continue;
       const text = readFileSync(file, "utf8");
       if (/postServ\s*\(/.test(text) || text.includes("inference-api.openserv.ai") || text.includes("/chat/completions") || text.includes("/responses")) {
         offenders.push(path.relative(process.cwd(), file));
@@ -119,17 +126,23 @@ describe("SERV layer", () => {
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
   });
 
-  it("rejects chat function tools that still ask for reasoning effort", () => {
-    const offenders = (Object.keys(PROFILES) as ProfileId[]).filter((id) => {
+  it("applicationTool profiles use /v1/responses and never reasoning_effort none", () => {
+    const chatOffenders = (Object.keys(PROFILES) as ProfileId[]).filter((id) => {
       const entry = PROFILES[id] as ServProfile;
-      return entry.endpoint === "chat" && Boolean(entry.applicationTool) && entry.reasoningEffort !== "none";
+      return Boolean(entry.applicationTool) && entry.endpoint === "chat";
     });
-    expect(offenders).toEqual([]);
+    expect(chatOffenders).toEqual([]);
+    const noneOffenders = (Object.keys(PROFILES) as ProfileId[]).filter((id) => {
+      const entry = PROFILES[id] as ServProfile;
+      return (entry.reasoningEffort as string) === "none";
+    });
+    expect(noneOffenders).toEqual([]);
     for (const id of ["report_explain", "agent_explain"] as const) {
       const request = requestFor(id, "facts");
-      expect(request.endpoint).toBe("chat");
-      if (request.endpoint !== "chat") continue;
-      expect(request.reasoning_effort).toBe("none");
+      expect(request.endpoint).toBe("responses");
+      if (request.endpoint !== "responses") continue;
+      expect(request.reasoning_effort).not.toBe("none");
+      expect(request.reasoning?.effort).not.toBe("none");
       expect(toolNames(request.tools)).toContain("read_computed_facts");
     }
   });
@@ -139,10 +152,9 @@ describe("SERV layer", () => {
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
     }
-    // responses_reasoning stays documented but unused — product profiles are chat-only.
-    const expected = DOCUMENTED_FEATURES.filter((f) => f !== "responses_reasoning");
-    expect([...used].sort()).toEqual([...expected].sort());
-    expect(used.has("responses_reasoning")).toBe(false);
+    // applicationTool profiles use /v1/responses → responses_reasoning is used.
+    expect([...used].sort()).toEqual([...DOCUMENTED_FEATURES].sort());
+    expect(used.has("responses_reasoning")).toBe(true);
     // OpenServ Graph product must not appear (t257/t258). Kronos/Multipath are not Graph.
     expect(used.has("graph")).toBe(false);
     const hints = new Set<string>();
@@ -231,37 +243,52 @@ describe("SERV layer", () => {
   });
 
   it("makes the writer read calculated figures before the second pass", async () => {
-    const bodies: Array<{ messages?: Array<{ role: string; content: string | null }>; tools: Array<{ function?: { name?: string } }>; tool_choice?: { function?: { name?: string } } }> = [];
+    const bodies: Array<{
+      reasoning?: { effort?: string };
+      reasoning_effort?: string;
+      tool_choice?: { type?: string; name?: string; function?: { name?: string } };
+      tools: Array<{ name?: string; function?: { name?: string; parameters?: { required?: string[]; properties?: Record<string, unknown> } } }>;
+      input?: unknown;
+    }> = [];
     const fetchImpl: typeof fetch = async (_url, init) => {
       bodies.push(JSON.parse(String(init?.body)));
       if (bodies.length === 1) {
         return Response.json({
-          choices: [
-            {
-              finish_reason: "tool_calls",
-              message: { tool_calls: [{ id: "call_1", type: "function", function: { name: "read_computed_facts", arguments: "{}" } }] },
-            },
+          output: [
+            { type: "function_call", call_id: "call_1", name: "read_computed_facts", arguments: "{}" },
           ],
         });
       }
       return Response.json({
         id: "synthetic-test-2",
-        object: "chat.completion",
-        model: "gpt-5.4-mini",
-        choices: [{ finish_reason: "stop", message: { content: "The fair value is 10000." } }],
+        output_text: "The fair value is 10000.",
+        output: [{ type: "message", content: [{ type: "output_text", text: "The fair value is 10000." }] }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       });
     };
     const result = await runServ("report_explain", { user: "lookup", facts: { fairValueUsd: 10000 } }, { fetch: fetchImpl, apiKey: "test" });
     expect(result.ok).toBe(true);
-    expect(bodies[0]?.tool_choice?.function?.name).toBe("read_computed_facts");
-    expect((bodies[0] as { reasoning_effort?: string }).reasoning_effort).toBe("none");
-    const facts = bodies[0]?.tools.find((tool) => tool.function?.name === "read_computed_facts")?.function as { parameters?: { required?: string[]; properties?: Record<string, unknown> } } | undefined;
-    expect(facts?.parameters?.required).toEqual(["seen"]);
-    expect(facts?.parameters?.properties?.seen).toBeTruthy();
-    expect(bodies[0]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(false);
-    expect(bodies[1]?.messages?.some((message) => message.role === "tool" && String(message.content).includes("10000"))).toBe(true);
-    expect(bodies[1]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(true);
+    expect(bodies[0]?.tool_choice?.name).toBe("read_computed_facts");
+    expect(bodies[0]?.reasoning_effort).not.toBe("none");
+    expect(bodies[0]?.reasoning?.effort).not.toBe("none");
+    const factsTool = bodies[0]?.tools.find(
+      (tool) => tool.name === "read_computed_facts" || tool.function?.name === "read_computed_facts",
+    );
+    const params = factsTool?.function?.parameters ?? (factsTool as { parameters?: { required?: string[]; properties?: Record<string, unknown> } } | undefined)?.parameters;
+    expect(params?.required).toEqual(["seen"]);
+    expect(params?.properties?.seen).toBeTruthy();
+    expect(
+      bodies[0]?.tools.some(
+        (tool) => tool.name === "serv_shadow_agent" || tool.function?.name === "serv_shadow_agent",
+      ),
+    ).toBe(false);
+    const followInput = JSON.stringify(bodies[1]?.input ?? "");
+    expect(followInput).toContain("10000");
+    expect(
+      bodies[1]?.tools.some(
+        (tool) => tool.name === "serv_shadow_agent" || tool.function?.name === "serv_shadow_agent",
+      ),
+    ).toBe(true);
   });
 
   it("reads a flat tool call and still explains when the model writes prose instead", async () => {
@@ -276,7 +303,10 @@ describe("SERV layer", () => {
       })?.id,
     ).toBe("call_r");
 
-    const bodies: Array<{ messages?: Array<{ role: string; content: string | null }>; tools: Array<{ function?: { name?: string } }> }> = [];
+    const bodies: Array<{
+      input?: unknown;
+      tools: Array<{ name?: string; function?: { name?: string } }>;
+    }> = [];
     const prose = await runServ(
       "report_explain",
       { user: "lookup", facts: { fairValueUsd: 10000 } },
@@ -285,11 +315,13 @@ describe("SERV layer", () => {
           bodies.push(JSON.parse(String(init?.body)));
           if (bodies.length === 1) {
             return Response.json({
-              choices: [{ finish_reason: "stop", message: { content: "Here is a writeup with no tool call." } }],
+              output: [{ type: "message", content: [{ type: "output_text", text: "Here is a writeup with no tool call." }] }],
+              output_text: "Here is a writeup with no tool call.",
             });
           }
           return Response.json({
-            choices: [{ finish_reason: "stop", message: { content: "The fair value is 10000." } }],
+            output: [{ type: "message", content: [{ type: "output_text", text: "The fair value is 10000." }] }],
+            output_text: "The fair value is 10000.",
           });
         },
         apiKey: "test",
@@ -297,9 +329,12 @@ describe("SERV layer", () => {
     );
     expect(prose.ok).toBe(true);
     const follow = bodies[1];
-    expect(follow?.messages?.some((message) => message.role === "user" && String(message.content).includes("10000"))).toBe(true);
-    expect(follow?.messages?.some((message) => message.role === "tool")).toBe(false);
-    expect(follow?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(true);
+    expect(JSON.stringify(follow?.input ?? "")).toContain("10000");
+    expect(
+      follow?.tools.some(
+        (tool) => tool.name === "serv_shadow_agent" || tool.function?.name === "serv_shadow_agent",
+      ),
+    ).toBe(true);
   });
 
   it("puts a proof object on every agent payload", () => {

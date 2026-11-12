@@ -88,6 +88,11 @@ export type FindSearchContextRecord = {
   /** The Run permalink for this search. Decide finalizes this id, not a new one. */
   runId?: string | null;
   /**
+   * Shopper form edits with provenance (origin user only). Carried into decide
+   * so SERV sees the same bag as /api/need — never re-inferred from need defaults.
+   */
+  userFormEdits?: import("@/domain/search-spec").SearchFormEdits | null;
+  /**
    * Mid-loop agentic SERV checkpoint (Responses input + journal + tool state).
    * When set, /api/find/decide resumes instead of restarting the loop.
    */
@@ -178,6 +183,8 @@ export function mintFindSearchContextRecord(input: {
   servNextCheckEnabled: boolean;
   nowMs?: number;
   token?: string;
+  /** User-origin form edits for decide / agent loop. */
+  userFormEdits?: import("@/domain/search-spec").SearchFormEdits | null;
 }): FindSearchContextRecord {
   const nowMs = input.nowMs ?? Date.now();
   const iat = Math.floor(nowMs / 1000);
@@ -206,6 +213,7 @@ export function mintFindSearchContextRecord(input: {
     triageShortlistKeys: [],
     triageRevisitUsed: false,
     decidePathEnabled: false,
+    userFormEdits: input.userFormEdits ?? null,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -299,6 +307,7 @@ export async function updateFindSearchContext(
     triageRevisitUsed?: boolean;
     decidePathEnabled?: boolean;
     runId?: string | null;
+    userFormEdits?: import("@/domain/search-spec").SearchFormEdits | null;
     agentLoopCheckpoint?: import("@/server/serv/agent-loop-checkpoint").AgentLoopCheckpoint | null;
   },
 ): Promise<FindSearchContextRecord> {
@@ -338,6 +347,8 @@ export async function updateFindSearchContext(
         ? patch.decidePathEnabled
         : (record.decidePathEnabled ?? false),
     runId: patch.runId !== undefined ? patch.runId : (record.runId ?? null),
+    userFormEdits:
+      patch.userFormEdits !== undefined ? patch.userFormEdits : (record.userFormEdits ?? null),
     agentLoopCheckpoint:
       patch.agentLoopCheckpoint !== undefined
         ? patch.agentLoopCheckpoint

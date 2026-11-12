@@ -5,15 +5,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SearchSpec } from "@/domain/search-spec";
-import { TtlCache } from "@/io/cache";
 import type { Kv } from "@/io/kv";
-import { MemoryCounter } from "@/io/quota";
 import { runtimeDeps } from "@/server/deps";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
-import { runFindMatch } from "@/server/find-match";
 import {
-  listingFactsFromCompsPool,
-  listingsFromMatchDirections,
   mintFindSearchContextRecord,
   updateFindSearchContext,
 } from "@/server/find-search-context";
@@ -22,7 +17,7 @@ import { understandNeed } from "@/server/understand-need";
 import { createGoldenFetch } from "../../test/golden/transport";
 import type { GeneratedQuery, LiveEvalCaseResult, SearchSpecSummary } from "./types";
 
-/** Rough spend model: find_plan + find_triage + find_decide + find_challenge. */
+/** Rough spend model: understand + agent loop (search_listings + settle). */
 export const SERV_CALLS_PER_QUERY = 4;
 /** Conservative USD per SERV call for the eval hard cap (not a bill). */
 export const USD_PER_SERV_CALL = 0.03;
@@ -197,69 +192,13 @@ export async function runOneQuery(
 
   const searchSpec = summarizeSpec(understood.searchSpec, understood.findPlan.summary || null);
 
-  const match = await runFindMatch(
-    {
-      need: understood.need,
-      directions: understood.directions,
-      findPlan: understood.findPlan,
-    },
-    {
-      autodevKey: keys.autodevKey,
-      servKey: keys.servKey,
-      servModel: deps.servModel,
-      servBaseUrl: deps.servBaseUrl,
-      fetch: fetchImpl,
-      autodev: {
-        cache: new TtlCache<unknown>(),
-        counter: new MemoryCounter(),
-      },
-      kv: deps.kv,
-      // Local CLI is not serverless; MemoryKv is fine. HTTP uses getKv().
-      env: { VERCEL: undefined },
-      parallelProviderQueries: true,
-    },
-  );
-
-  if (!match.ok) {
-    return settle({
-      ...base,
-      ok: false,
-      searchSpec,
-      carsFound: 0,
-      pick: null,
-      failure: {
-        step: "match",
-        error: String(match.body.error ?? "match_failed"),
-        message: String(match.body.message ?? "Inventory search failed."),
-      },
-      proofRecords: understood.proofRecords ?? [],
-      elapsedMs: 0,
-    });
-  }
-
-  const listings = match.body.directions.flatMap((group) => group.listings);
-  const carsFound = listings.length;
-  if (carsFound === 0) {
-    return settle({
-      ...base,
-      ok: true,
-      searchSpec,
-      carsFound: 0,
-      pick: null,
-      failure: null,
-      proofRecords: understood.proofRecords ?? [],
-      elapsedMs: 0,
-    });
-  }
-
-  const shown = listingsFromMatchDirections(match.body.directions);
-  const compsPool =
-    match.body.compsPool.length > 0 ? listingFactsFromCompsPool(match.body.compsPool) : shown;
+  // No classic runFindMatch seed. SERV agent loop owns search via search_listings.
+  const carsFound = 0;
   let context = mintFindSearchContextRecord({
     userId: deps.userId,
     need: understood.need,
-    listings: shown,
-    compsPool,
+    listings: [],
+    compsPool: [],
     servNextCheckEnabled: false,
   });
   context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
@@ -359,29 +298,46 @@ export async function runOneQuery(
 
   const agentLoop = decided.agentLoop ?? null;
   const elapsed = Date.now() - started;
+  const chosenVin = typeof pickVin === "string" && pickVin.trim() ? pickVin : null;
+  const nothingFits =
+    !chosenVin &&
+    Boolean(agentLoop?.verdictReached) &&
+    (verdict === "pass" || verdict == null) &&
+    (agentLoop?.relaxedConditions?.length ?? 0) > 0 &&
+    (agentLoop?.toolRounds ?? 0) > 0;
+  const verdictReached = Boolean(chosenVin) || nothingFits;
+  const scoringOk = verdictReached;
   return settle({
     ...base,
-    ok: true,
+    ok: scoringOk,
     searchSpec,
     carsFound,
     pick: {
-      vin: typeof pickVin === "string" ? pickVin : null,
+      vin: chosenVin,
       label,
       verdict: typeof verdict === "string" ? verdict : null,
       confidence,
     },
-    failure: null,
+    failure: scoringOk
+      ? null
+      : {
+          step: "decide",
+          error: "incomplete_verdict",
+          message:
+            "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
+        },
     proofRecords: proofs,
     elapsedMs: elapsed,
     durationMs: elapsed,
     agentMode: agentLoop?.agentMode ?? null,
     toolRounds: agentLoop?.toolRounds ?? 0,
-    verdictReached: agentLoop?.verdictReached ?? Boolean(verdict),
+    verdictReached,
     relaxedConditions: agentLoop?.relaxedConditions ?? [],
     journalServCalls: agentLoop?.journalServCalls ?? 0,
     journalToolCalls: agentLoop?.journalToolCalls ?? 0,
     featuresActive: agentLoop?.featuresActive ?? [],
     featureRejections: agentLoop?.featureRejections ?? [],
+    chosenListingCount: chosenVin ? 1 : 0,
     servResponseIds:
       agentLoop?.servResponseIds ??
       proofs

@@ -22,6 +22,12 @@ import {
   servFinishReason,
   type ServResponseFailureDiag,
 } from "./response-failure";
+import { normalizeServAgentReasoningEffort } from "./agent-chat-turn";
+import {
+  appendResponsesToolRound,
+  responsesUserMessage,
+  type ResponsesInputItem,
+} from "./agent-tool-loop-protocol";
 
 /**
  * Vercel function maxDuration. A SERV call waits this long and is not cut
@@ -32,6 +38,11 @@ import {
   classifyServTransportError,
   type ServTransportErrorClass,
 } from "./transport-error";
+
+/** Never emit reasoning_effort "none" on any SERV request body. */
+export function servReasoningEffort(effort: string | null | undefined): "low" | "medium" | "high" | "xhigh" {
+  return normalizeServAgentReasoningEffort(effort === "none" ? "low" : effort);
+}
 
 /** JSON-shaped, read-only facts computed by the application before any model call. */
 export type ServFacts = Readonly<Record<string, unknown>>;
@@ -229,6 +240,7 @@ export function requestFor(
   if (!bound.ok) {
     throw new Error(bound.message);
   }
+  const effort = servReasoningEffort(entry.reasoningEffort);
   if (endpoint === "responses") {
     return withServOutputTokenBound(
       "responses",
@@ -236,11 +248,14 @@ export function requestFor(
         endpoint: "responses" as const,
         model: chosen,
         stream,
-        reasoning_effort: entry.reasoningEffort,
-        reasoning: { effort: entry.reasoningEffort, summary: "auto" as const },
+        reasoning_effort: effort,
+        reasoning: { effort, summary: "auto" as const },
         instructions: entry.system,
         input: user,
         tools,
+        ...(entry.applicationTool
+          ? { tool_choice: { type: "function" as const, name: entry.applicationTool } }
+          : {}),
       },
       bound.tokens,
     );
@@ -251,7 +266,7 @@ export function requestFor(
       endpoint: "chat" as const,
       model: chosen,
       stream,
-      reasoning_effort: entry.reasoningEffort,
+      reasoning_effort: effort,
       messages: [
         { role: "system" as const, content: entry.system },
         { role: "user" as const, content: user },
@@ -564,7 +579,7 @@ export async function runServ(
         fallbackUsed: true,
         streamed: streamForProfile(entry),
         endpoint: endpointForProfile(entry),
-        reasoningEffort: entry.reasoningEffort,
+        reasoningEffort: servReasoningEffort(entry.reasoningEffort),
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
         codeComputed: [...entry.codeComputed],
@@ -604,7 +619,7 @@ export async function runServ(
         fallbackUsed: true,
         streamed: stream,
         endpoint,
-        reasoningEffort: entry.reasoningEffort,
+        reasoningEffort: servReasoningEffort(entry.reasoningEffort),
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
         codeComputed: [...entry.codeComputed],
@@ -646,7 +661,7 @@ export async function runServ(
         fallbackUsed: true,
         streamed: stream,
         endpoint,
-        reasoningEffort: entry.reasoningEffort,
+        reasoningEffort: servReasoningEffort(entry.reasoningEffort),
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
         codeComputed: [...entry.codeComputed],
@@ -670,7 +685,7 @@ export async function runServ(
   const proofMeta = {
     streamed: stream,
     endpoint,
-    reasoningEffort: entry.reasoningEffort,
+    reasoningEffort: servReasoningEffort(entry.reasoningEffort),
     applicationTool: entry.applicationTool ?? null,
     jsonSchema: effectiveJsonSchema?.name ?? null,
     codeComputed: [...entry.codeComputed],
@@ -764,6 +779,7 @@ export async function runServ(
     const factsText = JSON.stringify(input.facts ?? {});
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
     const bare = Boolean(deps.bareRetry);
+    const effort = servReasoningEffort(entry.reasoningEffort);
     const firstTools = toolsFor(entry, !entry.applicationTool, endpoint, bare);
     const firstBody = applyTokenBound(
       endpoint === "responses"
@@ -771,15 +787,18 @@ export async function runServ(
             model: inspected.model,
             instructions: entry.system,
             input: userText,
-            reasoning: { effort: entry.reasoningEffort, summary: "auto" },
+            reasoning: { effort, summary: "auto" as const },
             stream: false,
             tools: firstTools,
+            ...(entry.applicationTool
+              ? { tool_choice: { type: "function" as const, name: entry.applicationTool } }
+              : {}),
           }
         : {
             model: inspected.model,
             stream,
-            // Chat completions reject a function tool unless effort is none.
-            reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
+            // Never "none" — application tools must use /v1/responses (endpointForProfile).
+            reasoning_effort: effort,
             messages: [
               { role: "system", content: entry.system },
               { role: "user", content: userText },
@@ -797,13 +816,15 @@ export async function runServ(
                   },
                 }
               : {}),
-            ...(entry.applicationTool ? { tool_choice: { type: "function", function: { name: entry.applicationTool } } } : {}),
+            ...(entry.applicationTool
+              ? { tool_choice: { type: "function", function: { name: entry.applicationTool } } }
+              : {}),
           },
     );
 
     let turn = await post(firstBody, entry.applicationTool ? false : stream);
     let recordedBody: unknown = firstBody;
-    if (entry.applicationTool && endpoint === "chat") {
+    if (entry.applicationTool) {
       if (!turn.response.ok) {
         const proof = recordServProof(
           buildServProof({
@@ -834,25 +855,64 @@ export async function runServ(
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
       const followTools = toolsFor({ ...entry, applicationTool: undefined }, true, endpoint, bare);
-      const followBody = applyTokenBound({
-        model: inspected.model,
-        stream: false,
-        reasoning_effort: entry.reasoningEffort,
-        messages: matched
-          ? [
-              { role: "system", content: entry.system },
-              { role: "user", content: userText },
-              { role: "assistant", content: null, tool_calls: [{ id: matched.id, type: "function", function: { name: matched.name, arguments: matched.arguments } }] },
-              { role: "tool", tool_call_id: matched.id, content: factsText },
-            ]
+      if (endpoint === "responses") {
+        const priorInput: ResponsesInputItem[] = [responsesUserMessage(userText)];
+        const responseOutput =
+          turn.payload && typeof turn.payload === "object" && Array.isArray((turn.payload as { output?: unknown }).output)
+            ? (turn.payload as { output: unknown }).output
+            : [];
+        const nextInput = matched
+          ? appendResponsesToolRound({
+              priorInput,
+              responseOutput,
+              outputs: [{ callId: matched.id, output: factsText }],
+            })
           : [
-              { role: "system", content: entry.system },
-              { role: "user", content: userText },
-            ],
-        tools: followTools,
-      });
-      turn = await post(followBody, false);
-      recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint, bare) };
+              ...priorInput,
+              responsesUserMessage(`Calculated facts (tool was not called):\n${factsText}`),
+            ];
+        const followBody = applyTokenBound({
+          model: inspected.model,
+          instructions: entry.system,
+          input: nextInput,
+          reasoning: { effort, summary: "auto" as const },
+          stream: false,
+          tools: followTools,
+        });
+        turn = await post(followBody, false);
+        recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint, bare) };
+      } else {
+        // Gemini chat fallback — still never send reasoning_effort "none".
+        const followBody = applyTokenBound({
+          model: inspected.model,
+          stream: false,
+          reasoning_effort: effort,
+          messages: matched
+            ? [
+                { role: "system", content: entry.system },
+                { role: "user", content: userText },
+                {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: matched.id,
+                      type: "function",
+                      function: { name: matched.name, arguments: matched.arguments },
+                    },
+                  ],
+                },
+                { role: "tool", tool_call_id: matched.id, content: factsText },
+              ]
+            : [
+                { role: "system", content: entry.system },
+                { role: "user", content: userText },
+              ],
+          tools: followTools,
+        });
+        turn = await post(followBody, false);
+        recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint, bare) };
+      }
     }
 
     // Structured json_schema: content null + refusal field is a transport failure class

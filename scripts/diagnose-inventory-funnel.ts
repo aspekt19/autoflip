@@ -48,8 +48,8 @@ function funnelFind(listings: readonly Listing[], budgetUsd: number, radiusMi: n
     note: "",
     mode: "personal",
     formEdits: {
-      priceMaxUsd: { value: budgetUsd, dirty: true },
-      radiusMi: { value: radiusMi, dirty: true },
+      priceMaxUsd: { value: budgetUsd, origin: "user" as const },
+      radiusMi: { value: radiusMi, origin: "user" as const },
     },
   });
   const hard = enforceHard(spec, passenger);

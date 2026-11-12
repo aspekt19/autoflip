@@ -16,7 +16,6 @@ import { admitFindListingForBudget, assessFindListingPrice, type FindListingPric
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import {
-  listingWithinNeed,
   needPrefersAwd,
   noMatchMessage,
   searchScopeLabel,
@@ -30,8 +29,7 @@ import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
-import { filterInventoryWithWiden } from "@/domain/inventory-widen";
-import { buildSearchSpec, enforceHard, hardDropSentence, type ServPlanHint } from "@/domain/search-spec";
+import { type ServPlanHint } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -253,41 +251,24 @@ async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fet
   return out;
 }
 
-function applyHardGate(
+/**
+ * Listing hygiene only — never apply SearchSpec enforceHard product filters before SERV.
+ * Passenger/light-truck gate drops malformed non-car inventory; SERV owns preference filters.
+ */
+function passengerHygiene(
   collected: Listing[],
   need: StructuredNeed,
-  servPlan?: ServPlanHint,
 ): { listings: Listing[]; note: string | null } {
-  const cars = need.mode === "flip" ? collected : collected.filter((row) => isPassengerOrLightTruck(row));
+  if (need.mode === "flip") {
+    return { listings: collected, note: null };
+  }
+  const cars = collected.filter((row) => isPassengerOrLightTruck(row));
   const hiddenOther = collected.length - cars.length;
-  const spec = buildSearchSpec({
-    note: need.note ?? "",
-    mode: need.mode,
-    formEdits: {
-      priceMaxUsd:
-        need.budgetKnown && need.budgetUsd != null ? { value: need.budgetUsd, dirty: true } : undefined,
-      yearMin: need.yearMin != null ? { value: need.yearMin, dirty: true } : undefined,
-      yearMax: need.yearMax != null ? { value: need.yearMax, dirty: true } : undefined,
-      milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true } : undefined,
-      radiusMi: { value: need.distanceMiles, dirty: true },
-    },
-    servPlan,
-  });
-  const gated = enforceHard(spec, cars);
   const otherNote =
     hiddenOther > 0
       ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
       : null;
-  if (need.mode !== "flip") {
-    return { listings: gated.kept, note: [hardDropSentence(gated.dropped), otherNote].filter(Boolean).join(" ") || null };
-  }
-  // Flip ranking needs the wider asking-price set as comps. Price-only misses stay
-  // in that pool; the ranker excludes anomalies and does not treat a gap as profit.
-  const blocked = new Set(gated.dropped.filter((row) => row.rule !== "price").map((row) => row.vin));
-  return {
-    listings: collected.filter((car) => !blocked.has(car.vin)),
-    note: hardDropSentence(gated.dropped.filter((row) => row.rule !== "price")),
-  };
+  return { listings: cars, note: otherNote };
 }
 
 function withinBudget(
@@ -645,11 +626,6 @@ export async function runFindMatch(
     }
   }
 
-  // Soft preferences that emptied local inventory are loosened in filterInventoryWithWiden.
-  // An explicit radius is never auto-widened to Nationwide (Chicago live defect).
-  const nationwideWidenNote: string | null = null;
-  const filterNeed = need;
-
   // Group dispatch results by direction index for the existing post-processing.
   const byDirection = new Map<number, DispatchRow[]>();
   for (const row of dispatches) {
@@ -777,31 +753,53 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
-    let narrowed: Listing[];
-    if (need.mode === "flip") {
-      const gated = applyHardGate(prepared, need, servPlanHint);
-      if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
-      narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
-    } else {
-      const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
-      const hiddenOther = prepared.length - cars.length;
-      const widen = filterInventoryWithWiden(cars, filterNeed, { servPlan: servPlanHint });
-      const otherNote =
-        hiddenOther > 0
-          ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
-          : null;
-      // Nationwide widen note is attached once on the first direction only.
-      const onceWiden = di === 0 ? nationwideWidenNote : null;
-      const widenNote =
-        onceWiden ??
-        widen.explanation ??
-        (widen.dropped.length && widen.listings.length === 0 ? hardDropSentence(widen.dropped) : null);
-      const gateNote = [widenNote, otherNote].filter(Boolean).join(" ") || null;
-      if (gateNote) directionNote = [directionNote, gateNote].filter(Boolean).join(" ");
-      narrowed = widen.listings;
+    // No enforceHard / widen product filters before SERV — passenger hygiene only.
+    const hygiene = passengerHygiene(prepared, need);
+    if (hygiene.note) directionNote = [directionNote, hygiene.note].filter(Boolean).join(" ");
+    const narrowed = hygiene.listings;
+    // SERV seed / market comps: full hygiene-only provider returns.
+    // Never apply withinBudget / implausible-odo / diversify-8 drops to this pool —
+    // those are display-only for the UI page of cards.
+    for (const item of narrowed) {
+      const vin = (item.vin || "").trim().toUpperCase();
+      if (vin && compsPoolVins.has(vin)) continue;
+      if (vin) compsPoolVins.add(vin);
+      compsPoolAcc.push({
+        vin: item.vin,
+        year: item.year,
+        make: item.make,
+        model: item.model,
+        trim: item.trim,
+        priceUsd: item.priceUsd,
+        miles: item.miles,
+        city: item.city,
+        state: item.state,
+        zip: item.zip,
+        dealer: item.dealer,
+        vdp: item.vdp,
+        primaryImage: item.primaryImage,
+        carfaxUrl: item.carfaxUrl,
+        used: item.used,
+        cpo: item.cpo,
+        accidentCount: item.accidentCount,
+        oneOwner: item.oneOwner,
+        ownerCount: item.ownerCount,
+        usageType: item.usageType,
+        fuel: item.fuel,
+        engine: item.engine,
+        drivetrain: item.drivetrain,
+        bodyStyle: item.bodyStyle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        removedAt: item.removedAt,
+        createdAt: item.createdAt,
+        source: item.source,
+        distanceMiles: item.distanceMiles,
+      });
     }
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
+    // Display page only — budget / missing / untrusted drops do not feed SERV seed.
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
       .map((item) => {
         const priceView = item.priceView ?? assessFindListingPrice(item);
@@ -850,47 +848,10 @@ export async function runFindMatch(
         if (seenVins.has(vin)) return false;
         return true;
       });
-    // Keep full provider returns for comps before diversify shrinks the shown page.
-    for (const item of rankedReady) {
-      const vin = (item.vin || "").trim().toUpperCase();
-      if (vin && compsPoolVins.has(vin)) continue;
-      if (vin) compsPoolVins.add(vin);
-      compsPoolAcc.push({
-        vin: item.vin,
-        year: item.year,
-        make: item.make,
-        model: item.model,
-        trim: item.trim,
-        priceUsd: item.priceUsd,
-        miles: item.miles,
-        city: item.city,
-        state: item.state,
-        zip: item.zip,
-        dealer: item.dealer,
-        vdp: item.vdp,
-        primaryImage: item.primaryImage,
-        carfaxUrl: item.carfaxUrl,
-        used: item.used,
-        cpo: item.cpo,
-        accidentCount: item.accidentCount,
-        oneOwner: item.oneOwner,
-        ownerCount: item.ownerCount,
-        usageType: item.usageType,
-        fuel: item.fuel,
-        engine: item.engine,
-        drivetrain: item.drivetrain,
-        bodyStyle: item.bodyStyle,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        removedAt: item.removedAt,
-        createdAt: item.createdAt,
-        source: item.source,
-        distanceMiles: item.distanceMiles,
-      });
-    }
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
     // Soft AWD preference reorders within each model bucket so FWD cannot bury AWD.
+    // Display-only: hide implausible odo + diversify/cap the UI page — not SERV's seed.
     const believable = rankedReady.filter((item) => !implausibleOdometer(item.year, item.miles));
     const hiddenOdd = rankedReady.length - believable.length;
     if (hiddenOdd > 0) {
@@ -920,7 +881,7 @@ export async function runFindMatch(
         ? // Prefer the single widen/drop sentence already on directionNote — avoid repeating “No cars…”.
           directionNote && /No cars matched|widened|loosened|listings were hidden/i.test(directionNote)
             ? null
-            : noMatchMessage(filterNeed, { widenExplanation: di === 0 ? nationwideWidenNote : null })
+            : noMatchMessage(need)
         : null;
     const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
     const confirmedEmpty = queryOutcomes.filter((o) => o.outcome === "empty");

@@ -174,6 +174,7 @@ const PURPOSE_TO_STEP: Record<string, JournalStepId> = {
   resale_triage: "compare_cars",
   facts_given: "factory_details",
   find_decide: "choose_car",
+  find_agent_loop: "choose_car",
   find_pick: "choose_car",
   verdict_decide: "choose_car",
   resale_pick: "choose_car",

@@ -24,10 +24,15 @@ describe("find-agent tool arg validation", () => {
     expect(ok).toEqual({ ok: true, value: "33101" });
   });
 
-  it("rejects limit over 20", () => {
-    const bad = parseLimitArg(50);
+  it("rejects limit over the sane per-call max (50)", () => {
+    const bad = parseLimitArg(51);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.field).toBe("limit");
+  });
+
+  it("accepts SERV-requested page sizes up to 50", () => {
+    const ok = parseLimitArg(40);
+    expect(ok).toEqual({ ok: true, value: 40 });
   });
 
   it("rejects search_listings with bad zip and limit together", () => {
@@ -36,6 +41,15 @@ describe("find-agent tool arg validation", () => {
     if (!bad.ok) {
       expect(bad.issues.some((i) => i.field === "zip")).toBe(true);
       expect(bad.issues.some((i) => i.field === "limit")).toBe(true);
+    }
+  });
+
+  it("accepts page for provider pagination", () => {
+    const ok = parseSearchListingsArgs({ make: "Toyota", zip: "43215", limit: 20, page: 2 });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.value.limit).toBe(20);
+      expect(ok.value.page).toBe(2);
     }
   });
 
@@ -159,5 +173,97 @@ describe("search_listings funnel", () => {
     expect(executed.result.relaxHints).toEqual(expect.arrayContaining(["omit_body"]));
     const query = executed.result.query as { providerBodyStyle: string | null };
     expect(query.providerBodyStyle).toBeNull();
+  });
+
+  it("honors SERV page/limit on the provider URL (no silent ≤12 hide-cap)", async () => {
+    let requestedUrl = "";
+    const fetchImpl: typeof fetch = async (input) => {
+      requestedUrl = String(input);
+      if (requestedUrl.includes("listings")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", zip: "43215", limit: 40, page: 2 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(true);
+    expect(requestedUrl).toMatch(/limit=40/);
+    expect(requestedUrl).toMatch(/page=2/);
+  });
+  it("thin proxy returns unfiltered provider rows (no product-filter drops)", async () => {
+    const camry = listing();
+    const rav4 = listing({
+      vin: "JTMRWRFV0KJ123457",
+      bodyStyle: "SUV",
+      style: "SUV",
+      model: "RAV4",
+      priceUsd: 25_000,
+    });
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("listings")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                vin: camry.vin,
+                vehicle: {
+                  year: camry.year,
+                  make: camry.make,
+                  model: camry.model,
+                  bodyStyle: "Car",
+                  style: "Sedan",
+                  mileage: camry.miles,
+                  transmission: "Automatic",
+                },
+                retailListing: { price: camry.priceUsd, city: "Columbus", state: "OH" },
+              },
+              {
+                vin: rav4.vin,
+                vehicle: {
+                  year: rav4.year,
+                  make: rav4.make,
+                  model: rav4.model,
+                  bodyStyle: "SUV",
+                  style: "SUV",
+                  mileage: rav4.miles,
+                  transmission: "Automatic",
+                },
+                retailListing: { price: rav4.priceUsd, city: "Columbus", state: "OH" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { bodyStyle: "Sedan", priceMaxUsd: 15_000, zip: "43215", radiusMi: 100 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(true);
+    // Both rows returned despite body/price filters that would drop RAV4.
+    expect(executed.result.totalReturned).toBeGreaterThanOrEqual(1);
+    expect(executed.result.productFiltersWouldDrop).toBe(true);
+    const cars = executed.result.cars as Array<{ vin: string; model: string }>;
+    expect(cars.map((c) => c.model).sort()).toEqual(["Camry", "RAV4"]);
   });
 });

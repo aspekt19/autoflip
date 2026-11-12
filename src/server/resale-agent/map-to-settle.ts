@@ -220,7 +220,10 @@ export function mapResaleAgentLoopToSettle(input: {
     providerQueriesUsed: input.providerQueriesUsed ?? 0,
     scope: input.scope ?? null,
     emptyReason: publishedBest ? null : "no_flip_candidates",
-    creditNote: resaleCardCopy.creditNote,
+    // Charge on chosen flip OR documented nothing-fits (agent summary present).
+    creditNote: publishedBest
+      ? resaleCardCopy.creditNote
+      : "1 report credit used — SERV explained why nothing fit.",
   };
 
   return { delivery, checkpoint, candidates };

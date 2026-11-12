@@ -63,14 +63,15 @@ function printCaseLine(result: LiveEvalCaseResult): void {
       ? result.relaxedConditions.map((r) => `${r.name}:${r.why}`).join(" | ")
       : "—";
   const agent = `mode=${result.agentMode ?? "—"} rounds=${result.toolRounds ?? 0} verdictReached=${result.verdictReached ?? false}`;
+  const chosen = result.chosenListingCount ?? (result.pick?.vin ? 1 : 0);
   if (result.ok) {
     console.log(
-      `[ok] ${result.id} [${product}] cars=${result.carsFound} pick=${pick} ${agent} ${result.elapsedMs}ms`,
+      `[ok] ${result.id} [${product}] cars=${result.carsFound} chosen=${chosen} pick=${pick} ${agent} ${result.elapsedMs}ms`,
     );
   } else {
     const fail = result.failure;
     console.log(
-      `[fail] ${result.id} [${product}] step=${fail?.step ?? "?"} error=${fail?.error ?? "?"} ${fail?.message ?? ""}` +
+      `[fail] ${result.id} [${product}] step=${fail?.step ?? "?"} error=${fail?.error ?? "?"} chosen=${chosen} ${fail?.message ?? ""}` +
         (fail?.responseId ? ` responseId=${fail.responseId}` : ""),
     );
   }
@@ -257,8 +258,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     recordFixtures: true,
     concurrency,
   });
+  const okCount = report.results.filter((r) => r.ok).length;
+  const chosenCount = report.results.reduce(
+    (sum, r) => sum + (r.chosenListingCount ?? (r.pick?.vin ? 1 : 0)),
+    0,
+  );
   console.log(
-    `Done. results=${report.results.length} find=${report.findCount} resale=${report.resaleCount} ok=${report.results.filter((r) => r.ok).length} estimatedUsd=$${report.estimatedUsd.toFixed(2)} stopped=${report.stoppedReason}`,
+    `Done. results=${report.results.length} find=${report.findCount} resale=${report.resaleCount} ok=${okCount} chosenListings=${chosenCount} estimatedUsd=$${report.estimatedUsd.toFixed(2)} stopped=${report.stoppedReason}`,
   );
   console.log(`Report: eval/results/live/${report.seed}/report.json`);
   console.log(`Fixtures: test/golden/recordings/live-eval/${report.seed}/`);

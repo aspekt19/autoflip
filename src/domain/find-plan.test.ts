@@ -413,6 +413,10 @@ describe("understandNeed form ZIP answers near me", () => {
         mode: "personal",
         zip: "75201",
         distanceMiles: 100,
+        constraints: {
+          zip: { value: "75201", origin: "user" },
+          radiusMi: { value: 100, origin: "user" },
+        },
       },
       { /* no SERV key → fallback plan */ },
     );

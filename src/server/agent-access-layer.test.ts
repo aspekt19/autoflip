@@ -127,7 +127,7 @@ describe("agent check_car (mocked runCheck path)", () => {
     expect(await creditBalance(kv, "check-user")).toBe(2);
   });
 
-  it("returns a fixed verdict wrapper for a pasted dealer fixture without Autodev", async () => {
+  it("honest-fails without SERV — no Autodev and no code screening verdict", async () => {
     const { readFileSync } = await import("node:fs");
     const html = readFileSync(path.join(process.cwd(), "fixtures/listing-pages/dealer-jsonld.html"), "utf8");
     const kv = getKv();
@@ -166,29 +166,11 @@ describe("agent check_car (mocked runCheck path)", () => {
       { text: html, url: "https://dealer.example/camry", idempotencyKey: "paste-camry-1" },
       { kv, origin: "http://localhost", fetch: gov as unknown as typeof fetch },
     );
-    if (!result.ok) {
-      expect.fail(`${result.body.error_code}: ${result.body.message}`);
-    }
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.body.schema_version).toBe(AGENT_VERDICT_SCHEMA_VERSION);
-    expect(result.body.tool).toBe("check_car");
-    expect(result.body.serv.steps.length).toBeGreaterThan(0);
-    expect(result.body.receipt_id).toBeTruthy();
-    expect(result.body.code_computed).toHaveProperty("compCount");
-    expect(typeof result.body.credit_spent).toBe("boolean");
-    const callsAfterFirst = gov.mock.calls.length;
-
-    const again = await runAgentCheck(
-      auth.caller,
-      { text: html, url: "https://dealer.example/camry", idempotencyKey: "paste-camry-1" },
-      { kv, origin: "http://localhost", fetch: gov as unknown as typeof fetch },
-    );
-    expect(again.ok).toBe(true);
-    if (!again.ok) return;
-    expect(again.body.receipt_id).toBe(result.body.receipt_id);
-    expect(callsAfterFirst).toBeGreaterThan(0);
-    expect(gov.mock.calls.length).toBe(callsAfterFirst);
+    // No SERV mock / key → Check must not publish a code screening verdict or charge.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.body.error_code).toBe("serv_verdict_unavailable");
+    expect(result.body.message).toMatch(/Nothing was charged/i);
   });
 
   it("refuses a private listing URL before fetch and does not spend a credit", async () => {

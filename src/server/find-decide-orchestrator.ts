@@ -1,10 +1,15 @@
 /**
- * PR B Find decide orchestrator: free-gov (if needed) → C2 triage → C3 decide → C4 challenge.
- * When FIND_AGENT_LOOP is on (and SERV is keyed), prefers the agentic tool loop; falls back to triage→decide.
+ * Find decide orchestrator: free-gov (if needed) → SERV agent loop only.
+ * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
-import { alignPublishedConfidence } from "@/domain/find-best-deal";
-import { decideBudgetMs, FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
+import { pickUserFormConstraints } from "@/domain/constraint-provenance";
+import {
+  buildUserIntent,
+  serializeServFormConstraints,
+} from "@/domain/serv-boundary";
+import type { SearchFormEdits } from "@/domain/search-spec";
+import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
   executeAllFindFreeGovParallel,
   freeGovToolCoverage,
@@ -26,7 +31,8 @@ import {
 import { counterStore } from "@/io/store";
 import { reserveTotalCall } from "@/io/persistent-quota";
 import type { ServDeps } from "@/server/serv";
-import { DECISION_PROOF_SCHEMA, type DecisionProofRecord } from "@/domain/decision-proof-view";
+import { buildDecisionProofRecord, type DecisionProofRecord } from "@/domain/decision-proof-record";
+import { readRun } from "@/io/run-store";
 
 export type FindAgentLoopMeta = {
   agentMode: "tools" | "next_action";
@@ -201,27 +207,46 @@ export async function runFindDecideOrchestrator(
 
   const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
 
-  // 1b) Agentic SERV loop (preferred when flagged + keyed). Falls back to triage→decide on failure.
+  // Agentic SERV loop is the only decide path. Missing keys → honest failure.
   const env = deps.env ?? process.env;
   const autodevKey = deps.autodevKey?.trim() || env.AUTODEV_API_KEY?.trim() || "";
   const agentEnabled = findAgentLoopEnabled(env, { servKey: deps.servKey });
-  if (agentEnabled && deps.servKey?.trim() && autodevKey) {
-    const runAgent = deps.runFindAgentLoopImpl ?? runFindAgentLoop;
+  if (!agentEnabled || !deps.servKey?.trim() || !autodevKey) {
+    return {
+      ok: false,
+      status: 503,
+      error: "agent_loop_required",
+      message:
+        "Find decide requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Legacy match→decide is removed.",
+    };
+  }
+
+  const runAgent = deps.runFindAgentLoopImpl ?? runFindAgentLoop;
     const seedListings =
       marketPool.length > 0
         ? marketPool
         : marketPoolFromListingFacts(record.listings);
+    const note = deps.shopperNote?.trim() || record.need.note || "";
+    // Stored user form edits (from /api/need → run / search context). Never re-tag
+    // need.budgetUsd / year / miles as user — those may include SERV / defaults.
+    let storedFormEdits: SearchFormEdits = pickUserFormConstraints(record.userFormEdits ?? {});
+    if (Object.keys(storedFormEdits).length === 0 && record.runId) {
+      const run = await readRun(deps.kv, record.runId);
+      if (run?.inputs.formEdits) {
+        storedFormEdits = pickUserFormConstraints(run.inputs.formEdits);
+      }
+    }
+    const userIntent = buildUserIntent({ note, formEdits: storedFormEdits });
+    // Budget ceiling only from user/note provenance on the intent — labeled.
+    const budgetField = userIntent.fields.priceMaxUsd;
+    const labeledBudgetUsd =
+      budgetField && (budgetField.origin === "user" || budgetField.origin === "note" || budgetField.provenance === "user" || budgetField.provenance === "note")
+        ? budgetField.value
+        : null;
     const agent = await runAgent({
-      note: deps.shopperNote?.trim() || record.need.note || "",
+      note,
       mode: resolveFindAgentMode(env),
-      formEdits: {
-        zip: record.need.zip,
-        distanceMiles: record.need.distanceMiles,
-        budgetUsd: record.need.budgetUsd,
-        yearMin: record.need.yearMin,
-        yearMax: record.need.yearMax,
-        milesMax: record.need.milesMax,
-      },
+      formEdits: serializeServFormConstraints(userIntent),
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
       deps: {
@@ -230,7 +255,10 @@ export async function runFindDecideOrchestrator(
         fetch: deps.fetchImpl,
         servBaseUrl: deps.servBaseUrl,
         seedListings,
-        budgetUsd: record.need.budgetUsd,
+        budgetUsd: labeledBudgetUsd,
+        budgetProvenance: budgetField
+          ? (budgetField.origin ?? budgetField.provenance)
+          : null,
         autodev: {
           cache: listingCache(),
           counter: counterStore(),
@@ -315,20 +343,24 @@ export async function runFindDecideOrchestrator(
         .filter((e): e is Extract<typeof e, { kind: "serv" }> => e.kind === "serv")
         .map((e) => e.responseId)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
+      // lemonless.decision_proof.v1 requires a ≥32-char digest; never ship a raw
+      // agent:mode:rounds string (e2e isDecisionProofRecord filters those out → "got none").
       const proofRecords: DecisionProofRecord[] = [
-        {
-          schemaVersion: DECISION_PROOF_SCHEMA,
+        buildDecisionProofRecord({
           purpose: "find_agent_loop",
           rubricId: "find_agent_loop",
           status: "ok",
           servResponseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
           model: "gpt-6.1-sol",
-          timestamp: new Date().toISOString(),
-          inputsDigest: `agent:${agent.agentMode}:${agent.toolRounds}:dropped=${agent.droppedPicks.length}`,
+          inputs: {
+            agentMode: agent.agentMode,
+            toolRounds: agent.toolRounds,
+            droppedPicks: agent.droppedPicks.length,
+            verdictReached: agent.verdictReached,
+            pickVins: mapped.shortlistKeys,
+          },
           verdict: mapped.agentVerdict.verdict,
-          clampResult: null,
-          reason: null,
-        },
+        }),
       ];
       return {
         ok: true,
@@ -367,7 +399,8 @@ export async function runFindDecideOrchestrator(
         agentLoop: {
           agentMode: agent.agentMode,
           toolRounds: agent.toolRounds,
-          verdictReached: true,
+          // Completeness comes from the agent loop (chosen listing or documented nothing-fits).
+          verdictReached: agent.verdictReached,
           relaxedConditions: agent.relaxedConditions,
           journalServCalls: counts.servCalls,
           journalToolCalls: counts.toolCalls,
@@ -377,129 +410,22 @@ export async function runFindDecideOrchestrator(
         },
       };
     }
-    // Clear a stale checkpoint before falling through to classic triage→decide.
+    // Agent loop was required and failed — never substitute a code choose.
     if (record.agentLoopCheckpoint) {
       record = await updateFindSearchContext(deps.kv, record, { agentLoopCheckpoint: null });
     }
-    // Fall through to classic triage→decide when the agent loop cannot finish.
-  }
-
-  // 2) C2 triage
-  const triage = await runFindTriageServ({
-    need: record.need,
-    listings: record.listings,
-    receipts,
-    marketPool,
-    revisitAlreadyUsed: Boolean(record.triageRevisitUsed),
-    servKey: deps.servKey,
-    servBaseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    fetchImpl: deps.fetchImpl,
-    transportPolicy: deps.transportPolicy,
-  });
-
-  // Revisit: at most once — widen radius / add models would rematch; for v1 mark used and continue.
-  const revisitUsed = Boolean(record.triageRevisitUsed) || triage.triage.revisit.needed;
-  record = await updateFindSearchContext(deps.kv, record, {
-    triageShortlistKeys: triage.shortlistKeys,
-    triageRevisitUsed: revisitUsed,
-  });
-
-  // 3) C3 + C4. Leave the second check its own reserve, and give the decision the rest.
-  const decideMs = decideBudgetMs(remainingMs());
-  const decide = await runFindDecideServ({
-    need: record.need,
-    bestDeal: triage.bestDeal,
-    shortlistKeys: triage.shortlistKeys.length > 0 ? triage.shortlistKeys : triage.bestDeal.ranked.map((r) => r.key).slice(0, 8),
-    receipts,
-    marketPool,
-    servKey: deps.servKey,
-    servBaseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    fetchImpl: deps.fetchImpl,
-    transportPolicy: deps.transportPolicy,
-    timeoutMs: decideMs,
-    remainingMs: remainingMs(),
-  });
-
-  record = await updateFindSearchContext(deps.kv, record, {
-    loopSettled: true,
-    triageShortlistKeys: triage.shortlistKeys,
-  });
-
-  const coverage = freeGovToolCoverage(record.listings, receipts);
-  const proofRecords = [...triage.proofRecords, ...decide.proofRecords];
-
-  const byTool = new Map<string, { ok: number; empty: number; error: number }>();
-  for (const r of receipts) {
-    const row = byTool.get(r.checkId) ?? { ok: 0, empty: 0, error: 0 };
-    if (r.status === "ok") row.ok += 1;
-    else if (r.status === "empty") row.empty += 1;
-    else row.error += 1;
-    byTool.set(r.checkId, row);
-  }
-  const recallRow = byTool.get("free_gov_recalls");
-  const recallFailed = (recallRow?.error ?? 0) > 0;
-  const stages = [
-    receipts.length > 0 ? "public record checks" : null,
-    triage.source === "SERV" ? "compare the cars" : "compare the cars",
-    decide.source === "SERV" ? "choose a car" : "choose a car",
-    decide.proofRecords.some((p) => p.purpose === "find_challenge") ? "second check" : null,
-  ].filter(Boolean);
-  const recallSentence = recallRow
-    ? recallFailed
-      ? `The government recall database answered for ${recallRow.ok} model${recallRow.ok === 1 ? "" : "s"}, had nothing listed for ${recallRow.empty}, and did not answer for ${recallRow.error}. That lowers confidence.`
-      : `The government recall database answered for ${recallRow.ok + recallRow.empty} model${recallRow.ok + recallRow.empty === 1 ? "" : "s"}.`
-    : "No public record checks were recorded.";
-  const loopDetail = [
-    stages.length > 0 ? `${stages.join(", ")} finished.` : "The decision finished.",
-    recallSentence,
-    coverage.anyUnchecked ? `Some checks are still missing: ${coverage.note}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  if (recallFailed && decide.bestDeal && decide.bestDeal.confidence !== "none") {
-    const next = decide.bestDeal.confidence === "high" ? "medium" : decide.bestDeal.confidence;
-    const sentence =
-      next === "low"
-        ? "A recall check failed, so confidence is Low."
-        : "A recall check did not finish for every car, so confidence stays Medium.";
-    decide.bestDeal = alignPublishedConfidence(decide.bestDeal, next, sentence);
-    if (decide.agentVerdict) {
-      decide.agentVerdict = { ...decide.agentVerdict, confidence: next };
-    }
-  }
-
-  return {
-    ok: true,
-    status: 200,
-    searchContextToken: record.token,
-    bestDeal: decide.bestDeal,
-    pickAgentVerdict: decide.agentVerdict,
-    pickSecondPass: decide.secondPass,
-    pickProofRecords: proofRecords,
-    freeGovReceipts: receipts,
-    freeGovCoverage: coverage,
-    riskCoverage: riskCoverageHonesty(record.listings, receipts),
-    freeEvidenceNote: freeEvidenceNote || coverage.note,
-    triageSource: triage.source,
-    decideSource: decide.source,
-    shortlistKeys: triage.shortlistKeys,
-    loop: {
-      continue: false,
-      reason: "decide_settled",
-      detail: loopDetail,
-    },
-    honesty:
-      decide.source === "SERV"
-        ? "SERV decide + challenge published under code guardrails."
-        : "Code ranking published — AI decide unavailable or failed validation.",
-    needAfter: record.need,
-    appliedCheckIds: record.appliedCheckIds,
-    decisionLog: record.decisionLog ?? [],
-    carChecks: record.carChecks ?? [],
-    replay: false,
-    offerPool: marketPool,
-    agentLoop: null,
-  };
+    const agentErr =
+      !agent.ok && !("continue" in agent && agent.continue)
+        ? agent
+        : null;
+    return {
+      ok: false,
+      status: 503,
+      error: "agent_loop_failed",
+      message:
+        agentErr && "message" in agentErr && typeof agentErr.message === "string"
+          ? agentErr.message
+          : "The SERV agent loop did not finish. No code fallback pick was published.",
+    };
+  // Classic triage removed — agent_loop_failed returns above; never reintroduce.
 }

@@ -1,5 +1,5 @@
 /**
- * Offline PR B decide orchestrator — synthetic-test-* fixtures only.
+ * Offline decide orchestrator — agent loop is the only path (classic triage deleted).
  */
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
@@ -29,60 +29,8 @@ function listing(i: number) {
   };
 }
 
-function receiptFor(
-  row: ReturnType<typeof listing>,
-  checkId: FindFreeGovReceipt["checkId"],
-): FindFreeGovReceipt {
-  return {
-    checkId,
-    toolId:
-      checkId === "free_gov_recalls"
-        ? "evidence.gov_recalls"
-        : checkId === "free_gov_safety"
-          ? "evidence.gov_safety"
-          : checkId === "free_gov_fuel"
-            ? "evidence.gov_fuel"
-            : "evidence.gov_vpic",
-    status: "ok",
-    summary: "synthetic-test receipt",
-    scope: "year/make/model",
-    limitsNote: "Not NMVTIS.",
-    vin: row.vin,
-    make: row.make,
-    model: row.model,
-    year: row.year,
-    fetchedAt: new Date().toISOString(),
-    cached: true,
-    sourceUrl: null,
-    factNotes: ["synthetic-test"],
-    riskFacts:
-      checkId === "free_gov_recalls"
-        ? {
-            parkIt: false,
-            parkOutside: false,
-            campaignNumbers: [],
-            campaignCountReported: 0,
-            complaintCount: 0,
-            recallsAvailable: true,
-            complaintsAvailable: true,
-            sourceUrl: null,
-            toolId: "evidence.gov_recalls",
-            scope: "year/make/model",
-            vinOpenRecalls: null,
-            make: row.make,
-            model: row.model,
-            year: row.year,
-            listingKey: `${row.make}|${row.model}|${row.year}`.toLowerCase(),
-            cached: true,
-          }
-        : null,
-    fuelEvidence: null,
-    honesty: "synthetic-test fixture",
-  };
-}
-
 describe("runFindDecideOrchestrator (offline)", () => {
-  it("runs free-gov → code triage → code decide when SERV is absent", async () => {
+  it("fails honestly when SERV key is absent — no classic triage→decide", async () => {
     const kv = new MemoryKv();
     const listings = [listing(1), listing(2), listing(3), listing(4)];
     let record = mintFindSearchContextRecord({
@@ -96,52 +44,12 @@ describe("runFindDecideOrchestrator (offline)", () => {
 
     const result = await runFindDecideOrchestrator(
       { searchContextToken: record.token },
-      {
-        kv,
-        userId: "synthetic-test-user",
-        servKey: null,
-        runFreeGov: async ({ listings: rows }) => {
-          const receipts = rows.flatMap((row) =>
-            (["free_gov_recalls", "free_gov_safety", "free_gov_fuel", "free_gov_vpic"] as const).map(
-              (checkId) => receiptFor(row as ReturnType<typeof listing>, checkId),
-            ),
-          );
-          return {
-            receipts,
-            evidenceChanged: true,
-            checkIds: [
-              "free_gov_recalls",
-              "free_gov_safety",
-              "free_gov_fuel",
-              "free_gov_vpic",
-            ],
-            note: "synthetic-test free-gov parallel",
-            coverage: {
-              listingMmyCount: 3,
-              anyUnchecked: false,
-              note: "synthetic-test coverage complete",
-              recalls: { checked: 3, eligible: 3, unchecked: 0 },
-              safety: { checked: 3, eligible: 3, unchecked: 0 },
-              fuel: { checked: 3, eligible: 3, unchecked: 0 },
-              vpic: { checked: 4, eligible: 4, unchecked: 0 },
-            },
-            mmyCount: 3,
-            vpicCount: 4,
-            jobCount: receipts.length,
-          };
-        },
-      },
+      { kv, userId: "synthetic-test-user", servKey: null },
     );
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.loop.continue).toBe(false);
-    expect(result.freeGovReceipts.length).toBeGreaterThan(0);
-    expect(result.bestDeal?.pick).toBeTruthy();
-    expect(result.decideSource).toBe("code");
-    expect(result.pickProofRecords.some((p) => p.purpose === "find_triage")).toBe(true);
-    expect(result.pickProofRecords.some((p) => p.purpose === "find_decide")).toBe(true);
-    expect(result.pickAgentVerdict?.confidence).not.toBe("high");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("agent_loop_required");
   });
 
   it("rejects contexts minted for next-check only", async () => {
@@ -163,7 +71,7 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(result.error).toBe("decide_path_disabled");
   });
 
-  it("does not invent appliedCheckIds or claim full coverage when free-gov returns empty", async () => {
+  it("publishes via injected agent loop and never falls through to code choose", async () => {
     const kv = new MemoryKv();
     const listings = [listing(1), listing(2), listing(3)];
     let record = mintFindSearchContextRecord({
@@ -174,27 +82,86 @@ describe("runFindDecideOrchestrator (offline)", () => {
       servNextCheckEnabled: false,
     });
     record = await updateFindSearchContext(kv, record, { decidePathEnabled: true });
+    const pickVin = listings[0]!.vin;
 
     const result = await runFindDecideOrchestrator(
       { searchContextToken: record.token },
       {
         kv,
         userId: "synthetic-test-user",
-        servKey: null,
+        servKey: "test-serv",
+        autodevKey: "test-autodev",
         runFreeGov: async () => ({
           receipts: [],
           evidenceChanged: false,
           checkIds: [],
           note: "synthetic-test empty wave",
         }),
+        runFindAgentLoopImpl: async () =>
+          ({
+            ok: true as const,
+            agentMode: "tools" as const,
+            toolRounds: 1,
+            verdictReached: true,
+            verdict: {
+              summary: "synthetic-test pick",
+              confidence: "medium" as const,
+              picks: [
+                {
+                  vin: pickVin,
+                  label: "Toyota RAV4",
+                  action: "negotiate" as const,
+                  offerUsd: 22_000,
+                  why: "synthetic-test",
+                },
+              ],
+              relaxedConditions: [],
+              passReason: null,
+            },
+            droppedPicks: [],
+            listingsByVin: new Map(
+              listings.map((row) => [
+                row.vin.toUpperCase(),
+                {
+                  ...row,
+                  trim: null,
+                  city: null,
+                  state: null,
+                  zip: null,
+                  dealer: null,
+                  vdp: null,
+                  primaryImage: null,
+                  carfaxUrl: null,
+                  used: true,
+                  cpo: false,
+                  accidentCount: null,
+                  oneOwner: null,
+                  ownerCount: null,
+                  usageType: null,
+                  fuel: null,
+                  engine: null,
+                  bodyStyle: "SUV",
+                  latitude: null,
+                  longitude: null,
+                  removedAt: null,
+                  source: "sample" as const,
+                },
+              ]),
+            ),
+            journal: [],
+            relaxedConditions: [],
+          }) as never,
       },
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.freeGovReceipts).toEqual([]);
-    expect(result.loop.detail).toMatch(/No public record checks were recorded/i);
-    expect(result.loop.detail).not.toMatch(/^Public checks, triage, decide, and challenge finished/i);
-    expect(result.freeGovCoverage?.anyUnchecked).toBe(true);
+    expect(result.decideSource).toBe("SERV");
+    expect(result.agentLoop?.verdictReached).toBe(true);
+    expect(result.bestDeal?.pick?.vin ?? result.pickAgentVerdict?.pick?.key).toBeTruthy();
+    const settle = result.pickProofRecords.find((row) => row.purpose === "find_agent_loop");
+    expect(settle).toBeTruthy();
+    expect(settle?.status).toBe("ok");
+    expect(settle?.inputsDigest.length).toBeGreaterThanOrEqual(32);
   });
 });

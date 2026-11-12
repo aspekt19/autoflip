@@ -87,7 +87,7 @@ describe("run settlement", () => {
 
   it("a clarification changes the stored spec and leaves the verdict to the server", () => {
     const next = appendClarification(draft(), "it is for a new driver", {
-      priceMaxUsd: { value: 8000, dirty: true },
+      priceMaxUsd: { value: 8000, origin: "user" as const },
     });
     expect(next.inputs.clarifications).toEqual(["it is for a new driver"]);
     expect(next.spec?.hard.priceMaxUsd).toEqual({ value: 8000, source: "form" });

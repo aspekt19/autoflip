@@ -69,8 +69,11 @@ export type ServProfile = {
   timeoutMs: number;
   fallback: string;
   system: string;
-  /** Chat completions reject a function tool unless this is "none". */
-  reasoningEffort: "none" | "low" | "medium";
+  /**
+   * gpt-6.1-sol-supported effort. Never "none" — function tools use /v1/responses
+   * with a real effort (see endpointForProfile).
+   */
+  reasoningEffort: "low" | "medium";
   /** Default SERV prompt cache. System text is stable; the opt-out is not used. */
   promptCache: "default";
   /** Default output filter. Never send serv_disable_content_filter. */
@@ -434,7 +437,7 @@ export const PROFILES = {
   report_explain: {
     id: "report_explain",
     purpose: "Explain a full report. Personal and Flip share this profile.",
-    reason: "Facts are inline. The tool returns the same figures when the model calls it. Chat completions reject that function tool unless reasoning effort is none. A second pass checks the wording.",
+    reason: "Facts are inline. The tool returns the same figures when the model calls it. Function tools run on /v1/responses with a supported reasoning_effort (never none). A second pass checks the wording.",
     feature: "none",
     tools: ["prompt_guard", "shadow"],
     shadowHint: REPORT_SHADOW_HINT,
@@ -442,11 +445,11 @@ export const PROFILES = {
     timeoutMs: 25_000,
     fallback: "explanation unavailable",
     system: explainSystem,
-    reasoningEffort: "none",
+    reasoningEffort: "low",
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    endpoint: "chat",
+    endpoint: "responses",
     applicationTool: "read_computed_facts",
     codeComputed: ["fairValueUsd", "priceGap", "percentile", "score", "recalls", "complaintCount", "flip"],
   },
@@ -469,7 +472,7 @@ export const PROFILES = {
   agent_explain: {
     id: "agent_explain",
     purpose: "Explain a report returned to an agent.",
-    reason: "Same figure-reading tool and second pass as the shopper report. The hint is the agent wording. Effort is none for the same chat-completions tool limit.",
+    reason: "Same figure-reading tool and second pass as the shopper report. The hint is the agent wording. Function tools run on /v1/responses with a supported reasoning_effort (never none).",
     feature: "none",
     tools: ["prompt_guard", "shadow"],
     shadowHint: AGENT_SHADOW_HINT,
@@ -477,11 +480,11 @@ export const PROFILES = {
     timeoutMs: 25_000,
     fallback: "explanation unavailable",
     system: explainSystem,
-    reasoningEffort: "none",
+    reasoningEffort: "low",
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    endpoint: "chat",
+    endpoint: "responses",
     applicationTool: "read_computed_facts",
     codeComputed: ["fairValueUsd", "priceGap", "percentile", "score", "recalls", "complaintCount", "flip"],
   },
@@ -1381,6 +1384,10 @@ export function endpointForProfile(entry: ServProfile, model = BASE_MODEL): "cha
   if (isGeminiModelId(model) || isGeminiModelId(modelFor(entry.id as ProfileId, model))) {
     return "chat";
   }
+  // Function tools require /v1/responses — never chat + reasoning_effort "none".
+  if (entry.applicationTool) {
+    return "responses";
+  }
   const id = entry.id;
   if (
     id.startsWith("find_") ||
@@ -1393,8 +1400,7 @@ export function endpointForProfile(entry: ServProfile, model = BASE_MODEL): "cha
     id === "check_rules" ||
     id === "check_guard" ||
     id === "listing_extract" ||
-    id === "report_guard" ||
-    id === "report_explain"
+    id === "report_guard"
   ) {
     return "chat";
   }

@@ -69,13 +69,14 @@ describe("t315 progressive clarification", () => {
     expect(afterBoth.conditionPriority).toBe("inspection_first");
     expect(followUps(afterBoth)).toEqual([]);
 
-    // Budget editorial band still applies when floors stay null (no invented year).
+    // Budget year band is ranking copy only — not a search yearMin constraint.
     const directions = proposeDirections(
       { ...afterBoth, zip: "68114", distanceMiles: 50, budgetUsd: 15_000, budgetKnown: true },
       undefined,
       new Date("2026-11-08T00:00:00Z"),
     );
-    expect(directions[0]?.yearMin).toBe(2012);
+    expect(directions[0]?.yearMin).toBe(1990);
+    expect(directions[0]?.yearBecause).toMatch(/ranking preference/i);
     expect(directions[0]?.yearBecause).not.toMatch(/clarification/i);
 
     // Next-check must not re-offer clarify_year_band that would force 2015.

@@ -25,7 +25,7 @@ export function previewFindFromNote(
     findPlan.bodyStyles.find((style) => style !== "any") ?? null,
   );
   const mapped = planToStructuredNeed(findPlan, mode, note);
-  const withGeo = attachNoteGeo(mapped, { applyDefaultRadius: true });
+  const withGeo = attachNoteGeo(mapped, { applyDefaultRadius: false });
   const { locationResolution: _location, radiusIsDefault, ...need } = withGeo;
   return { need, directions, findPlan, radiusIsDefault: radiusIsDefault === true };
 }

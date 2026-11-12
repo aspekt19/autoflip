@@ -194,10 +194,10 @@ describe("resale live defects (Nov 12)", () => {
       note: "",
       mode: "flip",
       formEdits: {
-        priceMaxUsd: { value: 10_000, dirty: true },
-        zip: { value: "75201", dirty: true },
-        radiusMi: { value: 50, dirty: true },
-        sellWithinDays: { value: 30, dirty: true },
+        priceMaxUsd: { value: 10_000, origin: "user" as const },
+        zip: { value: "75201", origin: "user" as const },
+        radiusMi: { value: 50, origin: "user" as const },
+        sellWithinDays: { value: 30, origin: "user" as const },
       },
     });
     const lines = limitSentences(spec);

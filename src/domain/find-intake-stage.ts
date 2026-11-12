@@ -79,9 +79,11 @@ export function noteMarksFrom(need: StructuredNeed, noteText?: string): NoteMark
 }
 
 /**
- * Fresh free-text parse: resolve city→ZIP, apply a labelled default radius when a
- * city/ZIP came from the note without an explicit “within N miles”, else leave
- * radius null (nationwide / ask inline). Never keeps a caller-supplied stale ZIP.
+ * Fresh free-text parse: resolve city→ZIP. A labelled default radius
+ * ({@link NOTE_DEFAULT_RADIUS_WHEN_ZIP}) may show in the UI as a suggestion via
+ * `radiusIsDefault`, but is NEVER written into `distanceMiles` as a search
+ * constraint — SERV picks radius unless the shopper sets one. Never keeps a
+ * caller-supplied stale ZIP.
  */
 export function attachNoteGeo(
   need: StructuredNeed,
@@ -99,17 +101,19 @@ export function attachNoteGeo(
     locationPhrase: need.locationPhrase ?? intake?.locationPhrase ?? null,
   });
   const explicitRadius = need.distanceMiles;
-  const applyDefault =
-    opts?.applyDefaultRadius !== false &&
+  const wouldSuggestDefault =
     resolution.zip != null &&
     explicitRadius == null &&
     Boolean(need.locationPhrase || intake?.locationPhrase || resolution.from === "inferred_from_city");
-  const distanceMiles = explicitRadius != null ? explicitRadius : applyDefault ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
+  // applyDefaultRadius is retained for callers that want the suggestion flag, but
+  // distanceMiles stays null either way — defaults are not constraints.
+  void opts?.applyDefaultRadius;
+  void NOTE_DEFAULT_RADIUS_WHEN_ZIP;
   return {
     ...need,
     zip: resolution.zip,
-    distanceMiles,
+    distanceMiles: explicitRadius != null ? explicitRadius : null,
     locationResolution: resolution,
-    radiusIsDefault: applyDefault,
+    radiusIsDefault: wouldSuggestDefault,
   };
 }

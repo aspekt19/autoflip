@@ -111,22 +111,22 @@ describe("/api/check settlement", () => {
     expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).remaining).toBe(beforeFree.remaining);
   });
 
-  it("commits a free check only after a delivered success", async () => {
-    await creditGrant(kvHolder.kv, ACCOUNT, 1, "init-credit");
-    runCheckMock.mockResolvedValue({
+
+  function deliveredServResult(over: Record<string, unknown> = {}) {
+    return {
       ok: true,
       result: {
         kind: "vin_dossier",
         title: "2021 Toyota Camry",
-        verdict: "dossier",
-        verdictLabel: "VIN dossier",
+        verdict: "fair",
+        verdictLabel: "Fair price",
         confidence: "Medium",
         summary: "ok",
         badge: null,
-        fairValueUsd: null,
-        priceGap: null,
-        compCount: 0,
-        compScope: "",
+        fairValueUsd: 18_000,
+        priceGap: 0.02,
+        compCount: 6,
+        compScope: "test",
         redFlags: [],
         questions: [],
         otd: null,
@@ -139,7 +139,7 @@ describe("/api/check settlement", () => {
         vin: VIN,
         vinDecode: null,
         recalls: [],
-        recallsAvailable: false,
+        recallsAvailable: true,
         complaintCount: null,
         fuel: null,
         fuelConflict: null,
@@ -149,9 +149,41 @@ describe("/api/check settlement", () => {
         listingsForVin: [],
         llmUsed: false,
         sample: false,
-        agentVerdict: null,
+        agentVerdict: {
+          verdict: "negotiate",
+          confidence: "medium",
+          no_serv_step: false,
+          serv_steps: [],
+          unknowns: [],
+        },
+        ...over,
+      },
+    };
+  }
+
+  it("does not settle when runCheck returns ok without a SERV shopper verdict", async () => {
+    await creditGrant(kvHolder.kv, ACCOUNT, 1, "init-credit");
+    runCheckMock.mockResolvedValue({
+      ok: true,
+      result: {
+        ...deliveredServResult().result,
+        agentVerdict: { verdict: null, confidence: "low", no_serv_step: true, serv_steps: [], unknowns: [] },
       },
     });
+
+    const response = await POST(req({ kind: "vin", vin: VIN }));
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.error).toBe("serv_verdict_unavailable");
+    expect(body.creditCharged).toBe(false);
+    expect(body.usedFreeCheck).toBe(false);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(0);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(1);
+  });
+
+  it("commits a free check only after a delivered SERV success", async () => {
+    await creditGrant(kvHolder.kv, ACCOUNT, 1, "init-credit");
+    runCheckMock.mockResolvedValue(deliveredServResult());
 
     const response = await POST(req({ kind: "vin", vin: VIN }));
     const body = await response.json();
@@ -175,45 +207,15 @@ describe("/api/check settlement", () => {
     expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).remaining).toBe(1);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(5);
 
-    runCheckMock.mockResolvedValue({
-      ok: true,
-      result: {
-        kind: "vin_dossier",
+    runCheckMock.mockResolvedValue(
+      deliveredServResult({
         title: "2019 Honda Civic",
-        verdict: "negotiate",
-        verdictLabel: "Negotiate",
-        confidence: "Low",
-        summary: "ok",
-        badge: null,
+        vin: "2HGFC3B33KH356212",
         fairValueUsd: 15_000,
         priceGap: 0.01,
-        compCount: 6,
-        compScope: "test",
-        redFlags: [],
-        questions: [],
-        otd: null,
-        otdNeedsZip: false,
-        walkAwayUsd: null,
-        walkAwayLabel: null,
-        similarCars: [],
-        fields: null,
-        provenance: [],
-        vin: "2HGFC3B33KH356212",
-        vinDecode: null,
-        recalls: [],
-        recallsAvailable: false,
-        complaintCount: null,
-        fuel: null,
-        fuelConflict: null,
-        safetySummary: null,
-        knownIssues: [],
-        unknown: [],
-        listingsForVin: [],
-        llmUsed: false,
-        sample: false,
-        agentVerdict: null,
-      },
-    });
+        confidence: "Low",
+      }),
+    );
 
     const response = await POST(req({ kind: "vin", vin: "2HGFC3B33KH356212" }));
     const body = await response.json();
@@ -227,46 +229,7 @@ describe("/api/check settlement", () => {
 
   it("replays a saved delivery without claiming another free check or credit", async () => {
     await creditGrant(kvHolder.kv, ACCOUNT, 2, "init-replay");
-    runCheckMock.mockResolvedValue({
-      ok: true,
-      result: {
-        kind: "vin_dossier",
-        title: "2021 Toyota Camry",
-        verdict: "dossier",
-        verdictLabel: "VIN dossier",
-        confidence: "Medium",
-        summary: "ok",
-        badge: null,
-        fairValueUsd: null,
-        priceGap: null,
-        compCount: 0,
-        compScope: "",
-        redFlags: [],
-        questions: [],
-        otd: null,
-        otdNeedsZip: false,
-        walkAwayUsd: null,
-        walkAwayLabel: null,
-        similarCars: [],
-        fields: null,
-        provenance: [],
-        vin: VIN,
-        vinDecode: null,
-        recalls: [],
-        // Month-cache requires recallsAvailable !== false (degraded results are not cached).
-        recallsAvailable: true,
-        complaintCount: null,
-        fuel: null,
-        fuelConflict: null,
-        safetySummary: null,
-        knownIssues: [],
-        unknown: [],
-        listingsForVin: [],
-        llmUsed: false,
-        sample: false,
-        agentVerdict: null,
-      },
-    });
+    runCheckMock.mockResolvedValue(deliveredServResult());
 
     const first = await POST(req({ kind: "vin", vin: VIN }));
     const firstBody = await first.json();

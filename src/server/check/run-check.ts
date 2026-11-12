@@ -41,7 +41,6 @@ import { dealerQuestions } from "@/domain/questions";
 import { extractVin, isValidVin } from "@/domain/vin";
 import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/decision-action";
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
-import { verdictLabel } from "@/domain/format";
 import { capConfidenceForHonesty, verdictNeedsInspection } from "@/domain/confidence-cap";
 import { confidenceCapReasonForStop } from "@/domain/nhtsa-stop-flags";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
@@ -513,46 +512,48 @@ async function attachCheckShopperServ(input: {
   return { agentVerdict, servTrace: shopper.trace, proofRecords: shopper.proofRecords };
 }
 
-/**
- * Headline must follow the final guarded decision (decide → TS clamp → challenge),
- * never the price-rating screening alone.
- */
-export function headlineFromGuardedDecision(input: {
-  screeningVerdict: CheckVerdictLabel;
-  screeningLabel: string;
-  screeningConfidence: CheckConfidence;
-  screeningConfidenceWhy: string;
-  agentVerdict: AgentVerdict;
-}): {
+/** True when SERV delivered a shopper decide action (chargeable Check verdict). */
+export function hasDeliveredServVerdict(
+  agentVerdict: { no_serv_step?: boolean; verdict?: string | null } | null | undefined,
+): boolean {
+  if (!agentVerdict || agentVerdict.no_serv_step) return false;
+  return isServDecisionAction(agentVerdict.verdict);
+}
+
+export type CheckHeadlineDelivered = {
+  delivered: true;
   verdict: CheckVerdictLabel;
   verdictLabel: string;
   confidence: CheckConfidence;
   confidenceWhy: string;
-} {
+};
+
+export type CheckHeadlineUndelivered = {
+  delivered: false;
+  reason: string;
+};
+
+/**
+ * Headline must follow the final guarded SERV decision (decide → TS clamp → challenge).
+ * No SERV action → undelivered (caller must honest-fail; never publish code screening).
+ */
+export function headlineFromGuardedDecision(input: {
+  screeningConfidenceWhy: string;
+  agentVerdict: AgentVerdict;
+}): CheckHeadlineDelivered | CheckHeadlineUndelivered {
   const action = input.agentVerdict.verdict;
   if (!action || input.agentVerdict.no_serv_step || !isServDecisionAction(action)) {
-    // SERV failed or withheld — do not leave Medium/High looking "fine".
-    const confidence: CheckConfidence =
-      input.agentVerdict.no_serv_step && input.screeningConfidence !== "Low" ? "Low" : input.screeningConfidence;
-    const honesty = capConfidenceForHonesty({
-      confidence,
-      verdict: input.screeningVerdict,
-      evidenceSettled: true,
-    });
+    const why =
+      input.agentVerdict.serv_spend?.costNote?.trim() ||
+      input.agentVerdict.unknowns[0]?.trim() ||
+      "SERV shopper verdict did not finish.";
     return {
-      verdict: input.screeningVerdict,
-      verdictLabel: input.screeningLabel,
-      confidence: honesty.confidence,
-      confidenceWhy: input.agentVerdict.no_serv_step
-        ? `${input.screeningConfidenceWhy} SERV shopper verdict did not finish — confidence is Low until a fresh check completes.`
-        : input.screeningConfidenceWhy,
+      delivered: false,
+      reason: `${why} Nothing was charged — retry when a fresh decide step can complete.`,
     };
   }
-  const baseline: Verdict =
-    input.screeningVerdict === "dossier"
-      ? "insufficient_data"
-      : (input.screeningVerdict as Verdict);
-  const mapped = verdictFromAction(action, baseline);
+  // SERV owns the action; map to Check label without a code price-badge baseline.
+  const mapped = verdictFromAction(action, "insufficient_data");
   const mappedVerdict = mapped === "withheld" ? "insufficient_data" : (mapped as CheckVerdictLabel);
   const rawConfidence: CheckConfidence =
     input.agentVerdict.confidence === "high"
@@ -566,12 +567,15 @@ export function headlineFromGuardedDecision(input: {
     evidenceSettled: true,
   });
   const confidence = honesty.confidence;
-  // Keep stop/margin/honesty cap labels visible when screening or trail already explained a High→Medium drop.
+  // Keep stop/margin/honesty cap labels visible when trail already explained a High→Medium drop.
   const capBits = [
     honesty.reason,
-    /Lowered from High/i.test(input.screeningConfidenceWhy) ? input.screeningConfidenceWhy.match(/Lowered from High[^.]*\.?/)?.[0] : null,
+    /Lowered from High/i.test(input.screeningConfidenceWhy)
+      ? input.screeningConfidenceWhy.match(/Lowered from High[^.]*\.?/)?.[0]
+      : null,
     input.agentVerdict.serv_steps.map((s) => s.why).find((why) => why && /Lowered from High/i.test(why)) ?? null,
-    input.agentVerdict.second_pass?.objection && /Lowered from High/i.test(input.agentVerdict.second_pass.objection)
+    input.agentVerdict.second_pass?.objection &&
+    /Lowered from High/i.test(input.agentVerdict.second_pass.objection)
       ? input.agentVerdict.second_pass.objection.match(/Lowered from High[^.]*\.?/)?.[0]
       : null,
   ].filter((bit): bit is string => Boolean(bit));
@@ -580,10 +584,23 @@ export function headlineFromGuardedDecision(input: {
     confidence === "High" ? "high" : confidence === "Medium" ? "medium" : "low",
   )}) after decide → clamp → challenge — not the price rating alone.`;
   return {
+    delivered: true,
     verdict: mappedVerdict,
     verdictLabel: actionLabel(action, "personal"),
     confidence,
     confidenceWhy: capNote && !baseWhy.includes(capNote) ? `${baseWhy} ${capNote}` : baseWhy,
+  };
+}
+
+function servVerdictUnavailable(message?: string): Extract<CheckRunResult, { ok: false }> {
+  return {
+    ok: false,
+    status: 503,
+    error: "serv_verdict_unavailable",
+    message:
+      message?.trim() ||
+      "Shopper verdict did not finish — nothing was charged. Retry when a fresh SERV decide step can complete.",
+    creditCharged: false,
   };
 }
 
@@ -601,24 +618,6 @@ export function checkResultIsCacheable(result: {
     return result.agentVerdict?.no_serv_step !== true;
   }
   return true;
-}
-
-function verdictFromBadge(
-  badge: PriceBadge | null,
-  flags: CheckRedFlag[],
-): { verdict: CheckVerdictLabel; label: string } {
-  if (flags.some((f) => f.id === "sold")) {
-    return { verdict: "walk_away", label: "Pass — listing marked SOLD" };
-  }
-  if (flags.some((f) => f.level === "stop")) {
-    return { verdict: "walk_away", label: verdictLabel("walk_away") };
-  }
-  if (!badge || badge.tone === "unknown") {
-    return { verdict: "insufficient_data", label: "Not enough price data — still a screening verdict" };
-  }
-  if (badge.tone === "good") return { verdict: "good_deal", label: verdictLabel("good_deal") };
-  if (badge.tone === "fair") return { verdict: "fair", label: verdictLabel("fair") };
-  return { verdict: "overpriced", label: verdictLabel("overpriced") };
 }
 
 async function buildListingVerdict(
@@ -844,7 +843,8 @@ async function buildListingVerdict(
         })
       : null;
 
-  const decided = verdictFromBadge(badge, flags);
+  // Code no longer maps badge/flags → Check action. Neutral trail until SERV delivers.
+  const trailLabel = "Awaiting SERV shopper verdict";
   let confidence = checkConfidence({
     fields,
     hasVin: Boolean(fields.vin.value),
@@ -902,7 +902,7 @@ async function buildListingVerdict(
   const codeTrail = buildCheckAgentVerdict({
     kind: "listing",
     title: `${subject.year} ${subject.make} ${subject.model}`,
-    verdictLabel: decided.label,
+    verdictLabel: trailLabel,
     confidence,
     confidenceWhy: listingConfidenceWhy,
     summary,
@@ -919,7 +919,7 @@ async function buildListingVerdict(
   const shopper = await attachCheckShopperServ({
     codeTrail,
     subject,
-    verdict: decided.verdict,
+    verdict: "insufficient_data",
     badge,
     fairValueUsd,
     priceGap,
@@ -939,12 +939,12 @@ async function buildListingVerdict(
     deps: input.deps,
   });
   const headline = headlineFromGuardedDecision({
-    screeningVerdict: decided.verdict,
-    screeningLabel: decided.label,
-    screeningConfidence: confidence,
     screeningConfidenceWhy: listingConfidenceWhy,
     agentVerdict: shopper.agentVerdict,
   });
+  if (!headline.delivered) {
+    return servVerdictUnavailable(headline.reason);
+  }
 
   return {
     ok: true,
@@ -1230,11 +1230,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
 
   const parkIt = bundle.recalls.some((row) => row.parkIt);
   const priced = Boolean(badge && badge.tone !== "unknown" && badge.fairValueUsd != null);
-  const decided = hasAsk
-    ? verdictFromBadge(badge, redFlags)
-    : { verdict: "dossier" as const, label: "VIN dossier (free sources)" };
+  // Code no longer maps badge/flags → Check action. Neutral trail until SERV delivers.
+  const trailLabel = hasAsk ? "Awaiting SERV shopper verdict" : "VIN facts pending SERV shopper verdict";
 
-  // Confidence describes the screening verdict — not “gov records alone while unpriced = High”.
+  // Confidence describes evidence strength for the trail — not a published Check action.
   let confidence: CheckConfidence;
   let confidenceWhy: string;
   if (priced) {
@@ -1301,7 +1300,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   const codeTrail = buildCheckAgentVerdict({
     kind: "vin_dossier",
     title: `${subject.year} ${subject.make} ${subject.model}`,
-    verdictLabel: decided.label,
+    verdictLabel: trailLabel,
     confidence,
     confidenceWhy,
     summary,
@@ -1320,7 +1319,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   const shopper = await attachCheckShopperServ({
     codeTrail,
     subject,
-    verdict: decided.verdict,
+    verdict: "insufficient_data",
     badge,
     fairValueUsd,
     priceGap,
@@ -1340,12 +1339,12 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     deps,
   });
   const headline = headlineFromGuardedDecision({
-    screeningVerdict: decided.verdict,
-    screeningLabel: decided.label,
-    screeningConfidence: confidence,
     screeningConfidenceWhy: confidenceWhy,
     agentVerdict: shopper.agentVerdict,
   });
+  if (!headline.delivered) {
+    return servVerdictUnavailable(headline.reason);
+  }
 
   const provenance: FieldProvenanceRow[] = [
     { field: "vin", value: vin, source: "typed VIN" },

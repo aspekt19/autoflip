@@ -2,6 +2,7 @@ import { findDecidePathEnabled } from "@/domain/find-decide-path";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import type { SearchDirection } from "@/domain/directions";
 import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
+import { pickUserFormConstraints } from "@/domain/constraint-provenance";
 import { buildSearchSpec } from "@/domain/search-spec";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
@@ -12,8 +13,6 @@ import { readRun } from "@/io/run-store";
 import { listingFromCar, syncRunSafely } from "@/server/run-sync";
 import { runtimeDeps } from "@/server/deps";
 import {
-  listingFactsFromCompsPool,
-  listingsFromMatchDirections,
   loadFindSearchContext,
   mintFindSearchContextRecord,
   storeFindSearchContext,
@@ -66,6 +65,8 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     need?: unknown;
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
+    /** Provenanced form bag — only origin "user" becomes SearchSpec form edits. */
+    constraints?: import("@/domain/search-spec").SearchFormEdits;
     searchIdempotencyKey?: string;
     runId?: string;
     /** C1 find_plan — owns SearchSpec hard vs soft when present. */
@@ -226,17 +227,19 @@ export async function POST(request: Request) {
         // Owner-bound search context for next-check / decide (server authority — not client body).
         const validated = validateNeed(body?.need ?? {});
         if (validated.ok) {
-          const shown = listingsFromMatchDirections(result.body.directions);
-          const compsPool = Array.isArray(result.body.compsPool)
-            ? listingFactsFromCompsPool(result.body.compsPool)
-            : shown;
+          // Same as eval/live/run-one: empty seed → agent loop owns search via
+          // search_listings. Match directions remain for UI cards only
+          // (display paging/diversity OK). Never seed SERV from post-budget /
+          // post-odo / diversify-8 filtered lists.
           const minted = mintFindSearchContextRecord({
             userId: id,
             need: validated.need,
             refine: body?.refine ?? {},
-            listings: shown,
-            compsPool,
+            listings: [],
+            compsPool: [],
             servNextCheckEnabled,
+            // Display filters stay UI-only — empty seed above. User form bag travels separately.
+            userFormEdits: body?.constraints ? pickUserFormConstraints(body.constraints) : null,
           });
           // Owned rematch keeps the same token and the paid-call counter.
           // A new token would open another hard cap of 8 SERV calls for free.
@@ -257,6 +260,8 @@ export async function POST(request: Request) {
                 decidePathEnabled: prior.record.decidePathEnabled || decidePath,
                 triageShortlistKeys: prior.record.triageShortlistKeys ?? [],
                 triageRevisitUsed: prior.record.triageRevisitUsed ?? false,
+                // Prefer fresh bag from this rematch; fall back to prior stored edits.
+                userFormEdits: minted.userFormEdits ?? prior.record.userFormEdits ?? null,
                 iat: prior.record.iat,
                 exp: prior.record.exp,
               };
@@ -405,21 +410,26 @@ export async function POST(request: Request) {
     const spec = buildSearchSpec({
       note,
       mode,
-      formEdits: validatedNeed.ok
-        ? {
-            priceMaxUsd:
-              validatedNeed.need.budgetKnown && validatedNeed.need.budgetUsd != null
-                ? { value: validatedNeed.need.budgetUsd, dirty: true }
-                : undefined,
-            yearMin: validatedNeed.need.yearMin != null ? { value: validatedNeed.need.yearMin, dirty: true } : undefined,
-            yearMax: validatedNeed.need.yearMax != null ? { value: validatedNeed.need.yearMax, dirty: true } : undefined,
-            milesMax: validatedNeed.need.milesMax != null ? { value: validatedNeed.need.milesMax, dirty: true } : undefined,
-            zip: validatedNeed.need.zip ? { value: validatedNeed.need.zip, dirty: true } : undefined,
-            radiusMi: { value: validatedNeed.need.distanceMiles, dirty: true },
-          }
-        : undefined,
-      servPlan: body?.findPlan ? findPlanToServHint(body.findPlan) : undefined,
+      // Never stamp need.distanceMiles as a user form edit — only client constraints
+      // with origin "user" may become form overrides (passed via body.constraints).
+      formEdits: body?.constraints ? pickUserFormConstraints(body.constraints) : undefined,
+      servPlan: {
+        ...(body?.findPlan ? findPlanToServHint(body.findPlan) : {}),
+        ...(validatedNeed.ok
+          ? {
+              priceMaxUsd:
+                validatedNeed.need.budgetKnown && validatedNeed.need.budgetUsd != null
+                  ? validatedNeed.need.budgetUsd
+                  : undefined,
+              yearMin: validatedNeed.need.yearMin ?? undefined,
+              yearMax: validatedNeed.need.yearMax ?? undefined,
+              milesMax: validatedNeed.need.milesMax ?? undefined,
+              location: { zip: validatedNeed.need.zip },
+            }
+          : {}),
+      },
     });
+    const matchFormEdits = body?.constraints ? pickUserFormConstraints(body.constraints) : undefined;
     const runId = await syncRunSafely(kv, {
       runId: typeof body?.runId === "string" ? body.runId : null,
       ownerId: id,
@@ -427,6 +437,7 @@ export async function POST(request: Request) {
       note,
       mode,
       spec,
+      formEdits: matchFormEdits,
       listings,
       queryCount: providerQueriesUsed,
       creditsCharged: charged ? 1 : 0,

@@ -9,32 +9,23 @@ import {
 const VIN = "1HGCM82633A004352";
 
 describe("resaleAgentLoopEnabled", () => {
-  it("defaults on when servKey present and not e2e stub", () => {
+  it("is on whenever a SERV key is present", () => {
     expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "auto" }, { servKey: "sk" })).toBe(true);
     expect(resaleAgentLoopEnabled({}, { servKey: "sk" })).toBe(true);
-  });
-
-  it("stays off under e2e stub unless explicitly forced on", () => {
-    expect(
-      resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", RESALE_AGENT_LOOP: "auto" }, { servKey: "sk" }),
-    ).toBe(false);
-    expect(
-      resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", RESALE_AGENT_LOOP: "1" }, { servKey: "sk" }),
-    ).toBe(true);
-  });
-
-  it("honors explicit off", () => {
-    expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "0" }, { servKey: "sk" })).toBe(false);
+    expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "0" }, { servKey: "sk" })).toBe(true);
+    // E2E stub must not disable the agent loop — stub upstreams instead.
+    expect(resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1" }, { servKey: "sk" })).toBe(true);
   });
 
   it("requires a serv key", () => {
     expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "1" }, { servKey: "" })).toBe(false);
+    expect(resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1" }, { servKey: "" })).toBe(false);
   });
 });
 
 describe("resolveResaleAgentMode", () => {
-  it("defaults to auto", () => {
-    expect(resolveResaleAgentMode({})).toBe("auto");
+  it("defaults to tools", () => {
+    expect(resolveResaleAgentMode({})).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "tools" })).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "next_action" })).toBe("next_action");
   });

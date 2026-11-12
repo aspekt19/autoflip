@@ -47,7 +47,7 @@ export function selftestWallClockMs(ids = distinctSelftestProfiles()): number {
   return Math.max(
     ...ids.map((id) => {
       const entry = profile(id);
-      const rounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+      const rounds = entry.applicationTool ? 2 : 1;
       return entry.timeoutMs * rounds;
     }),
     0,

@@ -5,6 +5,15 @@
  * (persist checkpoint; never clip SERV call timeouts).
  */
 import {
+  synthesizeRelaxedConditionsFromSearches,
+} from "@/domain/agent-verdict-complete";
+import { fromShopperInputEvent } from "@/domain/constraint-provenance";
+import {
+  assertNoNonUserSetConstraints,
+  buildUserIntentFromFlatForm,
+  serializeUserIntentConstraints,
+} from "@/domain/serv-boundary";
+import {
   applyFindAgentGuardrails,
   FIND_AGENT_NEXT_ACTION_SCHEMA,
   FIND_AGENT_RESULT_SCHEMA,
@@ -94,7 +103,73 @@ export type FindAgentJournalToolCall = {
   args: unknown;
   summary: string;
   ok: boolean;
+  /** search_listings: listings kept after funnel (for scoring / nothing-fits). */
+  resultCount?: number;
+  funnel?: Array<{ step: string; count: number }>;
 };
+
+/** Extract documented search_listings rows from the agent journal. */
+export function searchesFromFindJournal(
+  journal: readonly FindAgentJournalEntry[],
+): import("@/domain/agent-verdict-complete").AgentSearchJournalRow[] {
+  const out: import("@/domain/agent-verdict-complete").AgentSearchJournalRow[] = [];
+  for (const entry of journal) {
+    if (entry.kind !== "tool" || entry.name !== "search_listings") continue;
+    const params =
+      entry.args && typeof entry.args === "object" && !Array.isArray(entry.args)
+        ? (entry.args as Record<string, unknown>)
+        : null;
+    const fromSummary = /→\s*(\d+)\s+hits/i.exec(entry.summary);
+    const zeroSummary = /→\s*0\s+usable/i.test(entry.summary);
+    const resultCount =
+      entry.resultCount ??
+      (fromSummary ? Number(fromSummary[1]) : zeroSummary ? 0 : entry.ok ? 0 : 0);
+    out.push({
+      params,
+      resultCount: Number.isFinite(resultCount) ? resultCount : 0,
+      funnel: entry.funnel ?? null,
+    });
+  }
+  return out;
+}
+
+function enrichFindRelaxed(
+  verdict: FindAgentVerdict,
+  journal: readonly FindAgentJournalEntry[],
+): FindAgentVerdict {
+  // Placeholders already stripped in validateFindAgentVerdict; synthesize when empty.
+  if (verdict.relaxedConditions.length > 0) return verdict;
+  const synthesized = synthesizeRelaxedConditionsFromSearches(searchesFromFindJournal(journal));
+  if (synthesized.length === 0) return verdict;
+  return { ...verdict, relaxedConditions: synthesized };
+}
+
+function journalSearchListingsEntry(
+  executed: { name: string; summary: string; ok: boolean; result: unknown },
+  args: unknown,
+): FindAgentJournalToolCall {
+  const resultRecord =
+    executed.result && typeof executed.result === "object" && !Array.isArray(executed.result)
+      ? (executed.result as Record<string, unknown>)
+      : null;
+  const funnel = Array.isArray(resultRecord?.funnel)
+    ? (resultRecord!.funnel as Array<{ step: string; count: number }>)
+    : undefined;
+  const resultCount =
+    typeof resultRecord?.totalReturned === "number"
+      ? resultRecord.totalReturned
+      : typeof resultRecord?.count === "number"
+        ? resultRecord.count
+        : undefined;
+  return {
+    kind: "tool",
+    name: executed.name,
+    args,
+    summary: executed.summary,
+    ok: executed.ok,
+    ...(executed.name === "search_listings" ? { resultCount, funnel } : {}),
+  };
+}
 
 export type FindAgentJournalEntry = FindAgentJournalServCall | FindAgentJournalToolCall;
 
@@ -106,7 +181,13 @@ export type FindAgentLoopDeps = {
   /** Autodev cache/counter/reserve — tests inject MemoryCounter. */
   autodev?: FindAgentToolDeps["autodev"];
   seedListings?: readonly Listing[];
+  /**
+   * Budget USD ceiling — only when labeled user/note provenance.
+   * Untagged need.budgetUsd must never be passed here.
+   */
   budgetUsd?: number | null;
+  /** Provenance label for the budget ceiling (user | note). */
+  budgetProvenance?: "user" | "note" | "form" | string | null;
 };
 
 export type FindAgentLoopContinue = {
@@ -239,17 +320,70 @@ function restoreFindStateFromCheckpoint(
   };
 }
 
+
+function constraintsFromFormEdits(
+  note: string,
+  formEdits?: Record<string, unknown> | null,
+): { intent: ReturnType<typeof buildUserIntentFromFlatForm>; constraints: Record<string, unknown> } {
+  const form = formEdits ?? {};
+  // Already provenance-tagged (orchestrator / job serialization)?
+  const looksTagged = Object.values(form).some(
+    (v) =>
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      "value" in (v as object) &&
+      ("origin" in (v as object) || "provenance" in (v as object)),
+  );
+  if (looksTagged) {
+    // Form-edits channel: only origin "user" (legacy "form") — note stays in the prompt as context.
+    const intent = { note, fields: {} as import("@/domain/serv-boundary").UserIntent["fields"] };
+    const constraints: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(form)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const row = raw as { value?: unknown; provenance?: unknown; origin?: unknown; quote?: unknown };
+      const origin = typeof row.origin === "string" ? row.origin : row.provenance;
+      if (origin !== "user" && origin !== "form") continue;
+      // Revive wire-tagged user cells — do not invent user from bare values.
+      const revived = fromShopperInputEvent({
+        kind: "wire",
+        field: key as import("@/domain/constraint-provenance").ConstraintFieldKey,
+        value: row.value,
+      });
+      const field = {
+        value: revived.value,
+        provenance: "user" as const,
+        origin: "user" as const,
+        ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
+      };
+      (intent.fields as Record<string, unknown>)[key] = field;
+      constraints[key] = field;
+    }
+    return { intent, constraints };
+  }
+  const intent = buildUserIntentFromFlatForm({ note, form });
+  return { intent, constraints: serializeUserIntentConstraints(intent) };
+}
+
 function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
+  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
+  const gate = assertNoNonUserSetConstraints(constraints, intent);
+  if (!gate.ok) {
+    throw new Error(
+      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
+    );
+  }
   const edits =
-    formEdits && Object.keys(formEdits).length > 0
-      ? `\nForm edits (structured overrides): ${JSON.stringify(formEdits)}`
+    Object.keys(constraints).length > 0
+      ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints: relax the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard budget and must-haves stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters.",
-    "Explain every relaxation in relaxedConditions when you finish.",
-    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks.",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions.",
+    "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
+    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
     `Shopper note:\n${note.trim() || "(empty)"}${edits}`,
@@ -376,17 +510,19 @@ function chatBody(input: {
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
   model?: string;
+  /** Chat fallback must not attach function tools for gpt-6.1-sol. */
   tools?: ServChatToolDef[];
-  reasoningEffort?: "none" | "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
     model: input.model,
-    tools: input.tools,
-    // Chat rejects function tools unless reasoning_effort is none.
-    reasoningEffort: input.tools && input.tools.length > 0 ? "none" : input.reasoningEffort ?? "none",
+    // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
+    // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
+    tools: undefined,
+    reasoningEffort: input.reasoningEffort ?? "low",
   });
 }
 
@@ -486,6 +622,7 @@ async function finalizeVerdict(input: {
   priorMessages: ChatMessage[];
   mode: FindAgentModeResolved;
   budgetUsd: number | null;
+  budgetProvenance?: string | null;
   bundle: AgentServFeatureBundle;
   rejections: AgentServFeatureRejection[];
 }): Promise<
@@ -493,11 +630,15 @@ async function finalizeVerdict(input: {
   | { ok: false; error: string; message: string }
 > {
   const vinList = [...input.state.knownVins].slice(0, 40);
+  const budgetLine =
+    input.budgetUsd != null
+      ? `Budget USD ceiling (${input.budgetProvenance === "user" || input.budgetProvenance === "form" ? "user" : input.budgetProvenance === "note" ? "note" : "labeled"}): ${input.budgetUsd}`
+      : "Budget unknown (no user/note-labeled ceiling).";
   const finishUser = [
     "Return the final find_agent_result JSON now.",
     "picks[].vin must be copied exactly from tool listing results.",
     `Known VINs from tools: ${vinList.length ? vinList.join(", ") : "(none — pass with passReason)"}`,
-    input.budgetUsd != null ? `Budget USD ceiling: ${input.budgetUsd}` : "Budget unknown.",
+    budgetLine,
   ].join("\n");
 
   const messages: ChatMessage[] = [
@@ -505,13 +646,13 @@ async function finalizeVerdict(input: {
     { role: "user", content: finishUser },
   ];
 
-  // Prefer the same OpenServ extensions on structured finish (model suffix + guard + shadow).
-  // Chat requires reasoning_effort=none when function tools are present.
+  // Chat finish is schema-only with a supported reasoning_effort (never "none").
+  // Extensions (Prompt Guard / Shadow) stay on /v1/responses tools mode.
   const withExtensions = chatBody({
     messages,
     model: input.bundle.model,
-    tools: input.bundle.chatExtensionTools,
     jsonSchema: { name: "find_agent_result", schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown> },
+    reasoningEffort: "low",
   });
   let turn = await postChat({
     apiKey: input.apiKey,
@@ -647,11 +788,27 @@ async function finalizeVerdict(input: {
     }
   }
 
-  const guarded = applyFindAgentGuardrails(validated.verdict, {
+  const gated = validateFindSubmitPicks(validated.verdict, {
+    listingsByVin: listingFactsFromState(input.state),
+    budgetUsd: input.budgetUsd,
+    searches: searchesFromFindJournal(input.journal),
+  });
+  if (!gated.ok) {
+    return {
+      ok: false,
+      error: "verdict_incomplete",
+      message: gated.issues.map((i) => i.message).join("; "),
+    };
+  }
+  const guarded = applyFindAgentGuardrails(gated.verdict, {
     allowedVins: input.state.knownVins,
     budgetUsd: input.budgetUsd,
   });
-  return { ok: true, verdict: guarded.verdict, dropped: guarded.dropped };
+  return {
+    ok: true,
+    verdict: enrichFindRelaxed(guarded.verdict, input.journal),
+    dropped: guarded.dropped,
+  };
 }
 
 function findLoopMeta(bundle: AgentServFeatureBundle, rejections: AgentServFeatureRejection[]) {
@@ -816,6 +973,7 @@ async function runToolsMode(input: {
         priorMessages: finishMessages,
         mode: "tools",
         budgetUsd: input.deps.budgetUsd ?? null,
+        budgetProvenance: input.deps.budgetProvenance ?? null,
         bundle,
         rejections,
       });
@@ -863,6 +1021,7 @@ async function runToolsMode(input: {
           const checked = validateFindSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd: input.deps.budgetUsd ?? null,
+            searches: searchesFromFindJournal(input.journal),
           });
           if (!checked.ok) {
             input.journal.push({
@@ -884,35 +1043,30 @@ async function runToolsMode(input: {
               },
             };
           }
+          const enriched = enrichFindRelaxed(checked.verdict, input.journal);
           input.journal.push({
             kind: "tool",
             name: "submit_picks",
             args,
-            summary: `submit_picks accepted picks=${checked.verdict.picks.length}`,
+            summary: `submit_picks accepted picks=${enriched.picks.length}`,
             ok: true,
           });
           return {
             callId: call.callId,
             name: "submit_picks" as const,
             accepted: true as const,
-            verdict: checked.verdict,
+            verdict: enriched,
             output: {
               ok: true,
               accepted: true,
-              picks: checked.verdict.picks.length,
+              picks: enriched.picks.length,
               message: "Verdict accepted.",
             },
           };
         }
 
         const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
-        input.journal.push({
-          kind: "tool",
-          name: executed.name,
-          args,
-          summary: executed.summary,
-          ok: executed.ok,
-        });
+        input.journal.push(journalSearchListingsEntry(executed, args));
         finishMessages.push({
           role: "user",
           content: `Tool result for ${executed.name} (call_id=${call.callId}):\n${JSON.stringify(executed.result)}`,
@@ -1015,12 +1169,12 @@ async function runNextActionMode(input: {
     chatBody({
       messages: msgs,
       model: bundle.model,
-      // Prefer extensions; chat requires reasoning_effort=none when tools are present.
-      tools: bundle.chatExtensionTools,
+      // Schema-only chat; never function tools + never reasoning_effort "none".
       jsonSchema: {
         name: "find_agent_next_action",
         schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
       },
+      reasoningEffort: "low",
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
@@ -1219,13 +1373,7 @@ async function runNextActionMode(input: {
         input.state,
       );
       toolRounds += 1;
-      input.journal.push({
-        kind: "tool",
-        name: executed.name,
-        args: argsValue,
-        summary: executed.summary,
-        ok: executed.ok,
-      });
+      input.journal.push(journalSearchListingsEntry(executed, argsValue));
       messages.push({
         role: "user",
         content: `Tool result for search_listings:\n${JSON.stringify(executed.result)}\nContinue with action search or finish.`,
@@ -1305,18 +1453,36 @@ async function runNextActionMode(input: {
         }
       }
 
-      const guarded = applyFindAgentGuardrails(validated.verdict, {
+      const gated = validateFindSubmitPicks(validated.verdict, {
+        listingsByVin: listingFactsFromState(input.state),
+        budgetUsd: input.deps.budgetUsd ?? null,
+        searches: searchesFromFindJournal(input.journal),
+      });
+      if (!gated.ok) {
+        messages.push({
+          role: "user",
+          content: JSON.stringify({
+            validationError: {
+              message: "Finish verdict incomplete. Fix and return finish again.",
+              issues: gated.issues,
+            },
+          }),
+        });
+        continue;
+      }
+      const guarded = applyFindAgentGuardrails(gated.verdict, {
         allowedVins: input.state.knownVins,
         budgetUsd: input.deps.budgetUsd ?? null,
       });
+      const enriched = enrichFindRelaxed(guarded.verdict, input.journal);
       return {
         ok: true,
         agentMode: "next_action",
         requestedMode,
         toolRounds,
         verdictReached: true,
-        verdict: guarded.verdict,
-        relaxedConditions: guarded.verdict.relaxedConditions,
+        verdict: enriched,
+        relaxedConditions: enriched.relaxedConditions,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
@@ -1424,11 +1590,13 @@ export async function runFindAgentLoop(input: {
     return runToolsMode(shared);
   }
 
-  // auto: Responses tools first; fall back to next_action on empty tools or SERV HTTP failure.
+  // auto: /v1/responses tools first. Fall back to schema-only chat only when the
+  // Responses tools path is unsupported/empty — not on transient serv_http (keep
+  // tools ownership; chat is a last resort without function tools).
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
-  if (toolsAttempt.error !== "tools_unsupported_or_empty" && toolsAttempt.error !== "serv_http") {
+  if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }
 

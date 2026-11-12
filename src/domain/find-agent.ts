@@ -2,6 +2,11 @@
  * Find agentic SERV loop — mode flags, result schema, and post-finish guardrails.
  * Picks must come from tool-returned VINs; offer ≤ budget. No credit charge here.
  */
+import {
+  filterRealRelaxedConditions,
+  scoringVerdictComplete,
+  type AgentSearchJournalRow,
+} from "./agent-verdict-complete";
 
 export const FIND_AGENT_MODES = ["tools", "next_action", "auto"] as const;
 export type FindAgentMode = (typeof FIND_AGENT_MODES)[number];
@@ -40,29 +45,23 @@ export type ValidateFindAgentVerdictResult =
 const ACTIONS = new Set(["buy", "negotiate", "inspect_first", "pass"]);
 const CONFIDENCE = new Set(["high", "medium", "low"]);
 
-/** True when FIND_AGENT_LOOP is on and a SERV key is present. Off under e2e stub by default. */
+/**
+ * Agent loop always runs when a SERV key is present.
+ * No FIND_AGENT_LOOP / e2e off switch — classic match→triage→decide is deleted.
+ * E2E stubs SERV/Auto.dev upstreams; it must not switch back to classic code.
+ */
 export function findAgentLoopEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
   opts?: { servKey?: string | null },
 ): boolean {
-  const raw = (env.FIND_AGENT_LOOP ?? "auto").trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") return false;
   const servKey = (opts?.servKey ?? env.SERV_API_KEY ?? "").trim();
-  if (!servKey) return false;
-  // Keep the classic match→triage→decide path under the labelled e2e stub.
-  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") {
-    return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
-  }
-  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes" || raw === "auto" || raw === "") {
-    return true;
-  }
-  return false;
+  return Boolean(servKey);
 }
 
 /**
- * Default is auto: try Responses tools first (gpt-6.1-sol chat rejects function
- * tools; Responses with reasoning.effort=low works). On tools_unsupported_or_empty
- * or SERV HTTP failure, fall back to next_action chat json_schema.
+ * Default is auto: try /v1/responses tools first (gpt-6.1-sol chat cannot pair
+ * function tools with a supported reasoning_effort). On tools_unsupported_or_empty
+ * only, fall back to schema-only next_action chat (reasoning_effort=low, no tools).
  */
 export function resolveFindAgentMode(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
@@ -263,16 +262,18 @@ export function validateFindAgentVerdict(input: unknown): ValidateFindAgentVerdi
     });
   }
 
-  const relaxedConditions: FindAgentRelaxedCondition[] = [];
+  const relaxedRaw: FindAgentRelaxedCondition[] = [];
   if (Array.isArray(raw.relaxedConditions)) {
     for (const item of raw.relaxedConditions) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const row = item as Record<string, unknown>;
       const name = asTrimmedString(row.name, 80);
       const why = asTrimmedString(row.why, 280);
-      if (name && why) relaxedConditions.push({ name, why });
+      if (name && why) relaxedRaw.push({ name, why });
     }
   }
+  // Store real relaxation text only — never "redacted" placeholders.
+  const relaxedConditions = filterRealRelaxedConditions(relaxedRaw);
 
   const passReason =
     raw.passReason == null ? null : asTrimmedString(raw.passReason, 400);
@@ -334,12 +335,15 @@ export type FindSubmitPicksListingFact = {
 /**
  * Strict submit_picks gate for the Responses tools loop.
  * On failure, return issues as function_call_output so SERV can fix — do not silently drop.
+ * Incomplete pass (no vehicle, no documented nothing-fits) is rejected for a repair turn.
  */
 export function validateFindSubmitPicks(
   input: unknown,
   opts: {
     listingsByVin: ReadonlyMap<string, FindSubmitPicksListingFact>;
     budgetUsd: number | null;
+    /** Documented search_listings rows from the agent journal (params + counts). */
+    searches?: readonly AgentSearchJournalRow[];
   },
 ):
   | { ok: true; verdict: FindAgentVerdict }
@@ -380,6 +384,23 @@ export function validateFindSubmitPicks(
         field: `picks[${index}].offerUsd`,
         message: `offerUsd ${pick.offerUsd} is above listing asking price ${listing.priceUsd} for VIN ${vin}. Match or beat asking.`,
       });
+    }
+  }
+
+  const completeness = scoringVerdictComplete({
+    verdict: {
+      picks: validated.verdict.picks,
+      nothingFitsReason: validated.verdict.passReason,
+      relaxedConditions: validated.verdict.relaxedConditions,
+    },
+    searches: opts.searches ?? [],
+    rejectedCandidates: validated.verdict.picks
+      .filter((p) => p.action === "pass")
+      .map((p) => ({ vin: p.vin, reason: p.why })),
+  });
+  if (!completeness.complete) {
+    for (const message of completeness.issues) {
+      issues.push({ field: "verdict", message });
     }
   }
 

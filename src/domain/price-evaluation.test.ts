@@ -8,7 +8,7 @@ import { priceBadge } from "./price-badge";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import { buildPurchaseReadiness, purchaseReadinessForReport } from "./purchase-readiness";
 import { scoreRadar } from "./radar";
-import { prefilterListing } from "./radar-watch";
+import { radarCandidateForServ } from "./radar-watch";
 import { buildComputedReport } from "./report";
 import type { Listing } from "./types";
 
@@ -121,7 +121,7 @@ describe("one price evaluation across surfaces", () => {
     const factor = ranked.ranked
       .find((row) => row.vin === subject.vin)
       ?.factors.find((item) => item.id === "price_vs_model_asks");
-    const alert = prefilterListing(subject, { priceMax: 40_000, zip: "72201", radiusMiles: 500 }, listings, "personal", 2026);
+    const alert = radarCandidateForServ(subject, { priceMax: 40_000, zip: "72201", radiusMiles: 500 }, listings, "personal", 2026);
 
     expect(badge.fairValueUsd).toBe(33_699);
     expect(badge.label).toBe("Fair price");
@@ -178,7 +178,7 @@ describe("one price evaluation across surfaces", () => {
       ?.factors.find((item) => item.id === "price_vs_model_asks");
     const radar = scoreRadar(pool, "personal", 2026).find((row) => row.listing.vin === subject.vin);
     const flip = rankFlipCandidates(pool, new Date("2026-11-09T00:00:00Z")).find((item) => item.vin === subject.vin);
-    const alert = prefilterListing(
+    const alert = radarCandidateForServ(
       subject,
       { priceMax: 25_000, zip: "33101", radiusMiles: 50, make: "Toyota", model: "Camry" },
       pool,
@@ -198,8 +198,10 @@ describe("one price evaluation across surfaces", () => {
     expect(flip?.excluded).toBe(true);
     expect(flip?.resaleMidUsd).toBeNull();
     expect(flip?.excludeReason).toBe(NOT_ENOUGH_SIMILAR_CARS);
-    expect(alert.pass).toBe(false);
-    if (!alert.pass) expect(alert.reason).toBe(NOT_ENOUGH_SIMILAR_CARS);
+    // Soft price prefilter is deleted — thin comps still pass hard criteria to SERV
+    // with observational "Not enough similar cars" facts (not a code skip).
+    expect(alert.pass).toBe(true);
+    if (alert.pass) expect(alert.why).toMatch(new RegExp(NOT_ENOUGH_SIMILAR_CARS, "i"));
   });
 
   it("uses the same flip fair value for scout ranking and a flip report", () => {

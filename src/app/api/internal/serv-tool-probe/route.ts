@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
   const body = buildServChatTurnBody({
     model: BASE_MODEL,
-    reasoningEffort: "none",
+    reasoningEffort: "low",
     maxTokens: Math.min(1024, SERV_OUTPUT_TOKEN_DEFAULT),
     messages: [
       {

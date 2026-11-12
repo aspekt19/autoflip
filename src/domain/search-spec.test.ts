@@ -42,16 +42,16 @@ describe("buildSearchSpec", () => {
     expect(buildSearchSpec({ note: "$30k" }).hard.priceMaxUsd?.value).toBe(30_000);
   });
 
-  it("lets a dirty form budget beat the note, and ignores a stale form budget", () => {
+  it("lets a user-origin form budget beat the note, and ignores suggestion/note form cells", () => {
     const dirty = buildSearchSpec({
       note: "reliable first car about $8,000",
-      formEdits: { priceMaxUsd: { value: 20_000, dirty: true } },
+      formEdits: { priceMaxUsd: { value: 20_000, origin: "user" } },
     });
     expect(dirty.hard.priceMaxUsd).toEqual({ value: 20_000, source: "form" });
 
     const stale = buildSearchSpec({
       note: "reliable first car about $8,000",
-      formEdits: { priceMaxUsd: { value: 20_000, dirty: false } },
+      formEdits: { priceMaxUsd: { value: 20_000, origin: "suggestion" } },
     });
     expect(stale.hard.priceMaxUsd).toEqual({ value: 8_000, source: "note" });
   });
@@ -60,16 +60,16 @@ describe("buildSearchSpec", () => {
     const first = buildSearchSpec({ note: "SUV under $20,000" });
     const second = buildSearchSpec({
       note: "reliable first car about $8,000",
-      formEdits: { priceMaxUsd: { value: first.hard.priceMaxUsd?.value ?? null, dirty: false } },
+      formEdits: { priceMaxUsd: { value: first.hard.priceMaxUsd?.value ?? null, origin: "note" } },
     });
     expect(second.hard.priceMaxUsd?.value).toBe(8_000);
     expect(second.hash).not.toBe(first.hash);
   });
 
-  it("uses a dirty oldest year and treats newer-than as the next model year", () => {
+  it("uses a user-origin oldest year and treats newer-than as the next model year", () => {
     const spec = buildSearchSpec({
       note: "Looking for a pickup truck that can tow a camper, budget around $30k",
-      formEdits: { yearMin: { value: 2018, dirty: true } },
+      formEdits: { yearMin: { value: 2018, origin: "user" } },
     });
     expect(spec.hard.yearMin).toEqual({ value: 2018, source: "form" });
     expect(spec.hard.priceMaxUsd?.value).toBe(30_000);
@@ -86,7 +86,7 @@ describe("enforceHard", () => {
   it("drops cars outside the year and price limits and says so", () => {
     const spec = buildSearchSpec({
       note: "around $30k",
-      formEdits: { yearMin: { value: 2018, dirty: true } },
+      formEdits: { yearMin: { value: 2018, origin: "user" } },
     });
     const { kept, dropped } = enforceHard(spec, [
       car({ vin: "NEW", year: 2019, priceUsd: 28_000 }),

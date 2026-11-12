@@ -15,7 +15,14 @@ import {
   validateFindPlan,
   type FindPlan,
 } from "@/domain/find-plan";
-import { buildSearchSpec, type SearchSpec } from "@/domain/search-spec";
+import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
+import {
+  applyFollowUpToConstraintBag,
+  fromShopperInputEvent,
+  isUserProvenanced,
+  pickUserFormConstraints,
+  type ConstraintBag,
+} from "@/domain/constraint-provenance";
 import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
 import { intakeFromNote } from "@/domain/note-intake";
@@ -59,6 +66,8 @@ export type UnderstandResult =
       criteriaParse: CriteriaParseProvenance & { label: string };
       /** One proof record for find_plan (or honest skip). */
       proofRecords: DecisionProofRecord[];
+      /** User-origin form edits after follow-ups (for run sync / decide). */
+      userFormEdits: SearchFormEdits;
     }
   | { ok: false; status: number; error: string; message: string };
 
@@ -68,8 +77,10 @@ export async function understandNeed(
     mode?: "personal" | "flip";
     budgetUsd?: number | null;
     budgetKnown?: boolean;
-    /** False means the number is leftover form state and must not beat the note. */
+    /** @deprecated Prefer constraints.priceMaxUsd origin user. */
     budgetDirty?: boolean;
+    /** Provenanced form bag — only origin user reaches SearchSpec / SERV as form. */
+    constraints?: ConstraintBag | SearchFormEdits | null;
     budgetScope?: StructuredNeed["budgetScope"];
     zip?: string | null;
     distanceMiles?: number | null;
@@ -85,6 +96,8 @@ export async function understandNeed(
     milesCapResolved?: boolean;
     conditionPriority?: StructuredNeed["conditionPriority"];
     followUp?: { id: FollowUp["id"]; value: string };
+    /** All follow-up answers this hop (bagged with provenance on the client). */
+    followUps?: Array<{ id: FollowUp["id"]; value: string }>;
     /** Ignored. The plan waits for the profile budget. It does not stop early. */
     fastConfirm?: boolean;
   },
@@ -95,34 +108,89 @@ export async function understandNeed(
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
 
-  const noteBudget = intakeFromNote(screened.text).budgetUsd;
-  const formBudget =
-    body.budgetDirty === true || noteBudget == null ? (body.budgetUsd ?? null) : null;
+  // Merge legacy *Dirty flags into the provenanced bag via factory, then keep user-origin only.
+  let constraintBag: ConstraintBag = { ...(body.constraints ?? {}) };
+  if (body.budgetDirty === true && !constraintBag.priceMaxUsd) {
+    constraintBag.priceMaxUsd = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "priceMaxUsd",
+      value: body.budgetUsd ?? null,
+    });
+  }
+  if (body.radiusDirty === true && !constraintBag.radiusMi) {
+    constraintBag.radiusMi = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "radiusMi",
+      value: body.distanceMiles ?? null,
+    });
+  }
+  // Legacy Confirm geo: radiusDirty + flat zip means the shopper answered ZIP on the form.
+  if (
+    body.radiusDirty === true &&
+    !constraintBag.zip &&
+    typeof body.zip === "string" &&
+    body.zip.trim()
+  ) {
+    constraintBag.zip = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "zip",
+      value: body.zip.trim(),
+    });
+  }
+
+  const followAnswers =
+    body.followUps && body.followUps.length > 0
+      ? body.followUps
+      : body.followUp
+        ? [body.followUp]
+        : [];
+  for (const answer of followAnswers) {
+    constraintBag = applyFollowUpToConstraintBag(constraintBag, answer.id, answer.value);
+  }
+
+  const userConstraints = pickUserFormConstraints(constraintBag);
+
+  const formBudget = isUserProvenanced(userConstraints.priceMaxUsd)
+    ? userConstraints.priceMaxUsd.value
+    : null;
   const formOverrides = {
-    budgetUsd: formBudget,
-    yearMin: body.yearMin ?? null,
-    yearMax: body.yearMax ?? null,
-    milesMax: body.milesMax ?? null,
-    zip: body.zip ?? null,
+    ...(isUserProvenanced(userConstraints.priceMaxUsd) ? { budgetUsd: formBudget } : {}),
+    ...(isUserProvenanced(userConstraints.yearMin) ? { yearMin: userConstraints.yearMin.value } : {}),
+    ...(isUserProvenanced(userConstraints.yearMax) ? { yearMax: userConstraints.yearMax.value } : {}),
+    ...(isUserProvenanced(userConstraints.milesMax) ? { milesMax: userConstraints.milesMax.value } : {}),
+    ...(isUserProvenanced(userConstraints.zip) && userConstraints.zip.value
+      ? { zip: userConstraints.zip.value }
+      : {}),
   };
 
+  const budgetIsUser = isUserProvenanced(userConstraints.priceMaxUsd);
+  const radiusIsUser = isUserProvenanced(userConstraints.radiusMi);
+
+  // Never overlay untagged flat years/miles — only user-provenanced bag cells.
   const explicit: Parameters<typeof overlayExplicit>[1] = {
     mode,
     budgetUsd: formBudget,
-    budgetKnown: body.budgetDirty === false ? false : body.budgetKnown,
-    budgetDirty: body.budgetDirty,
+    budgetKnown: body.budgetDirty === false && !budgetIsUser ? false : body.budgetKnown,
+    budgetDirty: budgetIsUser ? true : body.budgetDirty,
     budgetScope: body.budgetScope,
-    zip: body.zip,
-    distanceMiles: body.distanceMiles,
+    zip: isUserProvenanced(userConstraints.zip) ? userConstraints.zip.value : undefined,
+    distanceMiles: radiusIsUser ? userConstraints.radiusMi!.value : undefined,
     repairAbility: body.repairAbility,
     useCase: body.useCase,
     targetProfitUsd: body.targetProfitUsd,
-    // Preserve prior clarification resolutions across sequential /api/need follow-up posts.
-    yearMin: body.yearMin,
-    yearMax: body.yearMax,
-    yearBandResolved: body.yearBandResolved,
-    milesMax: body.milesMax,
-    milesCapResolved: body.milesCapResolved,
+    yearMin: isUserProvenanced(userConstraints.yearMin) ? userConstraints.yearMin.value : undefined,
+    yearMax: isUserProvenanced(userConstraints.yearMax) ? userConstraints.yearMax.value : undefined,
+    yearBandResolved:
+      body.yearBandResolved === true ||
+      isUserProvenanced(userConstraints.yearMin) ||
+      isUserProvenanced(userConstraints.yearMax)
+        ? true
+        : body.yearBandResolved,
+    milesMax: isUserProvenanced(userConstraints.milesMax) ? userConstraints.milesMax.value : undefined,
+    milesCapResolved:
+      body.milesCapResolved === true || isUserProvenanced(userConstraints.milesMax)
+        ? true
+        : body.milesCapResolved,
     conditionPriority: body.conditionPriority,
   };
 
@@ -305,12 +373,18 @@ export async function understandNeed(
   // Success: map plan without regex overlay. Fail/fallback: plan already came from fallbackFindPlan.
   let need = planToStructuredNeed(findPlan, mode, screened.text);
   need = overlayExplicit(need, explicit);
-  if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
+  for (const answer of followAnswers) {
+    need = applyFollowUp(need, answer.id, answer.value);
+  }
   // A limit written in the note stays when the model leaves the field blank.
   need = supplementNeedFromNote(need, screened.text);
 
   const formZip =
-    typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim()) ? body.zip.trim() : null;
+    isUserProvenanced(userConstraints.zip) &&
+    typeof userConstraints.zip.value === "string" &&
+    /^\d{5}$/.test(userConstraints.zip.value.trim())
+      ? userConstraints.zip.value.trim()
+      : null;
 
   // Drop stale wizard ZIP when this note named a city/place without those digits.
   // Keep an explicit Confirm/form ZIP (answers needsZip / "near me").
@@ -326,17 +400,17 @@ export async function understandNeed(
       need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
     }
   }
-  // City/phrase → ZIP via free table; labelled default radius when city given without miles.
+  // City/phrase → ZIP via free table. Default radius is UI suggestion only — never a constraint.
   {
-    const withGeo = attachNoteGeo(need, { applyDefaultRadius: true });
+    const withGeo = attachNoteGeo(need, { applyDefaultRadius: false });
     const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
     need = rest;
   }
   // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
   if (formZip) need = { ...need, zip: formZip };
-  // null without radiusDirty means "no form radius yet", not "search nationwide".
-  if (body.radiusDirty === true || (body.distanceMiles != null && Number.isFinite(body.distanceMiles))) {
-    need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  // Radius reaches need only when the shopper user-edited it (or chose Nationwide).
+  if (radiusIsUser) {
+    need = { ...need, distanceMiles: userConstraints.radiusMi!.value ?? null };
   }
   // Answered ZIP clears the blocking question for Confirm.
   if (formZip && findPlan.location.needsZip) {
@@ -360,23 +434,28 @@ export async function understandNeed(
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
 
-  const formEditsForSpec = {
-    priceMaxUsd:
-      checked.need.budgetKnown && checked.need.budgetUsd != null
-        ? { value: checked.need.budgetUsd, dirty: true as const }
-        : undefined,
-    yearMin: checked.need.yearMin != null ? { value: checked.need.yearMin, dirty: true as const } : undefined,
-    yearMax: checked.need.yearMax != null ? { value: checked.need.yearMax, dirty: true as const } : undefined,
-    milesMax: checked.need.milesMax != null ? { value: checked.need.milesMax, dirty: true as const } : undefined,
-    zip: checked.need.zip ? { value: checked.need.zip, dirty: true as const } : undefined,
-    radiusMi: { value: checked.need.distanceMiles, dirty: true as const },
-  };
+  // Only user-origin fields become SearchSpec form edits — never stamp note/SERV/suggestion as form.
+  const formEditsForSpec: SearchFormEdits = { ...userConstraints };
   const searchSpec = buildSearchSpec({
     note: checked.need.note ?? screened.text,
     mode,
     formEdits: formEditsForSpec,
     servPlan: findPlanToServHint(findPlan),
   });
+  if (searchSpec.budgetConflict) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "find_plan",
+        rubricId: NEED_PARSE_RUBRIC_ID,
+        status: "ok",
+        responseId: planResponseId,
+        model: null,
+        recordedAt: new Date().toISOString(),
+        inputs: { budgetConflict: searchSpec.budgetConflict },
+        detail: searchSpec.budgetConflict.journalLine,
+      }),
+    );
+  }
 
   return {
     ok: true,
@@ -390,6 +469,7 @@ export async function understandNeed(
     checks: recorded.map(publicCheck),
     criteriaParse: { ...criteriaParse, label: criteriaParseLabel(criteriaParse) },
     proofRecords,
+    userFormEdits: formEditsForSpec,
   };
 }
 

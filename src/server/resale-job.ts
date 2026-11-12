@@ -1,6 +1,7 @@
 /**
  * Client-driven stepped Resale search job.
- * Step 1: plan + inventory + code PnL. Steps 2–4: settle phases. Credit charged on final delivery only.
+ * Step 1: plan. Step 2: SERV agent loop (search + choose). Later steps remain for in-flight
+ * classic settle jobs only. Credit charged on final delivery only.
  */
 import { randomUUID } from "node:crypto";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
@@ -215,14 +216,62 @@ export const RESALE_CREDIT_NOTE_CHARGED =
 export const RESALE_CREDIT_NOTE_UNPAID =
   "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
 
+/** Incomplete empty (no SERV nothing-fits) — free; not an unpaid debit. */
+export const RESALE_CREDIT_NOTE_NO_FLIP =
+  "No report credit charged — no flip was chosen.";
+
+/** Documented nothing-fits still uses a report credit (SERV settled). */
+export const RESALE_CREDIT_NOTE_NOTHING_FITS =
+  "1 report credit used — SERV explained why nothing fit.";
+
+/**
+ * Charge when a flip VIN was published OR SERV documented nothing-fits.
+ * Incomplete empties (no agent explanation) do not charge.
+ */
+export function resaleDeliveryChargesCredit(
+  delivery: Partial<
+    Pick<ResaleSearchOkBody, "best" | "emptyReason" | "agentVerdict" | "reviewNote" | "message">
+  >,
+): boolean {
+  const best = delivery.best;
+  if (best && typeof best === "object") {
+    const vin = typeof (best as { vin?: unknown }).vin === "string" ? (best as { vin: string }).vin.trim() : "";
+    if (vin.length > 0) return true;
+  }
+  // Documented nothing-fits: agent verdict present with a real explanation.
+  const verdict = delivery.agentVerdict as unknown as { summary?: unknown; why?: unknown } | null | undefined;
+  const summary =
+    verdict && typeof verdict.summary === "string"
+      ? verdict.summary
+      : verdict && typeof verdict.why === "string"
+        ? verdict.why
+        : "";
+  const note = [
+    typeof delivery.reviewNote === "string" ? delivery.reviewNote : "",
+    typeof delivery.message === "string" ? delivery.message : "",
+    summary,
+  ]
+    .join(" ")
+    .trim();
+  const empty = typeof delivery.emptyReason === "string" ? delivery.emptyReason.trim() : "";
+  if (delivery.agentVerdict && empty && note.length >= 12) return true;
+  return false;
+}
+
 export function jobToClientBody(
   job: ResaleJobRecord,
   opts?: { balance?: number },
 ): ResaleJobClientBody {
   const paidComplete = job.status === "completed" && job.charged && job.delivery != null;
+  const freeComplete =
+    job.status === "completed" &&
+    !job.charged &&
+    job.delivery != null &&
+    !resaleDeliveryChargesCredit(job.delivery);
   const unpaidDelivered = job.status === "delivered_unpaid" && job.delivery != null;
   // Unpaid deliveries are "done" for SERV work but not final — client may advance to retry charge.
-  const done = paidComplete;
+  // Free completes (documented nothing-fits / empty) are done without a debit.
+  const done = paidComplete || freeComplete;
   const progress = buildResaleJobProgress(job.stepCompleted);
   const journal =
     job.delivery?.journal ??
@@ -272,7 +321,9 @@ export function jobToClientBody(
         : job.delivery.nextStep,
       creditNote: job.charged
         ? job.delivery.creditNote || RESALE_CREDIT_NOTE_CHARGED
-        : RESALE_CREDIT_NOTE_UNPAID,
+        : freeComplete
+          ? job.delivery.creditNote || RESALE_CREDIT_NOTE_NO_FLIP
+          : RESALE_CREDIT_NOTE_UNPAID,
       // Always the real ledger flag — never force true because a delivery exists.
       chargedCredit: job.charged,
     };
@@ -384,12 +435,49 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
     providerQueriesUsed: 0,
     scope: null,
     emptyReason: "no_flip_candidates",
-    creditNote: RESALE_CREDIT_NOTE_CHARGED,
+    creditNote: RESALE_CREDIT_NOTE_NO_FLIP,
   };
 }
 
 /**
- * Persist delivery, then attempt debit. On debit failure the job stays
+ * Persist a no-flip / empty delivery without debiting. Completes the job free.
+ */
+async function storeFreeNoFlipDelivery(
+  kv: Kv,
+  job: ResaleJobRecord,
+  delivery: ResaleSearchOkBody,
+): Promise<{ job: ResaleJobRecord; balance: number }> {
+  const honestDelivery: ResaleSearchOkBody = {
+    ...delivery,
+    chargedCredit: false,
+    creditNote: RESALE_CREDIT_NOTE_NO_FLIP,
+  };
+  const payload: ResaleSearchDelivery = {
+    ...honestDelivery,
+    searchIdempotencyKey: job.idempotencyKey,
+    jobId: job.jobId,
+    charged: false,
+  };
+  await storeResaleSearchDelivery(kv, job.spendKey, payload);
+  // Pass/empty is not reusable as a paid verdict cache.
+  const next: ResaleJobRecord = {
+    ...job,
+    status: "completed",
+    stepCompleted: RESALE_JOB_FINAL_STEP,
+    delivery: honestDelivery,
+    charged: false,
+    settleCheckpoint: job.settleCheckpoint,
+    updatedAt: new Date().toISOString(),
+    error: null,
+    emptyReason: honestDelivery.emptyReason ?? job.emptyReason,
+  };
+  await storeResaleJob(kv, next);
+  return { job: next, balance: await creditBalance(kv, job.ownerId) };
+}
+
+/**
+ * Persist delivery, then attempt debit only when a flip was chosen.
+ * Nothing-fits / empty → free complete (no charge). On debit failure the job stays
  * `delivered_unpaid` (result still shown) so the next advance/replay can retry the charge.
  */
 async function chargeAndStoreDelivery(
@@ -397,6 +485,9 @@ async function chargeAndStoreDelivery(
   job: ResaleJobRecord,
   delivery: ResaleSearchOkBody,
 ): Promise<{ job: ResaleJobRecord; balance: number }> {
+  if (!resaleDeliveryChargesCredit(delivery)) {
+    return storeFreeNoFlipDelivery(kv, job, delivery);
+  }
   const reserved = await reserveResaleSearchCreditReliable(kv, job.ownerId, job.idempotencyKey);
   const charged = reserved.ok;
   const honestDelivery: ResaleSearchOkBody = {
@@ -707,21 +798,22 @@ export async function advanceResaleJob(
     return { ok: false, status: 400, body: { error: "invalid_input", message: "jobId is required." } };
   }
 
-  let job = await readResaleJob(deps.kv, jobId);
-  if (!job || job.exp * 1000 < Date.now()) {
+  const existingJob = await readResaleJob(deps.kv, jobId);
+  if (!existingJob || existingJob.exp * 1000 < Date.now()) {
     return {
       ok: false,
       status: 404,
       body: { error: "job_not_found", message: "That resale job expired or was not found. Start a new search." },
     };
   }
-  if (job.ownerId !== deps.ownerId) {
+  if (existingJob.ownerId !== deps.ownerId) {
     return {
       ok: false,
       status: 403,
       body: { error: "forbidden", message: "This resale job belongs to another account." },
     };
   }
+  let job: ResaleJobRecord = existingJob;
 
   let balance = await creditBalance(deps.kv, deps.ownerId);
 
@@ -783,7 +875,7 @@ export async function advanceResaleJob(
   logResaleStage(`job_step${nextStep}_start`, deadline.startedAtMs, { jobId });
 
   try {
-    // Step 2: agentic Resale loop (preferred) or classic inventory + code PnL.
+    // Step 2: agentic Resale loop only. Classic inventory + code PnL is deleted.
     if (nextStep === 2) {
       if (job.candidates.length > 0 || job.emptyReason) {
         job = { ...job, stepCompleted: Math.max(job.stepCompleted, 2) as ResaleJobRecord["stepCompleted"] };
@@ -802,6 +894,7 @@ export async function advanceResaleJob(
         return { ok: true, job, balance };
       }
 
+
       const env = deps.env ?? process.env;
       const servKey = (deps.servKey ?? deps.inventoryDeps?.servKey ?? env.SERV_API_KEY ?? "").trim();
       const autodevKey = (
@@ -810,9 +903,35 @@ export async function advanceResaleJob(
         ""
       ).trim();
       const agentEnabled = resaleAgentLoopEnabled(env, { servKey });
-      if (agentEnabled && servKey && autodevKey) {
-        const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
-        const note =
+      if (!agentEnabled || !servKey || !autodevKey) {
+        job = {
+          ...job,
+          status: "failed",
+          error: {
+            error: "agent_loop_required",
+            message:
+              "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        await storeResaleJob(deps.kv, job);
+        return {
+          ok: false,
+          status: 503,
+          body: {
+            error: "agent_loop_required",
+            message:
+              "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
+            jobId,
+            charged: false,
+            balance,
+          },
+        };
+      }
+
+
+      const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
+      const note =
           job.input.freeText?.trim() ||
           [
             job.input.preferredMakes.length ? `Preferred makes: ${job.input.preferredMakes.join(", ")}` : null,
@@ -823,7 +942,7 @@ export async function advanceResaleJob(
           ]
             .filter(Boolean)
             .join(". ");
-        const agent = await runAgent({
+      const agent = await runAgent({
           note,
           mode: resolveResaleAgentMode(env),
           shopperContext: {
@@ -865,8 +984,8 @@ export async function advanceResaleJob(
               counter: new MemoryCounter(),
             },
           },
-        });
-        if ("continue" in agent && agent.continue) {
+      });
+      if ("continue" in agent && agent.continue) {
           // Stay on step 1 completed so the next advance re-enters step 2 with the checkpoint.
           job = {
             ...job,
@@ -880,8 +999,8 @@ export async function advanceResaleJob(
             roundsCompleted: agent.checkpoint.roundsCompleted,
           });
           return { ok: true, job, balance };
-        }
-        if (agent.ok) {
+      }
+      if (agent.ok) {
           const mapped = mapResaleAgentLoopToSettle({
             agent,
             searchInput: job.input,
@@ -906,99 +1025,41 @@ export async function advanceResaleJob(
             bestVin: mapped.delivery.best?.vin ?? null,
           });
           return { ok: true, job: charged.job, balance: charged.balance };
-        }
-        logResaleStage("job_agent_loop_fallback", deadline.startedAtMs, {
+      }
+      logResaleStage("job_agent_loop_failed", deadline.startedAtMs, {
           jobId,
           error: agent.error,
-        });
-        if (job.agentLoopCheckpoint) {
-          job = { ...job, agentLoopCheckpoint: null, updatedAt: new Date().toISOString() };
-          await storeResaleJob(deps.kv, job);
-        }
-        // Fall through to classic inventory when the agent loop cannot finish.
-      }
-
-      if (!deps.inventoryDeps) {
-        return {
-          ok: false,
-          status: 500,
-          body: {
-            error: "search_failed",
-            message: "Inventory deps missing for step 2.",
-            jobId,
-          },
-        };
-      }
-      const inventory = await runResaleSearch(job.input, {
-        ...deps.inventoryDeps,
-        kv: deps.kv,
-        servKey: deps.servKey ?? deps.inventoryDeps.servKey,
-        servBaseUrl: deps.servBaseUrl ?? deps.inventoryDeps.servBaseUrl,
-        servModel: deps.servModel ?? deps.inventoryDeps.servModel,
-        fetchImpl: deps.fetchImpl ?? deps.inventoryDeps.fetchImpl,
-        deadline,
-        stopAfter: "inventory",
-        skipPlanServ: true,
-        priorPlanJournal: job.planJournal,
-        planRefine: null,
-        plannedDirectionIds: job.plannedDirectionIds,
       });
-      if (!inventory.ok) {
-        job = {
+
+      const failMessage =
+          typeof agent.message === "string" && agent.message.trim()
+            ? agent.message
+            : "The SERV Resale agent loop did not finish. No code fallback pick was published.";
+      job = {
           ...job,
           status: "failed",
+          agentLoopCheckpoint: null,
           error: {
-            error: inventory.body.error,
-            message: inventory.body.message,
-            nextStep: inventory.body.nextStep,
+            error: "agent_loop_failed",
+            message: failMessage,
           },
           updatedAt: new Date().toISOString(),
-        };
-        await storeResaleJob(deps.kv, job);
-        return {
-          ok: false,
-          status: inventory.status,
-          body: { ...inventory.body, jobId, charged: false, balance },
-        };
-      }
-      if (!("stopAfter" in inventory.body) || inventory.body.stopAfter !== "inventory") {
-        return {
-          ok: false,
-          status: 500,
-          body: { error: "search_failed", message: "Inventory step returned an unexpected shape.", jobId },
-        };
-      }
-      const inv = inventory.body;
-      job = {
-        ...job,
-        stepCompleted: 2,
-        candidates: inv.candidates,
-        planJournal: inv.journal,
-        providerQueriesUsed: inv.providerQueriesUsed,
-        scope: inv.scope,
-        emptyReason: inv.emptyReason,
-        updatedAt: new Date().toISOString(),
       };
-      if (inv.candidates.length === 0) {
-        const delivery = emptyPassDelivery(job.input, inv.journal);
-        delivery.providerQueriesUsed = inv.providerQueriesUsed;
-        delivery.scope = inv.scope;
-        delivery.emptyReason = inv.emptyReason ?? "no_flip_candidates";
-        delivery.headline = inv.headline;
-        delivery.message = inv.message;
-        delivery.nextStep = inv.nextStep;
-        const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
-        logResaleStage("job_step2_empty_done", deadline.startedAtMs, { jobId });
-        return { ok: true, job: charged.job, balance: charged.balance };
-      }
       await storeResaleJob(deps.kv, job);
-      logResaleStage("job_step2_done", deadline.startedAtMs, {
-        jobId,
-        candidates: job.candidates.length,
-      });
-      return { ok: true, job, balance };
-    }
+      // Never fall through to classic inventory / code choose. No charge to refund.
+      return {
+          ok: false,
+          status: 503,
+          body: {
+            error: "agent_loop_failed",
+            message: failMessage,
+            jobId,
+            charged: false,
+            balance,
+          },
+      };
 
+    }
     // Step 3: triage + deep checks
     if (nextStep === 3) {
       if (
@@ -1292,7 +1353,7 @@ export async function advanceResaleJob(
         reason,
         message: `The resale step did not finish (${reason}). No credit was used. Retry the same step.`,
         jobId,
-        step: job.stepCompleted,
+        step: job?.stepCompleted ?? null,
         charged: false,
         balance,
       },

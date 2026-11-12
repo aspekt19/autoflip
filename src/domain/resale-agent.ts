@@ -3,6 +3,11 @@
  * Picks must come from tool-returned VINs; offer ≤ budget; negative mid-profit → pass.
  * No credit charge here. SERV must not invent fees/tax/recon/resale dollars.
  */
+import {
+  filterRealRelaxedConditions,
+  scoringVerdictComplete,
+  type AgentSearchJournalRow,
+} from "./agent-verdict-complete";
 
 export const RESALE_AGENT_MODES = ["tools", "next_action", "auto"] as const;
 export type ResaleAgentMode = (typeof RESALE_AGENT_MODES)[number];
@@ -45,35 +50,30 @@ export type ValidateResaleAgentVerdictResult =
 const ACTIONS = new Set(["buy", "negotiate", "pass", "needs_inspection"]);
 const CONFIDENCE = new Set(["high", "medium", "low"]);
 
-/** True when RESALE_AGENT_LOOP is on and a SERV key is present. Off under e2e stub by default. */
+/**
+ * Agent loop always runs when a SERV key is present.
+ * No RESALE_AGENT_LOOP / e2e off switch — classic inventory→settle is deleted.
+ * E2E stubs SERV/Auto.dev upstreams; it must not switch back to classic code.
+ */
 export function resaleAgentLoopEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
   opts?: { servKey?: string | null },
 ): boolean {
-  const raw = (env.RESALE_AGENT_LOOP ?? "auto").trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") return false;
   const servKey = (opts?.servKey ?? env.SERV_API_KEY ?? "").trim();
-  if (!servKey) return false;
-  // Keep the classic inventory→settle path under the labelled e2e stub.
-  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") {
-    return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
-  }
-  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes" || raw === "auto" || raw === "") {
-    return true;
-  }
-  return false;
+  return Boolean(servKey);
 }
 
 /**
- * Default is auto: try Responses tools first; on tools_unsupported_or_empty
- * or SERV HTTP failure, fall back to next_action chat json_schema.
+ * Default is tools: Resale always uses /v1/responses tools mode when available.
+ * `auto` still tries tools first and only falls back to schema-only chat when
+ * tools are unsupported/empty (never on serv_http).
  */
 export function resolveResaleAgentMode(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): ResaleAgentMode {
-  const raw = (env.RESALE_AGENT_MODE ?? "auto").trim().toLowerCase();
+  const raw = (env.RESALE_AGENT_MODE ?? "tools").trim().toLowerCase();
   if (raw === "tools" || raw === "next_action" || raw === "auto") return raw;
-  return "auto";
+  return "tools";
 }
 
 /** Strict JSON schema for the final resale_agent_result turn. */
@@ -263,16 +263,17 @@ export function validateResaleAgentVerdict(input: unknown): ValidateResaleAgentV
     });
   }
 
-  const relaxedConditions: ResaleAgentRelaxedCondition[] = [];
+  const relaxedRaw: ResaleAgentRelaxedCondition[] = [];
   if (Array.isArray(raw.relaxedConditions)) {
     for (const item of raw.relaxedConditions) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const row = item as Record<string, unknown>;
       const name = asTrimmedString(row.name, 80);
       const why = asTrimmedString(row.why, 280);
-      if (name && why) relaxedConditions.push({ name, why });
+      if (name && why) relaxedRaw.push({ name, why });
     }
   }
+  const relaxedConditions = filterRealRelaxedConditions(relaxedRaw);
 
   return {
     ok: true,
@@ -355,6 +356,7 @@ export type ResaleSubmitPicksListingFact = {
 /**
  * Strict submit_picks gate for the Responses tools loop.
  * On failure, return issues as function_call_output so SERV can fix — do not silently drop/clamp.
+ * Incomplete pass (no flip, no documented nothing-fits) is rejected for a repair turn.
  */
 export function validateResaleSubmitPicks(
   input: unknown,
@@ -362,6 +364,7 @@ export function validateResaleSubmitPicks(
     listingsByVin: ReadonlyMap<string, ResaleSubmitPicksListingFact>;
     budgetUsd: number | null;
     pnlByVin?: ReadonlyMap<string, ResaleAgentPnlFact>;
+    searches?: readonly AgentSearchJournalRow[];
   },
 ):
   | { ok: true; verdict: ResaleAgentVerdict }
@@ -411,6 +414,23 @@ export function validateResaleSubmitPicks(
           message: `Code mid-profit $${mid} is negative for VIN ${vin}. Use action pass (or needs_inspection) — do not buy/negotiate on negative mid-profit.`,
         });
       }
+    }
+  }
+
+  const completeness = scoringVerdictComplete({
+    verdict: {
+      picks: validated.verdict.picks,
+      nothingFitsReason: validated.verdict.summary,
+      relaxedConditions: validated.verdict.relaxedConditions,
+    },
+    searches: opts.searches ?? [],
+    rejectedCandidates: validated.verdict.picks
+      .filter((p) => p.action === "pass")
+      .map((p) => ({ vin: p.vin, reason: p.why })),
+  });
+  if (!completeness.complete) {
+    for (const message of completeness.issues) {
+      issues.push({ field: "verdict", message });
     }
   }
 

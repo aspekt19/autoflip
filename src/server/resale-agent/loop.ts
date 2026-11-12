@@ -4,6 +4,14 @@
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
  */
+import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
+import { fromShopperInputEvent } from "@/domain/constraint-provenance";
+import {
+  assertNoNonUserSetConstraints,
+  buildUserIntentFromFlatForm,
+  serializeUserIntentConstraints,
+  type UserIntent,
+} from "@/domain/serv-boundary";
 import {
   applyResaleAgentGuardrails,
   RESALE_AGENT_NEXT_ACTION_SCHEMA,
@@ -97,9 +105,72 @@ export type ResaleAgentJournalToolCall = {
   args: unknown;
   summary: string;
   ok: boolean;
+  resultCount?: number;
+  funnel?: Array<{ step: string; count: number }>;
 };
 
 export type ResaleAgentJournalEntry = ResaleAgentJournalServCall | ResaleAgentJournalToolCall;
+
+export function searchesFromResaleJournal(
+  journal: readonly ResaleAgentJournalEntry[],
+): import("@/domain/agent-verdict-complete").AgentSearchJournalRow[] {
+  const out: import("@/domain/agent-verdict-complete").AgentSearchJournalRow[] = [];
+  for (const entry of journal) {
+    if (entry.kind !== "tool" || entry.name !== "search_listings") continue;
+    const params =
+      entry.args && typeof entry.args === "object" && !Array.isArray(entry.args)
+        ? (entry.args as Record<string, unknown>)
+        : null;
+    const fromSummary = /→\s*(\d+)\s+hits/i.exec(entry.summary);
+    const zeroSummary = /→\s*0\s+usable/i.test(entry.summary);
+    const resultCount =
+      entry.resultCount ??
+      (fromSummary ? Number(fromSummary[1]) : zeroSummary ? 0 : 0);
+    out.push({
+      params,
+      resultCount: Number.isFinite(resultCount) ? resultCount : 0,
+      funnel: entry.funnel ?? null,
+    });
+  }
+  return out;
+}
+
+function enrichResaleRelaxed(
+  verdict: ResaleAgentVerdict,
+  journal: readonly ResaleAgentJournalEntry[],
+): ResaleAgentVerdict {
+  if (verdict.relaxedConditions.length > 0) return verdict;
+  const synthesized = synthesizeRelaxedConditionsFromSearches(searchesFromResaleJournal(journal));
+  if (synthesized.length === 0) return verdict;
+  return { ...verdict, relaxedConditions: synthesized };
+}
+
+function journalResaleSearchEntry(
+  executed: { name: string; summary: string; ok: boolean; result: unknown },
+  args: unknown,
+): ResaleAgentJournalToolCall {
+  const resultRecord =
+    executed.result && typeof executed.result === "object" && !Array.isArray(executed.result)
+      ? (executed.result as Record<string, unknown>)
+      : null;
+  const funnel = Array.isArray(resultRecord?.funnel)
+    ? (resultRecord!.funnel as Array<{ step: string; count: number }>)
+    : undefined;
+  const resultCount =
+    typeof resultRecord?.totalReturned === "number"
+      ? resultRecord.totalReturned
+      : typeof resultRecord?.count === "number"
+        ? resultRecord.count
+        : undefined;
+  return {
+    kind: "tool",
+    name: executed.name,
+    args,
+    summary: executed.summary,
+    ok: executed.ok,
+    ...(executed.name === "search_listings" ? { resultCount, funnel } : {}),
+  };
+}
 
 export type ResaleAgentLoopDeps = {
   servKey: string;
@@ -246,23 +317,97 @@ function restoreResaleStateFromCheckpoint(
   };
 }
 
+
+function constraintsFromFormEdits(
+  note: string,
+  formEdits?: Record<string, unknown> | null,
+): { intent: UserIntent; constraints: Record<string, unknown> } {
+  const form = formEdits ?? {};
+  const looksTagged = Object.values(form).some(
+    (v) =>
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      "value" in (v as object) &&
+      ("origin" in (v as object) || "provenance" in (v as object)),
+  );
+  if (looksTagged) {
+    const intent: UserIntent = { note, fields: {} };
+    const constraints: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(form)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const row = raw as { value?: unknown; provenance?: unknown; origin?: unknown; quote?: unknown };
+      const origin = typeof row.origin === "string" ? row.origin : row.provenance;
+      if (origin !== "user" && origin !== "form") continue;
+      const revived = fromShopperInputEvent({
+        kind: "wire",
+        field: key as import("@/domain/constraint-provenance").ConstraintFieldKey,
+        value: row.value,
+      });
+      const field = {
+        value: revived.value,
+        provenance: "user" as const,
+        origin: "user" as const,
+        ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
+      };
+      (intent.fields as Record<string, unknown>)[key] = field;
+      constraints[key] = field;
+    }
+    return { intent, constraints };
+  }
+  const intent = buildUserIntentFromFlatForm({ note, form });
+  return { intent, constraints: serializeUserIntentConstraints(intent) };
+}
+
 function systemPrompt(note: string, shopperContext?: Record<string, unknown> | null): string {
-  const ctx =
-    shopperContext && Object.keys(shopperContext).length > 0
-      ? `\nShopper structured context: ${JSON.stringify(shopperContext)}`
+  const { intent, constraints } = constraintsFromFormEdits(note, shopperContext);
+  const gate = assertNoNonUserSetConstraints(constraints, intent);
+  if (!gate.ok) {
+    throw new Error(
+      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
+    );
+  }
+  const rankingKeys = [
+    "repairAbility",
+    "targetProfitUsd",
+    "asIs",
+    "sellWithinDays",
+    "timeToSell",
+    "resaleChannel",
+    "preferredMakes",
+    "preferredModels",
+    "plannedDirectionIds",
+  ] as const;
+  const ranking: Record<string, unknown> = {};
+  for (const key of rankingKeys) {
+    const value = shopperContext?.[key];
+    if (value == null) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    ranking[key] = value;
+  }
+  const constraintLine =
+    Object.keys(constraints).length > 0
+      ? `
+User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
+      : "";
+  const rankingLine =
+    Object.keys(ranking).length > 0
+      ? `
+Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
     "You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, relax soft filters (radius, miles, year, secondary models) and re-search.",
-    "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions.",
+    "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions (real text; never redacted).",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions.",
     "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
     "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
     "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
-    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks.",
+    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
-    `Shopper note:\n${note.trim() || "(empty)"}${ctx}`,
+    `Shopper note:\n${note.trim() || "(empty)"}${constraintLine}${rankingLine}`,
   ].join(" ");
 }
 
@@ -386,16 +531,19 @@ function chatBody(input: {
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
   model?: string;
+  /** Chat fallback must not attach function tools for gpt-6.1-sol. */
   tools?: ServChatToolDef[];
-  reasoningEffort?: "none" | "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
     model: input.model,
-    tools: input.tools,
-    reasoningEffort: input.tools && input.tools.length > 0 ? "none" : input.reasoningEffort ?? "none",
+    // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
+    // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
+    tools: undefined,
+    reasoningEffort: input.reasoningEffort ?? "low",
   });
 }
 
@@ -528,11 +676,11 @@ async function finalizeVerdict(input: {
   const body = chatBody({
     messages,
     model: input.bundle.model,
-    tools: input.bundle.chatExtensionTools,
     jsonSchema: {
       name: "resale_agent_result",
       schema: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
     },
+    reasoningEffort: "low",
   });
   const turn = await postChat({
     apiKey: input.apiKey,
@@ -618,12 +766,29 @@ async function finalizeVerdict(input: {
     }
   }
 
-  const guarded = applyResaleAgentGuardrails(validated.verdict, {
+  const gated = validateResaleSubmitPicks(validated.verdict, {
+    listingsByVin: listingFactsFromState(input.state),
+    budgetUsd: input.budgetUsd,
+    pnlByVin: pnlFactsFromState(input.state),
+    searches: searchesFromResaleJournal(input.journal),
+  });
+  if (!gated.ok) {
+    return {
+      ok: false,
+      error: "verdict_incomplete",
+      message: gated.issues.map((i) => i.message).join("; "),
+    };
+  }
+  const guarded = applyResaleAgentGuardrails(gated.verdict, {
     allowedVins: input.state.knownVins,
     budgetUsd: input.budgetUsd,
     pnlByVin: pnlFactsFromState(input.state),
   });
-  return { ok: true, verdict: guarded.verdict, dropped: guarded.dropped };
+  return {
+    ok: true,
+    verdict: enrichResaleRelaxed(guarded.verdict, input.journal),
+    dropped: guarded.dropped,
+  };
 }
 
 async function runToolsMode(input: {
@@ -826,6 +991,7 @@ async function runToolsMode(input: {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd: input.deps.budgetUsd ?? null,
             pnlByVin: pnlFactsFromState(input.state),
+            searches: searchesFromResaleJournal(input.journal),
           });
           if (!checked.ok) {
             input.journal.push({
@@ -847,35 +1013,30 @@ async function runToolsMode(input: {
               },
             };
           }
+          const enriched = enrichResaleRelaxed(checked.verdict, input.journal);
           input.journal.push({
             kind: "tool",
             name: "submit_picks",
             args,
-            summary: `submit_picks accepted picks=${checked.verdict.picks.length}`,
+            summary: `submit_picks accepted picks=${enriched.picks.length}`,
             ok: true,
           });
           return {
             callId: call.callId,
             name: "submit_picks" as const,
             accepted: true as const,
-            verdict: checked.verdict,
+            verdict: enriched,
             output: {
               ok: true,
               accepted: true,
-              picks: checked.verdict.picks.length,
+              picks: enriched.picks.length,
               message: "Verdict accepted.",
             },
           };
         }
 
         const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
-        input.journal.push({
-          kind: "tool",
-          name: executed.name,
-          args,
-          summary: executed.summary,
-          ok: executed.ok,
-        });
+        input.journal.push(journalResaleSearchEntry(executed, args));
         finishMessages.push({
           role: "user",
           content: `Tool result for ${executed.name} (call_id=${call.callId}):\n${JSON.stringify(executed.result)}`,
@@ -979,12 +1140,12 @@ async function runNextActionMode(input: {
     chatBody({
       messages: msgs,
       model: bundle.model,
-      // Prefer extensions; chat requires reasoning_effort=none when tools are present.
-      tools: bundle.chatExtensionTools,
+      // Schema-only chat; never function tools + never reasoning_effort "none".
       jsonSchema: {
         name: "resale_agent_next_action",
         schema: RESALE_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
       },
+      reasoningEffort: "low",
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
@@ -1183,13 +1344,7 @@ async function runNextActionMode(input: {
         input.state,
       );
       toolRounds += 1;
-      input.journal.push({
-        kind: "tool",
-        name: executed.name,
-        args: argsValue,
-        summary: executed.summary,
-        ok: executed.ok,
-      });
+      input.journal.push(journalResaleSearchEntry(executed, argsValue));
       messages.push({
         role: "user",
         content: `Tool result for search_listings:\n${JSON.stringify(executed.result)}\nContinue with action search or finish.`,
@@ -1269,19 +1424,38 @@ async function runNextActionMode(input: {
         }
       }
 
-      const guarded = applyResaleAgentGuardrails(validated.verdict, {
+      const gated = validateResaleSubmitPicks(validated.verdict, {
+        listingsByVin: listingFactsFromState(input.state),
+        budgetUsd: input.deps.budgetUsd ?? null,
+        pnlByVin: pnlFactsFromState(input.state),
+        searches: searchesFromResaleJournal(input.journal),
+      });
+      if (!gated.ok) {
+        messages.push({
+          role: "user",
+          content: JSON.stringify({
+            validationError: {
+              message: "Finish verdict incomplete. Fix and return finish again.",
+              issues: gated.issues,
+            },
+          }),
+        });
+        continue;
+      }
+      const guarded = applyResaleAgentGuardrails(gated.verdict, {
         allowedVins: input.state.knownVins,
         budgetUsd: input.deps.budgetUsd ?? null,
         pnlByVin: pnlFactsFromState(input.state),
       });
+      const enriched = enrichResaleRelaxed(guarded.verdict, input.journal);
       return {
         ok: true,
         agentMode: "next_action",
         requestedMode,
         toolRounds,
         verdictReached: true,
-        verdict: guarded.verdict,
-        relaxedConditions: guarded.verdict.relaxedConditions,
+        verdict: enriched,
+        relaxedConditions: enriched.relaxedConditions,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
@@ -1387,10 +1561,12 @@ export async function runResaleAgentLoop(input: {
     return runToolsMode(shared);
   }
 
+  // Prefer /v1/responses tools. Fall back to schema-only chat only when tools
+  // are unsupported/empty — never on serv_http (Resale must stay on tools when available).
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
-  if (toolsAttempt.error !== "tools_unsupported_or_empty" && toolsAttempt.error !== "serv_http") {
+  if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }
 
