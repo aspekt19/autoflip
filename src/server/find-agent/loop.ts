@@ -3,6 +3,9 @@
  * Model: gpt-6.1-sol only. No profile abort; SERV_HTTP_DEADLINE_MS on each HTTP.
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
+ *
+ * OWNER DECISION (PR thin-boundary): intake is ask_shopper chat only.
+ * Do not reintroduce clarifying-questions / findPlan.questions / followUp widgets.
  */
 import {
   synthesizeRelaxedConditionsFromSearches,

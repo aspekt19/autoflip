@@ -1,3 +1,4 @@
+/** OWNER DECISION: chat intake owns questions — no findPlan.questions / clarifying-Q. */
 /**
  * C1 Find plan — SERV find_plan output types, validation, and mapping into StructuredNeed.
  * Quotes must be verbatim in the note; numbers must appear in the note or form; models
