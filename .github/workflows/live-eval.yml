@@ -1,18 +1,17 @@
 # Live eval (8 queries) — manually triggered.
 #
-# Required repository secrets (values are never printed):
-#   CRON_SECRET     — Bearer token accepted by POST /api/internal/eval-live
-#                     (RADAR_CRON_SECRET on the site also works; this workflow
-#                     sends CRON_SECRET).
-#   EVAL_LIVE_URL   — Absolute prod origin, e.g. https://lemonless.com
-#                     (no trailing slash). The workflow POSTs
-#                     ${EVAL_LIVE_URL}/api/internal/eval-live.
+# Auth / URL (values are never printed):
+#   Bearer token = secrets.CRON_SECRET, or secrets.RADAR_CRON_SECRET if the
+#   former is unset. POST /api/internal/eval-live accepts either, same as Radar.
+#   Origin = secrets.EVAL_LIVE_URL, or https://autoflip-umber.vercel.app if
+#   unset (no trailing slash). The workflow POSTs
+#   ${origin}/api/internal/eval-live.
 #
 # Optional:
 #   EVAL_LIVE_SEED  — Numeric seed for reproducible notes (default: run id hash).
 #
-# The workflow fails with a clear message if CRON_SECRET or EVAL_LIVE_URL is
-# missing. It never echoes secret values.
+# The workflow fails with a clear message if neither CRON_SECRET nor
+# RADAR_CRON_SECRET is set. It never echoes secret values.
 name: Live eval (8 queries)
 
 on:
@@ -45,16 +44,16 @@ jobs:
 
       - name: Require secrets
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
         run: |
           missing=0
           if [ -z "${CRON_SECRET}" ]; then
-            echo "::error::Repository secret CRON_SECRET is missing. Add it under Settings → Secrets and variables → Actions."
+            echo "::error::Repository secret CRON_SECRET or RADAR_CRON_SECRET is missing. Add one under Settings → Secrets and variables → Actions."
             missing=1
           fi
           if [ -z "${EVAL_LIVE_URL}" ]; then
-            echo "::error::Repository secret EVAL_LIVE_URL is missing. Set it to the production origin (e.g. https://lemonless.com) with no trailing slash."
+            echo "::error::EVAL_LIVE_URL is empty and the default production origin was not applied."
             missing=1
           fi
           if [ "$missing" -ne 0 ]; then
@@ -72,8 +71,8 @@ jobs:
 
       - name: Run stepped live eval against production
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
           INPUT_SEED: ${{ github.event.inputs.seed }}
           INPUT_MAX_QUERIES: ${{ github.event.inputs.max_queries }}
           GITHUB_RUN_ID: ${{ github.run_id }}
