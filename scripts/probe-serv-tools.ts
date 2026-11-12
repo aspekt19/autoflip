@@ -76,14 +76,15 @@ function echoTools() {
   ];
 }
 
-async function attempt(input: {
+async function attemptAt(input: {
   apiKey: string;
   base: string;
+  path: "/chat/completions" | "/responses";
   label: string;
   body: Record<string, unknown>;
 }): Promise<ProbeAttempt> {
   try {
-    const response = await fetch(`${input.base}/chat/completions`, {
+    const response = await fetch(`${input.base}${input.path}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${input.apiKey}`,
@@ -132,6 +133,24 @@ async function attempt(input: {
   }
 }
 
+async function attempt(input: {
+  apiKey: string;
+  base: string;
+  label: string;
+  body: Record<string, unknown>;
+}): Promise<ProbeAttempt> {
+  return attemptAt({ ...input, path: "/chat/completions" });
+}
+
+async function attemptResponses(input: {
+  apiKey: string;
+  base: string;
+  label: string;
+  body: Record<string, unknown>;
+}): Promise<ProbeAttempt> {
+  return attemptAt({ ...input, path: "/responses" });
+}
+
 async function main(): Promise<number> {
   const apiKey = process.env.SERV_API_KEY?.trim() || "";
   if (!apiKey) {
@@ -159,9 +178,9 @@ async function main(): Promise<number> {
   const tools = echoTools();
   const tokens = Math.min(1024, SERV_OUTPUT_TOKEN_DEFAULT);
 
-  const shapes: Array<{ label: string; body: Record<string, unknown> }> = [
+  const chatShapes: Array<{ label: string; body: Record<string, unknown> }> = [
     {
-      label: "tool_choice=required,reasoning_effort=none",
+      label: "chat:tool_choice=required,reasoning_effort=none",
       body: withServOutputTokenBound(
         "chat",
         {
@@ -176,13 +195,13 @@ async function main(): Promise<number> {
       ),
     },
     {
-      label: "tool_choice=auto,reasoning_effort=none",
+      label: "chat:tool_choice=auto,reasoning_effort=low",
       body: withServOutputTokenBound(
         "chat",
         {
           model: BASE_MODEL,
           stream: false,
-          reasoning_effort: "none",
+          reasoning_effort: "low",
           messages,
           tools,
           tool_choice: "auto",
@@ -191,7 +210,7 @@ async function main(): Promise<number> {
       ),
     },
     {
-      label: "tool_choice=auto,no_reasoning_effort",
+      label: "chat:tool_choice=auto,no_reasoning_effort",
       body: withServOutputTokenBound(
         "chat",
         {
@@ -204,17 +223,51 @@ async function main(): Promise<number> {
         tokens,
       ),
     },
+  ];
+
+  // Flat Responses tool shape (name at top level), matching run.ts factsTool("responses").
+  const responsesTools = [
     {
-      label: "tool_choice=function.echo_ping,reasoning_effort=none",
+      type: "function" as const,
+      name: "echo_ping",
+      description: "Echo a ping string for the probe.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: { ping: { type: "string" } },
+        required: ["ping"],
+      },
+    },
+  ];
+  const responsesShapes: Array<{ label: string; body: Record<string, unknown> }> = [
+    {
+      label: "responses:tools+reasoning.low",
       body: withServOutputTokenBound(
-        "chat",
+        "responses",
         {
           model: BASE_MODEL,
+          instructions: "You are a tool-calling probe. Call echo_ping exactly once with ping set to pong.",
+          input: "Please call echo_ping now.",
+          reasoning: { effort: "low", summary: "auto" },
           stream: false,
-          reasoning_effort: "none",
-          messages,
-          tools,
-          tool_choice: { type: "function", function: { name: "echo_ping" } },
+          tools: responsesTools,
+          tool_choice: "auto",
+        },
+        tokens,
+      ),
+    },
+    {
+      label: "responses:tools+tool_choice.required",
+      body: withServOutputTokenBound(
+        "responses",
+        {
+          model: BASE_MODEL,
+          instructions: "You are a tool-calling probe. Call echo_ping exactly once with ping set to pong.",
+          input: "Please call echo_ping now.",
+          reasoning: { effort: "low", summary: "auto" },
+          stream: false,
+          tools: responsesTools,
+          tool_choice: "required",
         },
         tokens,
       ),
@@ -223,12 +276,22 @@ async function main(): Promise<number> {
 
   const attempts: ProbeAttempt[] = [];
   let winner: ProbeAttempt | null = null;
-  for (const shape of shapes) {
+  for (const shape of chatShapes) {
     const result = await attempt({ apiKey, base, label: shape.label, body: shape.body });
     attempts.push(result);
     if (result.supported) {
       winner = result;
       break;
+    }
+  }
+  if (!winner) {
+    for (const shape of responsesShapes) {
+      const result = await attemptResponses({ apiKey, base, label: shape.label, body: shape.body });
+      attempts.push(result);
+      if (result.supported) {
+        winner = result;
+        break;
+      }
     }
   }
 
