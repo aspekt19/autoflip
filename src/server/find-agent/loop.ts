@@ -7,6 +7,13 @@
 import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
+import {
+  clarifyingQaContextBlock,
+  formatClarifyingQaLines,
+  noteWithClarifyingQa,
+  parseClarifyingAnswers,
+  type ClarifyingQaPair,
+} from "@/domain/clarifying-questions";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   fingerprintsFromSearchJournal,
@@ -118,6 +125,14 @@ export type FindAgentJournalToolCall = {
   providerAttempts?: number;
 };
 
+/** Shopper clarifying Q&A recorded before the first search_listings. */
+export type FindAgentJournalClarifyingQa = {
+  kind: "clarifying_qa";
+  pairs: ClarifyingQaPair[];
+  lines: string[];
+  summary: string;
+};
+
 /** Extract documented search_listings rows from the agent journal. */
 export function searchesFromFindJournal(
   journal: readonly FindAgentJournalEntry[],
@@ -195,7 +210,10 @@ function journalSearchListingsEntry(
   };
 }
 
-export type FindAgentJournalEntry = FindAgentJournalServCall | FindAgentJournalToolCall;
+export type FindAgentJournalEntry =
+  | FindAgentJournalServCall
+  | FindAgentJournalToolCall
+  | FindAgentJournalClarifyingQa;
 
 export type FindAgentLoopDeps = {
   servKey: string;
@@ -231,6 +249,29 @@ export type FindAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
+/** SERV called ask_shopper — pause for a shopper reply in the same conversation. */
+export type FindAgentLoopAwaitUser = {
+  ok: false;
+  awaitUser: true;
+  question: string;
+  message: string;
+  agentMode: FindAgentModeResolved;
+  requestedMode: FindAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: FindAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+  shopperFacts: {
+    budgetUsd: number | null;
+    zip: string | null;
+    radiusMi: number | null;
+  };
+};
+
 export type FindAgentLoopResult =
   | {
       ok: true;
@@ -248,11 +289,18 @@ export type FindAgentLoopResult =
       featureRejections: AgentServFeatureRejection[];
       featureFlags: string[];
       servFeatures: AgentServFeatureJournal;
+      shopperFacts: {
+        budgetUsd: number | null;
+        zip: string | null;
+        radiusMi: number | null;
+      };
     }
   | FindAgentLoopContinue
+  | FindAgentLoopAwaitUser
   | {
       ok: false;
       continue?: false;
+      awaitUser?: false;
       agentMode: FindAgentModeResolved | null;
       requestedMode: FindAgentMode;
       toolRounds: number;
@@ -295,6 +343,7 @@ function buildFindCheckpoint(input: {
     submitNudgeSent: input.submitNudgeSent,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    shopperFacts: { ...input.state.shopperFacts },
   };
 }
 
@@ -391,8 +440,13 @@ function constraintsFromFormEdits(
   return { intent, constraints: serializeUserIntentConstraints(intent) };
 }
 
-function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
-  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
+function systemPrompt(
+  note: string,
+  formEdits?: Record<string, unknown> | null,
+  clarifyingQa?: ClarifyingQaPair[] | null,
+): string {
+  const noteWithQa = noteWithClarifyingQa(note, clarifyingQa);
+  const { intent, constraints } = constraintsFromFormEdits(noteWithQa, formEdits);
   const gate = assertNoNonUserSetConstraints(constraints, intent);
   if (!gate.ok) {
     throw new Error(
@@ -402,6 +456,10 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   const edits =
     Object.keys(constraints).length > 0
       ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
+      : "";
+  const qaExtra =
+    clarifyingQa && clarifyingQa.length > 0
+      ? `\n${clarifyingQaContextBlock(clarifyingQa)}`
       : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
@@ -413,9 +471,11 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
-    `Shopper note:\n${note.trim() || "(empty)"}${edits}`,
+    "Build search filters from the shopper note, form constraints, and clarifying Q&A already in context before the first search_listings. Do not invent a budget ceiling the shopper did not state.",
+    `Shopper note:\n${note.trim() || "(empty)"}${qaExtra}${edits}`,
   ].join(" ");
 }
+
 
 function argumentText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -851,6 +911,7 @@ function findLoopMeta(bundle: AgentServFeatureBundle, rejections: AgentServFeatu
 async function runToolsMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
+  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -872,7 +933,7 @@ async function runToolsMode(input: {
   const requestedMode = resolveFindAgentMode(process.env);
   const bundle = findAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
-  const instructions = systemPrompt(input.note, input.formEdits);
+  const instructions = systemPrompt(input.note, input.formEdits, input.clarifyingQa);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
   // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
@@ -1156,6 +1217,7 @@ async function runToolsMode(input: {
 async function runNextActionMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
+  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -1183,7 +1245,7 @@ async function runNextActionMode(input: {
         {
           role: "system",
           content: [
-            systemPrompt(input.note, input.formEdits),
+            systemPrompt(input.note, input.formEdits, input.clarifyingQa),
             "Each turn return JSON with action search or finish.",
             "search runs search_listings with the provided filters.",
             "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
@@ -1549,6 +1611,8 @@ export async function runFindAgentLoop(input: {
   note: string;
   mode?: FindAgentMode;
   formEdits?: Record<string, unknown> | null;
+  /** SERV clarifying Q&A — in context before first search_listings. */
+  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   maxRounds?: number;
   /** Per-request wall budget. When nearly spent, returns continue + checkpoint. */
@@ -1565,6 +1629,19 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  const clarifyingQa = parseClarifyingAnswers(input.clarifyingQa ?? []);
+  if (
+    clarifyingQa.length > 0 &&
+    !journal.some((entry) => entry.kind === "clarifying_qa")
+  ) {
+    const lines = formatClarifyingQaLines(clarifyingQa);
+    journal.push({
+      kind: "clarifying_qa",
+      pairs: clarifyingQa,
+      lines,
+      summary: `clarifying_qa ×${clarifyingQa.length}`,
+    });
+  }
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1598,6 +1675,7 @@ export async function runFindAgentLoop(input: {
   const shared = {
     note: input.note,
     formEdits: input.formEdits,
+    clarifyingQa,
     deps: input.deps,
     toolDeps,
     state,
