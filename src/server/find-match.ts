@@ -16,7 +16,6 @@ import { admitFindListingForBudget, assessFindListingPrice, type FindListingPric
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import {
-  listingWithinNeed,
   needPrefersAwd,
   noMatchMessage,
   searchScopeLabel,
@@ -30,8 +29,7 @@ import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
-import { filterInventoryWithWiden } from "@/domain/inventory-widen";
-import { buildSearchSpec, enforceHard, hardDropSentence, type ServPlanHint } from "@/domain/search-spec";
+import { type ServPlanHint } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -253,50 +251,24 @@ async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fet
   return out;
 }
 
-function applyHardGate(
+/**
+ * Listing hygiene only — never apply SearchSpec enforceHard product filters before SERV.
+ * Passenger/light-truck gate drops malformed non-car inventory; SERV owns preference filters.
+ */
+function passengerHygiene(
   collected: Listing[],
   need: StructuredNeed,
-  servPlan?: ServPlanHint,
 ): { listings: Listing[]; note: string | null } {
-  const cars = need.mode === "flip" ? collected : collected.filter((row) => isPassengerOrLightTruck(row));
+  if (need.mode === "flip") {
+    return { listings: collected, note: null };
+  }
+  const cars = collected.filter((row) => isPassengerOrLightTruck(row));
   const hiddenOther = collected.length - cars.length;
-  const spec = buildSearchSpec({
-    note: need.note ?? "",
-    mode: need.mode,
-    // Do not mark need-derived price as dirty form — that mislabels note/SERV as form
-    // and can let a stale default override the shopper's stated budget. Pass the
-    // resolved need budget through servPlan so hard gates still enforce it.
-    // Radius has no SERV/note path in SearchSpec today — keep the selected miles dirty.
-    formEdits: {
-      radiusMi: { value: need.distanceMiles, dirty: true },
-    },
-    servPlan: {
-      ...servPlan,
-      priceMaxUsd: need.budgetKnown && need.budgetUsd != null ? need.budgetUsd : servPlan?.priceMaxUsd,
-      yearMin: need.yearMin ?? servPlan?.yearMin,
-      yearMax: need.yearMax ?? servPlan?.yearMax,
-      milesMax: need.milesMax ?? servPlan?.milesMax,
-      location: {
-        ...servPlan?.location,
-        zip: need.zip ?? servPlan?.location?.zip,
-      },
-    },
-  });
-  const gated = enforceHard(spec, cars);
   const otherNote =
     hiddenOther > 0
       ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
       : null;
-  if (need.mode !== "flip") {
-    return { listings: gated.kept, note: [hardDropSentence(gated.dropped), otherNote].filter(Boolean).join(" ") || null };
-  }
-  // Flip ranking needs the wider asking-price set as comps. Price-only misses stay
-  // in that pool; the ranker excludes anomalies and does not treat a gap as profit.
-  const blocked = new Set(gated.dropped.filter((row) => row.rule !== "price").map((row) => row.vin));
-  return {
-    listings: collected.filter((car) => !blocked.has(car.vin)),
-    note: hardDropSentence(gated.dropped.filter((row) => row.rule !== "price")),
-  };
+  return { listings: cars, note: otherNote };
 }
 
 function withinBudget(
@@ -654,11 +626,6 @@ export async function runFindMatch(
     }
   }
 
-  // Soft preferences that emptied local inventory are loosened in filterInventoryWithWiden.
-  // An explicit radius is never auto-widened to Nationwide (Chicago live defect).
-  const nationwideWidenNote: string | null = null;
-  const filterNeed = need;
-
   // Group dispatch results by direction index for the existing post-processing.
   const byDirection = new Map<number, DispatchRow[]>();
   for (const row of dispatches) {
@@ -786,29 +753,10 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
-    let narrowed: Listing[];
-    if (need.mode === "flip") {
-      const gated = applyHardGate(prepared, need, servPlanHint);
-      if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
-      narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
-    } else {
-      const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
-      const hiddenOther = prepared.length - cars.length;
-      const widen = filterInventoryWithWiden(cars, filterNeed, { servPlan: servPlanHint });
-      const otherNote =
-        hiddenOther > 0
-          ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
-          : null;
-      // Nationwide widen note is attached once on the first direction only.
-      const onceWiden = di === 0 ? nationwideWidenNote : null;
-      const widenNote =
-        onceWiden ??
-        widen.explanation ??
-        (widen.dropped.length && widen.listings.length === 0 ? hardDropSentence(widen.dropped) : null);
-      const gateNote = [widenNote, otherNote].filter(Boolean).join(" ") || null;
-      if (gateNote) directionNote = [directionNote, gateNote].filter(Boolean).join(" ");
-      narrowed = widen.listings;
-    }
+    // No enforceHard / widen product filters before SERV — passenger hygiene only.
+    const hygiene = passengerHygiene(prepared, need);
+    if (hygiene.note) directionNote = [directionNote, hygiene.note].filter(Boolean).join(" ");
+    const narrowed = hygiene.listings;
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
@@ -929,7 +877,7 @@ export async function runFindMatch(
         ? // Prefer the single widen/drop sentence already on directionNote — avoid repeating “No cars…”.
           directionNote && /No cars matched|widened|loosened|listings were hidden/i.test(directionNote)
             ? null
-            : noMatchMessage(filterNeed, { widenExplanation: di === 0 ? nationwideWidenNote : null })
+            : noMatchMessage(need)
         : null;
     const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
     const confirmedEmpty = queryOutcomes.filter((o) => o.outcome === "empty");

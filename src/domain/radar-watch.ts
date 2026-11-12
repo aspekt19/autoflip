@@ -1,5 +1,4 @@
 import { ASSUMPTIONS } from "./assumptions";
-import { resaleSanityReason } from "./resale-sanity";
 import type { PriceBadge } from "./price-badge";
 import type { PriceLabel } from "./price-evaluation";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
@@ -124,6 +123,9 @@ export type WatchAlert = {
 export type PrefilterDecision =
   | { pass: true; why: string; numbers: AlertNumbers }
   | { pass: false; reason: string };
+
+/** @deprecated Soft prefilter removed — use radarCandidateForServ (hard criteria + facts only). */
+export type RadarCandidateDecision = PrefilterDecision;
 
 /**
  * Bump when the pre-filter changes meaning, so VINs stored under an older rule are judged again.
@@ -260,7 +262,11 @@ function roughMargin(price: number, anchorUsd: number, miles: number | null): nu
   return roundDollars(proceeds - price - ASSUMPTIONS.flipTitleFeeUsd - recon);
 }
 
-export function prefilterListing(
+/**
+ * Watch criteria hard-match + observational price facts for SERV.
+ * Soft tone/margin/sanity drops are removed — SERV decides alert vs skip.
+ */
+export function radarCandidateForServ(
   listing: Listing,
   criteria: WatchCriteria,
   pool: readonly Listing[],
@@ -273,11 +279,6 @@ export function prefilterListing(
   const price = listing.priceUsd;
   if (price === null) return { pass: false, reason: "no asking price" };
 
-  if (mode === "flip") {
-    const sanity = resaleSanityReason(listing, pool, { milesMax: criteria.milesMax });
-    if (sanity) return { pass: false, reason: sanity };
-  }
-
   const evaluation = evaluateListingPrice(listing, pool, { mode });
   const milesExpected = expectedMiles(listing.year, asOfYear);
   const lowMiles = listing.miles !== null && listing.miles < milesExpected * 0.85;
@@ -285,14 +286,6 @@ export function prefilterListing(
   const fairLow = evaluation.fairLowUsd;
   const fairHigh = evaluation.fairHighUsd;
   const priced = evaluation.priced && fair != null && fairLow != null && fairHigh != null;
-
-  if (priced && (price < ASSUMPTIONS.suspiciousPriceFloorUsd || price < fair * ASSUMPTIONS.suspiciousPriceRatio)) {
-    return { pass: false, reason: "price is suspiciously low next to similar cars" };
-  }
-  if (!priced && price < ASSUMPTIONS.suspiciousPriceFloorUsd) {
-    return { pass: false, reason: "price is suspiciously low next to similar cars" };
-  }
-
   const margin = priced && mode === "flip" ? roughMargin(price, fairHigh, listing.miles) : null;
   const gapUsd = priced ? (mode === "flip" && margin !== null ? margin : roundDollars(fair - price)) : 0;
   const numbers: AlertNumbers = {
@@ -307,20 +300,6 @@ export function prefilterListing(
     expectedMiles: milesExpected,
     roughMarginUsd: margin,
   };
-
-  if (!priced) {
-    if (mode === "flip" || !lowMiles) return { pass: false, reason: NOT_ENOUGH_SIMILAR_CARS };
-  } else if (mode === "flip") {
-    if (margin === null || margin < 0) {
-      return { pass: false, reason: "not priced below similar listings (after costs)" };
-    }
-    if (criteria.minProfitUsd != null && margin < criteria.minProfitUsd) {
-      return { pass: false, reason: "rough margin is under the buy box" };
-    }
-  } else if (evaluation.tone !== "good" && evaluation.tone !== "fair") {
-    // Personal Deal Radar alerts only for good / fair asking prices (shared evaluateListingPrice).
-    return { pass: false, reason: priced ? evaluation.label : "inside the usual price and mileage band" };
-  }
 
   const bits: string[] = [];
   if (!priced) {
@@ -343,8 +322,19 @@ export function prefilterListing(
     );
   }
   const where = [listing.city, listing.state].filter(Boolean).join(", ");
-  const why = `${listing.year} ${listing.make} ${listing.model} · ${formatMoney(price)}${where ? ` · ${where}` : ""}. Why: ${bits.join("; ")}.`;
+  const why = `${listing.year} ${listing.make} ${listing.model} · ${formatMoney(price)}${where ? ` · ${where}` : ""}. Facts: ${bits.join("; ")}.`;
   return { pass: true, why, numbers };
+}
+
+/** @deprecated Use radarCandidateForServ — soft prefilter is deleted. */
+export function prefilterListing(
+  listing: Listing,
+  criteria: WatchCriteria,
+  pool: readonly Listing[],
+  mode: Mode,
+  asOfYear: number,
+): PrefilterDecision {
+  return radarCandidateForServ(listing, criteria, pool, mode, asOfYear);
 }
 
 function formatMoney(value: number): string {

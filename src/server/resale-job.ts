@@ -1,6 +1,7 @@
 /**
  * Client-driven stepped Resale search job.
- * Step 1: plan + inventory + code PnL. Steps 2–4: settle phases. Credit charged on final delivery only.
+ * Step 1: plan. Step 2: SERV agent loop (search + choose). Later steps remain for in-flight
+ * classic settle jobs only. Credit charged on final delivery only.
  */
 import { randomUUID } from "node:crypto";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
@@ -873,7 +874,7 @@ export async function advanceResaleJob(
   logResaleStage(`job_step${nextStep}_start`, deadline.startedAtMs, { jobId });
 
   try {
-    // Step 2: agentic Resale loop (preferred) or classic inventory + code PnL.
+    // Step 2: agentic Resale loop only. Classic inventory + code PnL is deleted.
     if (nextStep === 2) {
       if (job.candidates.length > 0 || job.emptyReason) {
         job = { ...job, stepCompleted: Math.max(job.stepCompleted, 2) as ResaleJobRecord["stepCompleted"] };
@@ -900,8 +901,34 @@ export async function advanceResaleJob(
         ""
       ).trim();
       const agentEnabled = resaleAgentLoopEnabled(env, { servKey });
-      if (agentEnabled && servKey && autodevKey) {
-        const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
+      if (!agentEnabled || !servKey || !autodevKey) {
+        job = {
+          ...job,
+          status: "failed",
+          error: {
+            error: "agent_loop_required",
+            message:
+              "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
+            nextStep: null,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        await storeResaleJob(deps.kv, job);
+        return {
+          ok: false,
+          status: 503,
+          body: {
+            error: "agent_loop_required",
+            message:
+              "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
+            jobId,
+            charged: false,
+            balance,
+          },
+        };
+      }
+
+      const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
         const note =
           job.input.freeText?.trim() ||
           [
@@ -1001,104 +1028,34 @@ export async function advanceResaleJob(
           jobId,
           error: agent.error,
         });
-        if (job.agentLoopCheckpoint) {
-          job = { ...job, agentLoopCheckpoint: null, updatedAt: new Date().toISOString() };
-          await storeResaleJob(deps.kv, job);
-        }
-        // Never fall through to classic inventory / code choose.
+        const failMessage =
+          typeof agent.message === "string" && agent.message.trim()
+            ? agent.message
+            : "The SERV Resale agent loop did not finish. No code fallback pick was published.";
+        job = {
+          ...job,
+          status: "failed",
+          agentLoopCheckpoint: null,
+          error: {
+            error: "agent_loop_failed",
+            message: failMessage,
+            nextStep: null,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        await storeResaleJob(deps.kv, job);
+        // Honest failure only — never classic inventory / code choose. No charge to refund.
         return {
           ok: false,
           status: 503,
           body: {
             error: "agent_loop_failed",
-            message:
-              typeof agent.message === "string" && agent.message.trim()
-                ? agent.message
-                : "The SERV Resale agent loop did not finish. No code fallback pick was published.",
+            message: failMessage,
             jobId,
+            charged: false,
+            balance,
           },
         };
-      }
-
-      if (!deps.inventoryDeps) {
-        return {
-          ok: false,
-          status: 500,
-          body: {
-            error: "search_failed",
-            message: "Inventory deps missing for step 2.",
-            jobId,
-          },
-        };
-      }
-      const inventory = await runResaleSearch(job.input, {
-        ...deps.inventoryDeps,
-        kv: deps.kv,
-        servKey: deps.servKey ?? deps.inventoryDeps.servKey,
-        servBaseUrl: deps.servBaseUrl ?? deps.inventoryDeps.servBaseUrl,
-        servModel: deps.servModel ?? deps.inventoryDeps.servModel,
-        fetchImpl: deps.fetchImpl ?? deps.inventoryDeps.fetchImpl,
-        deadline,
-        stopAfter: "inventory",
-        skipPlanServ: true,
-        priorPlanJournal: job.planJournal,
-        planRefine: null,
-        plannedDirectionIds: job.plannedDirectionIds,
-      });
-      if (!inventory.ok) {
-        job = {
-          ...job,
-          status: "failed",
-          error: {
-            error: inventory.body.error,
-            message: inventory.body.message,
-            nextStep: inventory.body.nextStep,
-          },
-          updatedAt: new Date().toISOString(),
-        };
-        await storeResaleJob(deps.kv, job);
-        return {
-          ok: false,
-          status: inventory.status,
-          body: { ...inventory.body, jobId, charged: false, balance },
-        };
-      }
-      if (!("stopAfter" in inventory.body) || inventory.body.stopAfter !== "inventory") {
-        return {
-          ok: false,
-          status: 500,
-          body: { error: "search_failed", message: "Inventory step returned an unexpected shape.", jobId },
-        };
-      }
-      const inv = inventory.body;
-      job = {
-        ...job,
-        stepCompleted: 2,
-        candidates: inv.candidates,
-        planJournal: inv.journal,
-        providerQueriesUsed: inv.providerQueriesUsed,
-        scope: inv.scope,
-        emptyReason: inv.emptyReason,
-        updatedAt: new Date().toISOString(),
-      };
-      if (inv.candidates.length === 0) {
-        const delivery = emptyPassDelivery(job.input, inv.journal);
-        delivery.providerQueriesUsed = inv.providerQueriesUsed;
-        delivery.scope = inv.scope;
-        delivery.emptyReason = inv.emptyReason ?? "no_flip_candidates";
-        delivery.headline = inv.headline;
-        delivery.message = inv.message;
-        delivery.nextStep = inv.nextStep;
-        const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
-        logResaleStage("job_step2_empty_done", deadline.startedAtMs, { jobId });
-        return { ok: true, job: charged.job, balance: charged.balance };
-      }
-      await storeResaleJob(deps.kv, job);
-      logResaleStage("job_step2_done", deadline.startedAtMs, {
-        jobId,
-        candidates: job.candidates.length,
-      });
-      return { ok: true, job, balance };
     }
 
     // Step 3: triage + deep checks

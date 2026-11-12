@@ -6,7 +6,7 @@ import {
   groupByCriteria,
   hardReject,
   isDue,
-  prefilterListing,
+  radarCandidateForServ,
   rankPasses,
   seenStorageKey,
   tallyReason,
@@ -512,10 +512,9 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         tallyReason(reasons, "already seen", scoped.length - fresh.length);
         const decisions = fresh.map((listing) => ({
           listing,
-          // Same pool as the badge below. A miles cap or other buy-box rule must not
-          // drop same-model comps, or the alert can say "Not enough similar cars"
-          // next to a fair value from the wider set.
-          decision: prefilterListing(listing, search.criteria, scoped, search.mode, deps.now.getUTCFullYear()),
+          // Hard watch criteria only. Soft tone/margin prefilter is deleted — SERV decides.
+          // Same pool as the badge below so comps stay consistent with displayed facts.
+          decision: radarCandidateForServ(listing, search.criteria, scoped, search.mode, deps.now.getUTCFullYear()),
           dropped: book.has(listing.vin),
         }));
         const passedRows = decisions.filter((item) => item.decision.pass);
@@ -537,7 +536,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
-        // Mark soft-evaluated non-winners as seen. Winners stay unmarked until SERV
+        // Mark non-winner hard-matched rows as seen. Winners stay unmarked until SERV
         // finishes so a failed verdict_decide can retry on the next Check.
         const winnerVins = new Set(winners.map((row) => row.listing.vin));
         for (const item of decisions) {
@@ -551,12 +550,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         bumpSearch(search.id, { listings: scoped.length });
         let servSlot = 0;
         for (const winner of winners) {
+          // Observational badge facts only — do not drop before SERV on tone.
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
-          if (badge.tone !== "good" && badge.tone !== "fair") {
-            tallyReason(reasons, badge.label || "not good/fair");
-            if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
-            continue;
-          }
           const personalCoverage = {
             mode: "personal" as const,
             sample: winner.listing.source === "sample",

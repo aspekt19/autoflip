@@ -12,7 +12,8 @@
 **Method:** Grep + read of Find surfaces on branch `cursor/serv-boundary-structural-3e9b` (from `origin/main`). Line numbers are approximate; prefer symbols if drift.
 
 **Fate key:**
-- `removed` — code should stop deciding this; SERV (or tagged user fields) owns it.
+- `removed` — **target** disposition (SERV / tagged user fields should own it). Not a claim the symbol is already gone unless the main audit Verified table says so.
+- `still present` — verified still reachable in production code (honest status).
 - `moved into SERV tool param` — keep capability, but as an explicit SERV/tool argument, not a silent code default/filter.
 - `kept as guardrail` — post-SERV validation / money math / auth / infra; justification required.
 
@@ -76,7 +77,7 @@
 - `src/domain/search-spec.ts:291-295` — `titleClean` from note history regex — proposed fate: **kept as guardrail** (safety/money-adjacent title) **or** moved to SERV strength; today code-owned.
 - `src/domain/search-spec.ts:297-306` — caps SERV models to 6 queries; invents body-only or `{}` query — proposed fate: **moved into SERV tool param** (query set); empty-query fallback **removed** as silent invent.
 - `src/domain/search-spec.ts:343-345` — soft.models source `"default"` when empty — proposed fate: **removed** naming; empty means none.
-- `src/domain/search-spec.ts:364-412` — `enforceHard` drops price/year/miles/radius/make/accidents/drivetrain/body — proposed fate: **removed** from pre-SERV match funnel; **kept as guardrail** when validating SERV-chosen listing against tagged hard fields.
+- `src/domain/search-spec.ts` (`enforceHard`) — drops price/year/miles/radius/make/accidents/drivetrain/body — **still present** as pre-SERV match funnel (target: remove); **kept as guardrail** only when validating SERV-chosen listing against tagged hard fields.
 - `src/domain/search-spec.ts:425-439` — `providerYearQuery` expands min-only into open range through next year — proposed fate: **moved into SERV tool param** (SERV chooses yearRange); code must not invent openMax as constraint without tag.
 
 ---
@@ -92,7 +93,7 @@
 - `src/server/find-match.ts:218-230` — `budgetOnlyDirection` invents yearMin/yearMax from now when unset — proposed fate: **removed**.
 - `src/server/find-match.ts:209-215` — `bodyStyleForQuery` drops SUV body for compact model names — proposed fate: **removed** (SERV/tool owns body param).
 - `src/server/find-match.ts:234-253` — VIN-decode fill for hard AWD (cap 8) — proposed fate: **kept as guardrail** for evidence enrichment; must not drop unverified unless tagged required (currently marks unverified).
-- `src/server/find-match.ts:256-290` — `applyHardGate` passenger filter + `enforceHard` drops — proposed fate: **removed** from search path (passenger gate may stay as listing hygiene **kept** with justification: non-car inventory).
+- `src/server/find-match.ts` (`applyHardGate` + `enforceHard`) — drops inventory rows before SERV — **still present** (target: remove from pre-SERV path; passenger hygiene may stay **kept as guardrail**).
 - `src/server/find-match.ts:293-302` — `withinBudget` / `admitFindListingForBudget` drops missing/untrusted/over — proposed fate: **kept as guardrail** for budget math on shown cards **if** budget tagged; dropping before SERV choose is **removed**.
 - `src/server/find-match.ts:370-378` — `proposeDirections` / `broadenStarterDirections` / `broadenOpenDirections` invent editorial model pools — proposed fate: **removed** (SERV owns what to search).
 - `src/domain/directions.ts:72-256` — editorial CROSSOVERS/COMPACTS/TRUCKS, MAX_DIRECTIONS, arrange/demote — proposed fate: **removed**.
@@ -128,6 +129,7 @@
 - `src/server/find-agent/tools.ts:715-718` — applies funnel filter then `capListingCards` — proposed fate: **removed**.
 - `src/server/find-agent/tools.ts:773` / `:819` — caps recall/safety rows returned (8 / 3) — proposed fate: **kept as guardrail** (tool payload size; not inventory choose).
 - `src/server/find-agent/tools.ts:848-885` — market comps filters in-hand + fresh search; caps cards — proposed fate: **moved into SERV tool param** for query; card cap **kept as guardrail** (payload).
+- `src/domain/find-agent.ts` — `FIND_AGENT_LOOP` off switch — **removed** (verified: env ignored; agent always when keyed; only `LEMONLESS_E2E_STUB=1` skips).
 - `src/domain/find-agent.ts:296-326` — `applyFindAgentGuardrails` drops invented VINs; clamps offerUsd to budget — proposed fate: **kept as guardrail** (VIN ∈ results + budget math); prefer repair-to-SERV over silent clamp when possible (`issuesForSubmit` already repairs).
 - `src/domain/find-agent.ts:336-387` — submit_picks validation issues returned to SERV — proposed fate: **kept as guardrail**.
 - `src/server/find-agent/loop.ts:727+` / budget pause — pauses under request time budget — proposed fate: **kept as guardrail** (infra).
@@ -141,7 +143,7 @@
 - `src/app/api/find/decide/route.ts:62-95` — empty listings → settled nothing-fits, no charge — proposed fate: **kept as guardrail** (matches charge goal for empty).
 - `src/app/api/find/decide/route.ts:14-17` / sync — no debit on decide — proposed fate: **kept as guardrail** today; goal still wants charge on choose/nothing-fits (may move debit here later).
 - `src/server/find-decide-orchestrator.ts:131-180` — replay settle with `servKey: null` → code triage/decide — proposed fate: **kept as guardrail** (idempotent replay).
-- `src/server/find-decide-orchestrator.ts:204-385` — agent loop preferred; on failure falls through to classic triage→decide — proposed fate: **removed** silent code-choose fallback when SERV agent failed (should repair/fail honest); classic path itself is transitional **removed** once agent owns search+choose.
+- `src/server/find-decide-orchestrator.ts` — agent loop preferred; on failure returns `agent_loop_failed` (no classic fallthrough) — verified: **removed** agent-fail fallback. Classic triage→decide still runs for e2e stub / no SERV key — **still present** (harness/unkeyed only).
 - `src/server/find-decide-orchestrator.ts:401-406` — triage `revisit.needed` marked used without rematch — proposed fate: **removed** (SERV revisit/re-search not executed).
 - `src/server/find-decide-orchestrator.ts:413` — if shortlist empty, takes code `ranked.slice(0, 8)` — proposed fate: **removed**.
 - `src/server/find-decide-orchestrator.ts:461-470` — code downgrades confidence when recall check failed — proposed fate: **kept as guardrail** (evidence math) or repair to SERV challenge.

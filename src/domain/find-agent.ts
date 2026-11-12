@@ -47,18 +47,15 @@ const CONFIDENCE = new Set(["high", "medium", "low"]);
 
 /**
  * Agent loop always runs when a SERV key is present.
- * No FIND_AGENT_LOOP off switch — legacy pre-decide path is deleted.
- * Only the labelled e2e stub keeps classic match→triage→decide.
+ * No FIND_AGENT_LOOP / e2e off switch — classic match→triage→decide is deleted.
+ * E2E stubs SERV/Auto.dev upstreams; it must not switch back to classic code.
  */
 export function findAgentLoopEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
   opts?: { servKey?: string | null },
 ): boolean {
   const servKey = (opts?.servKey ?? env.SERV_API_KEY ?? "").trim();
-  if (!servKey) return false;
-  // Labelled e2e stub: classic path (stub upstreams are not a full agent tool loop).
-  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") return false;
-  return true;
+  return Boolean(servKey);
 }
 
 /**

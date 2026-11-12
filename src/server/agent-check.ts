@@ -7,7 +7,13 @@ import { isValidVin } from "@/domain/vin";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import type { Kv } from "@/io/kv";
 import { creditBalance } from "@/io/credit-book";
-import { runCheck, type CheckRunDeps, type CheckRunInput, type CheckResultPayload } from "@/server/check/run-check";
+import {
+  hasDeliveredServVerdict,
+  runCheck,
+  type CheckRunDeps,
+  type CheckRunInput,
+  type CheckResultPayload,
+} from "@/server/check/run-check";
 import { spendReportCredit } from "./api-keys";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
@@ -183,6 +189,25 @@ export async function runAgentCheck(
                 : { vin: "4T1BF1FK0EU848445" },
             },
             docs: `${deps.origin}/developers`,
+          },
+        }),
+      };
+    }
+
+    if (!hasDeliveredServVerdict(result.result.agentVerdict)) {
+      return {
+        ok: false,
+        status: 503,
+        body: agentError({
+          error_code: "serv_verdict_unavailable",
+          message:
+            "Shopper verdict did not finish — nothing was charged. Retry when a fresh SERV decide step can complete.",
+          credit_spent: false,
+          retry_safe: true,
+          next_steps: {
+            action: "retry",
+            summary: "Retry with the same Idempotency-Key once SERV can complete a decide step.",
+            request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
           },
         }),
       };

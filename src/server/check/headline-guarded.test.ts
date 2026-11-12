@@ -39,13 +39,12 @@ describe("headlineFromGuardedDecision", () => {
     });
 
     const headline = headlineFromGuardedDecision({
-      screeningVerdict: "good_deal",
-      screeningLabel: "Buy",
-      screeningConfidence: "High",
       screeningConfidenceWhy: "Verdict confidence from 8 similar listings plus listing evidence.",
       agentVerdict,
     });
 
+    expect(headline.delivered).toBe(true);
+    if (!headline.delivered) return;
     expect(headline.verdictLabel).toBe("Needs inspection");
     expect(headline.verdictLabel).not.toBe("Buy");
     expect(headline.verdict).toBe("insufficient_data");
@@ -54,28 +53,24 @@ describe("headlineFromGuardedDecision", () => {
     expect(headline.confidenceWhy).toMatch(/guarded agent decision|Needs inspection/i);
   });
 
-  it("does not leave Medium/High looking fine when SERV did not run", () => {
+  it("does not publish code screening when SERV did not run", () => {
     const headline = headlineFromGuardedDecision({
-      screeningVerdict: "good_deal",
-      screeningLabel: "Buy",
-      screeningConfidence: "High",
       screeningConfidenceWhy: "comps",
       agentVerdict: emptyAgentVerdict({
         verdict: null,
         confidence: "high",
         no_serv_step: true,
+        serv_spend: { calls: 0, costNote: "No agent verdict — thin evidence." },
       }),
     });
-    expect(headline.verdictLabel).toBe("Buy");
-    expect(headline.confidence).toBe("Low");
-    expect(headline.confidenceWhy).toMatch(/SERV shopper verdict did not finish/i);
+    expect(headline.delivered).toBe(false);
+    if (headline.delivered) return;
+    expect(headline.reason).toMatch(/Nothing was charged/i);
+    expect(headline.reason).not.toMatch(/^Buy$/);
   });
 
   it("caps High → Medium when SERV returns needs_inspection with high confidence", () => {
     const headline = headlineFromGuardedDecision({
-      screeningVerdict: "good_deal",
-      screeningLabel: "Buy",
-      screeningConfidence: "High",
       screeningConfidenceWhy: "comps",
       agentVerdict: emptyAgentVerdict({
         verdict: "needs_inspection",
@@ -83,6 +78,8 @@ describe("headlineFromGuardedDecision", () => {
         no_serv_step: false,
       }),
     });
+    expect(headline.delivered).toBe(true);
+    if (!headline.delivered) return;
     expect(headline.confidence).toBe("Medium");
     expect(headline.confidenceWhy).toMatch(/Needs inspection/i);
   });
@@ -110,13 +107,12 @@ describe("headlineFromGuardedDecision", () => {
       ],
     });
     const headline = headlineFromGuardedDecision({
-      screeningVerdict: "walk_away",
-      screeningLabel: "Pass",
-      screeningConfidence: "Medium",
       screeningConfidenceWhy:
         "Verdict confidence from 8 similar listings. Lowered from High: stop-level NHTSA park-it or park-outside guidance is open.",
       agentVerdict,
     });
+    expect(headline.delivered).toBe(true);
+    if (!headline.delivered) return;
     expect(headline.confidence).toBe("Medium");
     expect(headline.confidenceWhy).toMatch(/Lowered from High/i);
     expect(headline.confidenceWhy).toMatch(/park-it or park-outside/i);
