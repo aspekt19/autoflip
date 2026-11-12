@@ -360,10 +360,15 @@ async function runPersonal(
       fetchImpl,
     });
     proofs.push(...decided.proofRecords);
-    pickVin = decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? best.pick?.key ?? pickVin;
-    verdict = decided.agentVerdict?.verdict ?? null;
-    confidence = confidenceOf(decided.decide?.confidence);
-    if (!message) message = decided.bestDeal.why || best.why;
+    const decideFailed = decided.proofRecords.some((row) => row.purpose === "find_decide" && row.status !== "ok");
+    verdict = decideFailed ? null : decided.agentVerdict?.verdict ?? null;
+    pickVin = verdict ? decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? best.pick?.key ?? pickVin : null;
+    confidence = verdict ? confidenceOf(decided.decide?.confidence) : decideFailed ? "Low" : null;
+    if (decideFailed) {
+      const detail = decided.proofRecords.find((row) => row.purpose === "find_decide")?.reason;
+      message = [decided.agentVerdict?.unknowns?.[0], detail].filter(Boolean).join(" ");
+    }
+    else if (!message) message = decided.bestDeal.why || best.why;
   }
   steps.push({
     name: "find_decide",
@@ -371,13 +376,17 @@ async function runPersonal(
     profileTimeoutMs: profile("find_decide").timeoutMs,
     status: verdict ? "ok" : "skipped",
   });
-  const charged = findDeliveryChargesCredit({
-    ok: matched.ok,
-    providerQueriesUsed: queries,
-    listingCount: listings.length,
-    emptyReason: matched.ok ? matched.body.emptyReason : null,
-  });
-  const stopped = !matched.ok && /no credit/i.test(message ?? "");
+  const decideFailed = proofs.some((row) => row.purpose === "find_decide" && row.status !== "ok");
+  const charged =
+    decideFailed
+      ? false
+      : findDeliveryChargesCredit({
+          ok: matched.ok,
+          providerQueriesUsed: queries,
+          listingCount: listings.length,
+          emptyReason: matched.ok ? matched.body.emptyReason : null,
+        });
+  const stopped = decideFailed || (!matched.ok && /no credit/i.test(message ?? ""));
   const towingBlob = `${headline ?? ""} ${message ?? ""}`;
   return {
     caseId: specCase.id,
@@ -542,7 +551,7 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
           transport.pending && !specCase.scripted,
           false,
           transport.attempts,
-          Boolean(specCase.scripted) && specCase.expect.servVerdict !== true,
+          Boolean(specCase.scripted) && specCase.expect.servVerdict !== true && specCase.expect.honestStop !== true,
         );
   if (specCase.scripted) {
     body.listingUrls = scriptedUrls.filter((url) => url.includes("/listings"));

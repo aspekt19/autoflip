@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { explicitNeedFromText, followUps, milesFromText } from "./need";
-import { budgetFromText, intakeFromNote } from "./note-intake";
+import { bodyFromIntake, budgetFromText, intakeFromNote, locationPhraseFromText, yearsFromNote } from "./note-intake";
 import { findStageAfterNote } from "./find-intake-stage";
 
 const REPRO =
   "Looking for a reliable used car for myself, budget around $15k, automatic, good on gas, nothing salvage or with accident history.";
+
+describe("note limits that are easy to miss", () => {
+  it("reads a body word, a city area, and nothing-older-than", () => {
+    expect(bodyFromIntake("truck for work, can tow a trailer")).toBe("Truck");
+    expect(bodyFromIntake("a minivan for the kids")).toBe("Minivan");
+    expect(locationPhraseFromText("truck for work, atlanta area, can tow a trailer")).toBe("atlanta");
+    expect(yearsFromNote("nothing older than 2015").yearMin).toBe(2015);
+  });
+});
 
 describe("budget phrases the old regex dropped", () => {
   it("reads $15k, 15,000, and under 15k", () => {
@@ -24,6 +33,8 @@ describe("budget phrases the old regex dropped", () => {
     expect(budgetFromText("Looking for a reliable used car for 15,000 dollars.")).toBe(15_000);
     expect(budgetFromText("Looking for a reliable used car under 20 grand.")).toBe(20_000);
     expect(budgetFromText("Looking for a reliable used car around 12-15k.")).toBe(15_000);
+    expect(budgetFromText("need something reliable for commuting, around 15 grand, prefer a hybrid")).toBe(15_000);
+    expect(budgetFromText("about fifteen thousand for a commuter")).toBe(15_000);
   });
 
   it("does not invent a budget or treat miles and model years as prices", () => {

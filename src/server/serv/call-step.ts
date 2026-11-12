@@ -75,7 +75,7 @@ export async function callStep(input: {
     retried = true;
     result = await run(input.profileId, payload, deps);
     kind = classifyServStepFailure(result, input.accept);
-  } else if (kind === "refusal") {
+  } else if (kind === "refusal" && !first.outputBudgetRetried) {
     retried = true;
     result = await run(input.profileId, payload, {
       ...deps,

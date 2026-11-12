@@ -31,14 +31,14 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
-import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { providerResponseId, providerResponseIdFromCall } from "@/domain/serv-response-id";
 import {
   buildFindPickComputedReport,
   publishBestDeal,
 } from "@/server/find-settle-serv";
 import { FIND_DECIDE_MIN_MS } from "@/domain/route-budget";
 import { chatCompletionContent, profile, type ServDeps, type ServResult } from "@/server/serv";
-import { callStep, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
+import { callStep, DECIDE_STOP_MESSAGE, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
 
 function receiptEvidenceId(r: FindFreeGovReceipt): string {
   return `${r.checkId}:${r.make}|${r.model}|${r.year}`.toLowerCase();
@@ -53,7 +53,7 @@ function plainDecideFailure(judged: ServResult, issues: { field: string; message
   if (!judged.ok) {
     if (judged.transportErrorClass === "timeout" || judged.transportErrorClass === "abort") return "timed out before an answer";
     if (judged.httpAttempts === 0) return "timed out before asking";
-    if (judged.status === 200) return "answer unreadable";
+    if (judged.status === 200) return judged.error?.trim() || "answer unreadable";
     return "the decision service returned an error";
   }
   if (issues.some((issue) => issue.field === "pickKey")) return "blocked by rule: the choice was not one of the cars in this search";
@@ -284,9 +284,11 @@ export async function runFindDecideServ(input: {
     const rawResponse =
       chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
     decideModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
+    const providerId =
+      typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null;
     decideResponseId = providerResponseIdFromCall({
       ok: judged.ok && revalidated.ok,
-      id: typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
+      id: providerId,
     });
     if (revalidated.ok) {
       decide = revalidated.decide;
@@ -312,13 +314,14 @@ export async function runFindDecideServ(input: {
     } else {
       decideFailureDetail = plainDecideFailure(judged, revalidated.ok === false ? revalidated.issues : []);
       console.error(`[choose_car] ${decideFailureDetail}`);
+      const failedId = providerResponseId(providerId);
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_decide",
           rubricId: VERDICT_RUBRIC_ID,
           status: "failed",
           recordedAt,
-          responseId: null,
+          responseId: failedId,
           model: decideModel,
           inputs: {
             shortlistKeys,
@@ -328,6 +331,41 @@ export async function runFindDecideServ(input: {
           rawResponse,
         }),
       );
+      // An empty or unreadable answer is not a decision. Do not publish a code verdict.
+      if (!judged.ok) {
+        return {
+          bestDeal: input.bestDeal,
+          decide: {
+            pickKey: "",
+            action: "pass",
+            confidence: "low",
+            confidenceWhy: decideFailureDetail,
+            reasons: [],
+            watchOuts: [],
+            askSeller: [],
+            alternatives: [],
+            offerUsd: null,
+          },
+          source: "code",
+          agentVerdict: {
+            schemaVersion: "lemonless.agent_verdict.v1",
+            verdict: null,
+            confidence: "low",
+            pick: null,
+            reasons: [],
+            risks: [],
+            unknowns: [DECIDE_STOP_MESSAGE],
+            serv_steps: [],
+            no_serv_step: true,
+            second_pass: emptySecondPass(decideFailureDetail),
+            multipath: null,
+            vs_cheapest: null,
+            serv_spend: null,
+          },
+          secondPass: emptySecondPass(decideFailureDetail, "unavailable"),
+          proofRecords,
+        };
+      }
     }
   } else {
     decideFailureDetail = !servKey

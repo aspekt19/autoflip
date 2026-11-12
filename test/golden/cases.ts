@@ -48,7 +48,9 @@ export type GoldenCaseId =
   | "L31"
   | "L32"
   | "L33"
-  | "L34";
+  | "L34"
+  | "L35"
+  | "L36";
 
 export type CaseTurn =
   | { note: string }
@@ -79,7 +81,7 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety" | "length-retry" | "length-stop";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
   /** Distinct make/model pairs the inventory URLs must include. */
@@ -96,6 +98,8 @@ export type CaseExpect = {
   flagVeryHighMiles?: boolean;
   /** The stub returns a valid decide answer and the stored run must keep a verdict. */
   servVerdict?: boolean;
+  /** Both model answers were empty. The run stops, stores a detail, and does not charge. */
+  honestStop?: boolean;
   /** Safety-oriented searches must not pick a car older than this. */
   pickYearMin?: number;
   /** The confirm spec must keep this body from the note. */
@@ -107,7 +111,7 @@ export type CaseExpect = {
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety" | "length-retry" | "length-stop";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -621,6 +625,24 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "Used car under $12,000" }],
     expect: { budgetUsd: 12000, priceCeilUsd: 12600, queriesRequired: true },
+  },
+  {
+    id: "L35",
+    kind: "personal",
+    scripted: "length-retry",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used car under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true, servVerdict: true },
+  },
+  {
+    id: "L36",
+    kind: "personal",
+    scripted: "length-stop",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used car under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true, honestStop: true },
   },
 ];
 

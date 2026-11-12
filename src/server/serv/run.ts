@@ -10,14 +10,24 @@ import {
 import { resolveProfileBaseModel } from "./profile-models";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
 import {
+  completionRetryBudget,
   resolveServOutputTokenBound,
   withServOutputTokenBound,
 } from "./output-tokens";
 import {
   classifyServPlannerFailure,
   inspectServMessageFields,
+  plainOutputFailure,
+  reasoningTokensFromPayload,
+  servFinishReason,
   type ServResponseFailureDiag,
 } from "./response-failure";
+
+/**
+ * Vercel function maxDuration. A SERV call waits this long and is not cut
+ * short by a profile timeout. The platform ends the function at this cap.
+ */
+export const SERV_HTTP_DEADLINE_MS = 300_000;
 import {
   classifyServTransportError,
   type ServTransportErrorClass,
@@ -84,6 +94,8 @@ export type ServResult =
       failureDiag?: ServResponseFailureDiag | null;
       /** Keys/lengths only — never string values (safe for compare artifacts). */
       responseShape: string | null;
+      /** True when the first reply was empty or finish_reason length and a larger budget was sent. */
+      outputBudgetRetried?: boolean;
     }
   | {
       ok: false;
@@ -95,6 +107,8 @@ export type ServResult =
       httpAttempts: number;
       transportPolicy: ServTransportPolicy;
       responseShape: string | null;
+      /** True when the first reply was empty or finish_reason length and a larger budget was sent. */
+      outputBudgetRetried?: boolean;
       /** Safe refusal/usage category — never raw model text. */
       failureDiag?: ServResponseFailureDiag | null;
       /** Redacted transport failure class (timeout/abort/network). */
@@ -433,7 +447,13 @@ function isTimeout(error: unknown): boolean {
 
 function logServError(id: string, status: number, payload: unknown) {
   const summary = servErrorSummary(payload);
-  console.error(`[serv] ${id} HTTP ${status}${summary ? ` ${summary}` : " no error body"}`);
+  const reason = servFinishReason(payload);
+  const usage = payload && typeof payload === "object" ? (payload as { usage?: unknown }).usage : null;
+  const reasoning = reasoningTokensFromPayload(payload);
+  const empty = inspectServMessageFields(payload).contentEmpty ? " empty" : "";
+  console.error(
+    `[serv] ${id} HTTP ${status} failed finish_reason=${reason ?? "none"} reasoning_tokens=${reasoning ?? "none"} usage=${usage ? JSON.stringify(usage) : "none"}${empty}${summary ? ` ${summary}` : ""}`,
+  );
 }
 
 function argumentText(value: unknown): string {
@@ -686,14 +706,12 @@ export async function runServ(
     };
   }
 
-  // Protocol rounds (tool → finalize) are not silent retries. Experiment disables only
-  // empty-text / timeout re-POSTs so each requested compare step stays one attempt for
-  // profiles without applicationTool (including scout_plan).
-  const protocolRounds = entry.applicationTool && endpoint === "chat" ? 2 : 1;
-  const deadline = started + timeoutMs * protocolRounds;
-  const postOnce = async (body: unknown, useStream: boolean, capMs: number) => {
-    const budget = Math.min(deadline - Date.now(), capMs);
-    if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
+  // Profile timeoutMs and caller clocks are not applied to the HTTP abort.
+  // A slow reasoning call runs until the platform function limit.
+  void timeoutMs;
+  const firstTokens = tokenBound.tokens;
+  const retryTokens = completionRetryBudget(firstTokens);
+  const postOnce = async (body: unknown, useStream: boolean) => {
     if (deps.beforeHttp) {
       const gate = await deps.beforeHttp();
       if (!gate.ok) {
@@ -708,7 +726,7 @@ export async function runServ(
       method: "POST",
       headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(budget),
+      signal: AbortSignal.timeout(SERV_HTTP_DEADLINE_MS),
     });
     if (useStream && response.ok) {
       const streamed = await readChatStream(response);
@@ -718,27 +736,28 @@ export async function runServ(
     // json_schema profiles: only content/parsed/refusal — never tool args / reasoning drafts.
     const text = messageText(payload, effectiveJsonSchema ? "structured" : "legacy");
     const shape = responseShape(payload);
-    if (!response.ok) logServError(id, response.status, payload);
-    else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
     return { response, payload, text, shape };
   };
-  const post = async (body: unknown, useStream: boolean) => {
-    const remain = deadline - Date.now();
-    return postOnce(body, useStream, remain);
+
+  const outputExhausted = (payload: unknown, text: string) => {
+    if (servFinishReason(payload) === "length") return true;
+    return text.trim().length === 0;
   };
 
-  const postProse = async (body: unknown, useStream: boolean) => {
-    let turn = await post(body, useStream);
-    // Production-only: one silent re-POST when the first success returns empty text.
-    if (
-      !experiment &&
-      turn.response.ok &&
-      !turn.text.trim() &&
-      deadline - Date.now() > 1_000
-    ) {
-      turn = await post(body, useStream);
+  const post = async (body: object, useStream: boolean) => {
+    const record = body as Record<string, unknown>;
+    let turn = await postOnce(withServOutputTokenBound(endpoint, record, firstTokens), useStream);
+    let outputBudgetRetried = false;
+    // One larger-budget retry. Empty text or finish_reason length is a real failure.
+    if (!experiment && turn.response.ok && outputExhausted(turn.payload, turn.text)) {
+      logServError(id, turn.response.status, turn.payload);
+      outputBudgetRetried = true;
+      turn = await postOnce(withServOutputTokenBound(endpoint, record, retryTokens), useStream);
     }
-    return turn;
+    if (!turn.response.ok || outputExhausted(turn.payload, turn.text)) {
+      logServError(id, turn.response.status, turn.payload);
+    }
+    return { ...turn, outputBudgetRetried };
   };
 
   try {
@@ -782,7 +801,7 @@ export async function runServ(
           },
     );
 
-    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, stream);
+    let turn = await post(firstBody, entry.applicationTool ? false : stream);
     let recordedBody: unknown = firstBody;
     if (entry.applicationTool && endpoint === "chat") {
       if (!turn.response.ok) {
@@ -832,7 +851,7 @@ export async function runServ(
             ],
         tools: followTools,
       });
-      turn = await postProse(followBody, false);
+      turn = await post(followBody, false);
       recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint, bare) };
     }
 
@@ -871,12 +890,13 @@ export async function runServ(
         text: effectiveText,
         parseKind: null,
       });
-      return {
+        const plain = turn.response.ok ? plainOutputFailure(turn.payload, effectiveText) : null;
+        return {
         ok: false,
         error: turn.response.ok
           ? structuredRefusalOnly
             ? `SERV structured refusal field (${failureDiag.reasonCode}).`
-            : "SERV returned an empty explanation."
+            : plain ?? "SERV returned an empty explanation."
           : "SERV returned an error.",
         status: turn.response.status,
         proof,
@@ -886,6 +906,7 @@ export async function runServ(
         transportPolicy,
         responseShape: turn.shape || null,
         failureDiag,
+        outputBudgetRetried: turn.outputBudgetRetried,
       };
     }
     return {
@@ -899,6 +920,7 @@ export async function runServ(
       transportPolicy,
       responseShape: turn.shape || null,
       failureDiag: null,
+      outputBudgetRetried: turn.outputBudgetRetried,
     };
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {

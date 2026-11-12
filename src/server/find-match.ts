@@ -27,6 +27,7 @@ import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import { awdLimitFromText } from "@/domain/note-intake";
 import { implausibleOdometer } from "@/domain/find-best-deal";
 import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
+import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
@@ -351,9 +352,13 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
-  let directions = broadenStarterDirections(
+  let directions = broadenOpenDirections(
     need.note,
-    body?.directions && body.directions.length > 0 ? body.directions : proposeDirections(need, body?.refine),
+    broadenStarterDirections(
+      need.note,
+      body?.directions && body.directions.length > 0 ? body.directions : proposeDirections(need, body?.refine),
+    ),
+    need.bodyStyle,
   );
   if (directions.length === 0) directions = [budgetOnlyDirection(need)];
   if (directions.length === 0) {
@@ -589,6 +594,35 @@ export async function runFindMatch(
         directionIndex: 0,
       }));
       if (retryJobs.length > 0) {
+        const more = await Promise.all(retryJobs.map((job) => dispatchOne(job)));
+        dispatches = [...dispatches, ...more];
+        providerQueriesUsed += more.length;
+      }
+    }
+  }
+
+  // A first wave that fits nothing runs the rest of the open list (hybrid preference
+  // or an unnamed truck). A model the shopper named is not replaced.
+  {
+    const returned = dispatches.flatMap((row) => (row.result?.ok ? row.result.listings : []));
+    const anyFit = returned.some((row) => {
+      if (!isPassengerOrLightTruck(row)) return false;
+      if (need.budgetKnown && need.budgetUsd != null && row.priceUsd != null && row.priceUsd > need.budgetUsd) return false;
+      if (need.milesMax != null && row.miles != null && row.miles > need.milesMax) return false;
+      if (need.yearMin != null && row.year < need.yearMin) return false;
+      return true;
+    });
+    if (!anyFit) {
+      const already = new Set(
+        dispatches.map((row) => `${row.planned.query.make}\0${row.planned.query.model}`.toLowerCase()),
+      );
+      const retryModels = openRetryModels(need.note, already, need.bodyStyle);
+      if (retryModels.length > 0) {
+        const retryJobs = retryModels.map((query) => ({
+          direction: { ...(directions[0] ?? budgetOnlyDirection(need)), bodyStyle: undefined },
+          query,
+          directionIndex: 0,
+        }));
         const more = await Promise.all(retryJobs.map((job) => dispatchOne(job)));
         dispatches = [...dispatches, ...more];
         providerQueriesUsed += more.length;
@@ -855,7 +889,8 @@ export async function runFindMatch(
             .join(", ")}.`
         : null;
     // Keep provider failure out of `note` when it is already in providerWarning / top message.
-    const noteParts = dedupeWarningMessages([emptyNote, emptyModelsNote, directionNote, assumption]);
+    const tow = di === 0 ? towingCapacityCaveat(need.note) : null;
+    const noteParts = dedupeWarningMessages([emptyNote, emptyModelsNote, directionNote, tow, assumption]);
     groups.push({
       direction,
       listings,

@@ -3,6 +3,7 @@ import {
   followUps,
   overlayExplicit,
   parseNeedJson,
+  supplementNeedFromNote,
   validateNeed,
   type FollowUp,
   type StructuredNeed,
@@ -263,6 +264,8 @@ export async function understandNeed(
   let need = planToStructuredNeed(findPlan, mode, screened.text);
   need = overlayExplicit(need, explicit);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
+  // A limit written in the note stays when the model leaves the field blank.
+  need = supplementNeedFromNote(need, screened.text);
 
   const formZip =
     typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim()) ? body.zip.trim() : null;

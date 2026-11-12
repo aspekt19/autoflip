@@ -135,18 +135,32 @@ export function proofsFromRecords(records: unknown): ProofObservation[] {
       purpose?: unknown;
       status?: unknown;
       servResponseId?: unknown;
+      responseId?: unknown;
       model?: unknown;
       timestamp?: unknown;
       detail?: unknown;
+      reason?: unknown;
     };
     if (typeof rec.purpose !== "string" || !rec.purpose.trim()) continue;
+    const responseId =
+      typeof rec.servResponseId === "string"
+        ? rec.servResponseId
+        : typeof rec.responseId === "string"
+          ? rec.responseId
+          : null;
+    const detail =
+      typeof rec.detail === "string" && rec.detail.trim()
+        ? rec.detail
+        : typeof rec.reason === "string"
+          ? rec.reason
+          : null;
     out.push({
       purpose: rec.purpose,
       status: typeof rec.status === "string" ? rec.status : null,
-      responseId: typeof rec.servResponseId === "string" ? rec.servResponseId : null,
+      responseId,
       model: typeof rec.model === "string" ? rec.model : null,
       timestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
-      detail: typeof rec.detail === "string" ? rec.detail : null,
+      detail,
     });
   }
   return out;

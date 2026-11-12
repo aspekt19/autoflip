@@ -378,6 +378,22 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
       push(out, `${specCase.id}.miles`, "Very high mileage cars are not flagged.");
     }
   }
+  if (expect.honestStop && run.storedRun) {
+    if (run.storedRun.verdict) {
+      push(out, `${specCase.id}.stop`, "An empty answer still produced a verdict.");
+    }
+    if (run.storedRun.creditsCharged !== 0) {
+      push(out, `${specCase.id}.charge`, "An empty answer was charged.");
+    }
+    const steps = (run.storedRun.publicRun as { steps?: { step?: string; status?: string; failureDetail?: string | null; responseId?: string | null }[] } | undefined)?.steps;
+    const failed = steps?.find((step) => step.status === "failed");
+    if (!failed?.failureDetail?.trim()) {
+      push(out, `${specCase.id}.detail`, "The failed step has no plain detail.");
+    }
+    if (failed && !failed.responseId) {
+      push(out, `${specCase.id}.response`, "The failed step dropped the response id.");
+    }
+  }
   if (expect.servVerdict && run.storedRun) {
     if (!run.storedRun.verdict) {
       push(out, `${specCase.id}.verdict`, "A valid decision answer did not produce a stored verdict.");
