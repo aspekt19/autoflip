@@ -149,17 +149,21 @@ describe("models attribution provenance", () => {
     expect(directions[0]?.why).not.toMatch(/^You named/i);
   });
 
-  it("keeps Models you named when the shopper typed the models", () => {
-    const need = explicitNeedFromText(
-      "I like the Mazda CX-5 and Toyota RAV4, but I'm open to other options, family SUV under $20,000",
-      "personal",
-    );
-    expect(need.preferredModelsSource).toBe("none"); // note parsers deleted — SERV owns models
-    const directions = proposeDirections(
-      { ...need, zip: "68114", distanceMiles: 100, budgetUsd: 20_000, budgetKnown: true },
-      undefined,
-      new Date("2026-11-08T00:00:00Z"),
-    );
+  it("keeps Models you named when preferred models are form/SERV-labeled", () => {
+    const need = {
+      ...explicitNeedFromText("family SUV under $20,000", "personal"),
+      zip: "68114",
+      distanceMiles: 100,
+      budgetUsd: 20_000,
+      budgetKnown: true,
+      preferredModels: [
+        { make: "Mazda", model: "CX-5" },
+        { make: "Toyota", model: "RAV4" },
+      ],
+      preferredModelsSource: "user_note" as const,
+      openToOtherMakes: true,
+    };
+    const directions = proposeDirections(need, undefined, new Date("2026-11-08T00:00:00Z"));
     expect(directions[0]?.segment).toBe("Models you named");
   });
 });

@@ -49,8 +49,8 @@ describe("runFindMatch Stage2A search semantics", () => {
       }
       fetches.push(href);
       autodevCalls += 1;
-      // First model times out / fails; later models succeed.
-      if (autodevCalls === 1) {
+      // Toyota is first preferred model — every attempt times out (incl. Auto.dev retries).
+      if (href.includes("Toyota") || href.includes("RAV4")) {
         throw new Error("network timeout");
       }
       const make = href.includes("Mazda")
