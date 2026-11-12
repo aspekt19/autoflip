@@ -1,12 +1,12 @@
 /**
  * Live-SERV offline eval harness.
  *
- * Default batch: 8 queries (≈5 Find + 3 Resale), randomized templates, parallel.
+ * Default batch: 4 queries (2 Find + 2 Resale), randomized templates, parallel.
  * Never charges report credits.
  *
  * Spend model (documented assumption, not a bill):
  *   each query ≈ 4 SERV calls × $0.03 = $0.12
- *   Cap: stop after EVAL_LIVE_MAX_USD (default 3) OR EVAL_LIVE_MAX_QUERIES (default 8).
+ *   Cap: stop after EVAL_LIVE_MAX_USD (default 3) OR EVAL_LIVE_MAX_QUERIES (default 4).
  *
  * Default = dry-run (print planned notes, no network).
  * Live needs EVAL_LIVE_ALLOW_PAID=1 + SERV_API_KEY + AUTODEV_API_KEY.
@@ -162,7 +162,7 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
     : undefined;
   if (fixtureRoot) mkdirSync(fixtureRoot, { recursive: true });
 
-  // Affordability gate before parallel dispatch (8 × $0.12 ≪ $3).
+  // Affordability gate before parallel dispatch (4 × $0.12 ≪ $3).
   const affordable = planned.filter((_, i) => (i + 1) * ESTIMATED_USD_PER_QUERY <= maxUsd + 1e-9);
   let stoppedReason: LiveEvalReport["stoppedReason"] =
     affordable.length < planned.length ? "max_usd" : "completed";

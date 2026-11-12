@@ -2,7 +2,7 @@
  * Seeded note generation for the live eval.
  * Same seed → same notes. Default seed is Date.now() or EVAL_LIVE_SEED.
  *
- * Default batch: 8 queries ≈ 5 Find + 3 Resale (randomized templates).
+ * Default batch: 4 queries = 2 Find + 2 Resale (randomized templates).
  */
 import {
   assembleCleanNote,
@@ -22,8 +22,8 @@ import {
 } from "./templates";
 import type { GeneratedQuery, LiveEvalProduct } from "./types";
 
-export const DEFAULT_FIND_QUERIES = 5;
-export const DEFAULT_RESALE_QUERIES = 3;
+export const DEFAULT_FIND_QUERIES = 2;
+export const DEFAULT_RESALE_QUERIES = 2;
 export const DEFAULT_EVAL_QUERIES = DEFAULT_FIND_QUERIES + DEFAULT_RESALE_QUERIES;
 
 /** Mulberry32 — fast, deterministic, good enough for template picks. */
@@ -63,7 +63,7 @@ export type GenerateSplit = {
 };
 
 /**
- * Split `count` into ~5 Find + ~3 Resale when count is 8; otherwise proportional.
+ * Split `count` into 2 Find + 2 Resale when count is 4; otherwise proportional.
  * Always at least one Find when count ≥ 1; at least one Resale when count ≥ 2.
  */
 export function splitFindResale(count: number): GenerateSplit {
@@ -154,7 +154,7 @@ function oneResale(rng: () => number, index: number, seen: Set<string>): Generat
 }
 
 /**
- * Build `count` varied notes (default split 5 Find + 3 Resale).
+ * Build `count` varied notes (default split 2 Find + 2 Resale).
  * Guarantees uniqueness by retrying combinations.
  */
 export function generateQueries(
