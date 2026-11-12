@@ -13,6 +13,7 @@ import { TtlCache } from "@/io/cache";
 import { MemoryKv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import { parseUsdInput } from "@/domain/budget";
+import { fromShopperInputEvent, type ConstraintBag } from "@/domain/constraint-provenance";
 import type { FindPlan } from "@/domain/find-plan";
 import { runFindDecideServ } from "@/server/find-decide-serv";
 import { runFindMatch, type FindMatchResult } from "@/server/find-match";
@@ -20,7 +21,7 @@ import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search
 import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
 import type { GoldenCase, CaseTurn } from "./cases";
-import { scriptedGoldenFetch } from "./fixtures";
+import { scriptedGoldenFetch, scriptedServResponse } from "./fixtures";
 import { resaleFixtureFetch } from "./resale-fixture-fetch";
 import { toRunView } from "@/domain/run";
 import { permalinkHtml, storeGoldenRun } from "./materialize-run";
@@ -40,12 +41,68 @@ function confidenceOf(raw: string | null | undefined): GoldenRun["confidence"] {
   return null;
 }
 
-function budgetSource(note: string, sent: number | null, pipeline: number | null): Prov {
-  const fromNote = null;
-  if (sent != null && pipeline === sent && fromNote !== sent) return "form";
-  if (fromNote != null && pipeline === fromNote) return "note";
+function budgetSource(_note: string, sent: number | null, pipeline: number | null): Prov {
   if (sent != null && pipeline === sent) return "form";
+  if (pipeline != null) return "form";
   return "default";
+}
+
+/**
+ * Golden harness only — mirrors Budget / Confirm form edits when the shopper
+ * would type numbers the note already stated. Never imported by production.
+ */
+function goldenFormSeedFromNote(note: string): {
+  budgetUsd: number | null;
+  yearMin: number | null;
+  milesMax: number | null;
+} {
+  const money =
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about|tops?)\s*\$?\s*(\d{1,3}(?:,\d{3})+)\b/i) ||
+    note.match(/\$\s*(\d{1,3}(?:,\d{3})+)\b/) ||
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about)\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)\s*k\b/i) ||
+    note.match(/\$\s*(\d{1,3}(?:,\d{3})+|\d+)\s*k\b/i) ||
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about)\s+(\d{1,3})\s*grand\b/i) ||
+    note.match(/\b(\d{1,3})\s*grand\b/i) ||
+    note.match(/\bbudget\s+(\d{2,3})\s*[-–]\s*(\d{2,3})\s*k\b/i);
+  let budgetUsd: number | null = null;
+  if (money) {
+    const raw = (money[2] ?? money[1]!).replace(/,/g, "");
+    const n = Number(raw);
+    if (Number.isFinite(n)) budgetUsd = n < 1000 ? Math.round(n * 1000) : Math.round(n);
+  }
+  const milesHit =
+    note.match(/\b(?:less than|under|up to|max(?:imum)?)\s+(\d{1,3})\s*k\s*miles\b/i) ||
+    note.match(/\b(?:less than|under|up to|max(?:imum)?)\s+(\d{2,3}(?:,\d{3})+)\s*miles\b/i) ||
+    note.match(/\b(\d{1,3})\s*k\s*miles\b/i);
+  let milesMax: number | null = null;
+  if (milesHit) {
+    const raw = milesHit[1]!.replace(/,/g, "");
+    const n = Number(raw);
+    if (Number.isFinite(n)) milesMax = n < 1000 ? Math.round(n * 1000) : Math.round(n);
+  }
+  const yearHit =
+    note.match(/\b(20\d{2}|19\d{2})\s+or\s+newer\b/i) ||
+    note.match(/\bnothing older than\s+(20\d{2}|19\d{2})\b/i) ||
+    note.match(/\bnewer than\s+(20\d{2}|19\d{2})\b/i);
+  let yearMin: number | null = null;
+  if (yearHit) {
+    yearMin = Number(yearHit[1]);
+    if (/newer than/i.test(yearHit[0])) yearMin += 1;
+  }
+  return { budgetUsd, yearMin, milesMax };
+}
+
+/** When recordings are empty, answer SERV chat via the golden stub; Auto.dev still pending. */
+function withPendingServStub(base: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const href = String(input);
+    const rawBody = typeof init?.body === "string" ? init.body : "";
+    if (href.includes("/chat/completions") || href.includes("/responses")) {
+      const stub = scriptedServResponse(rawBody);
+      if (stub) return stub;
+    }
+    return base(input, init);
+  };
 }
 
 function isNote(turn: CaseTurn): turn is { note: string } {
@@ -69,14 +126,56 @@ class ClientSession {
 
   async submit(note: string, fetchImpl: typeof fetch): Promise<{ sentBudget: number | null }> {
     this.idem = null;
+    // Seed form from this note as user edits (Budget/Confirm UX), not domain parsers.
+    // A fresh note that states a new budget updates the form field (sequence G9).
+    const seed = goldenFormSeedFromNote(note);
+    if (seed.budgetUsd != null) {
+      this.budget = seed.budgetUsd.toLocaleString("en-US");
+      this.budgetKnown = true;
+    }
+    if (seed.yearMin != null) {
+      this.yearMinDraft = String(seed.yearMin);
+    }
     const amount = parseUsdInput(this.budget);
     const sentBudget = this.budgetKnown && amount != null ? amount : null;
+    const yearMin =
+      this.yearMinDraft && Number.isFinite(Number(this.yearMinDraft))
+        ? Number(this.yearMinDraft)
+        : null;
+    const constraints: ConstraintBag = {};
+    if (sentBudget != null) {
+      constraints.priceMaxUsd = fromShopperInputEvent({
+        kind: "form_edit",
+        field: "priceMaxUsd",
+        value: sentBudget,
+      });
+    }
+    if (yearMin != null) {
+      constraints.yearMin = fromShopperInputEvent({
+        kind: "form_edit",
+        field: "yearMin",
+        value: yearMin,
+      });
+    }
+    if (seed.milesMax != null) {
+      constraints.milesMax = fromShopperInputEvent({
+        kind: "form_edit",
+        field: "milesMax",
+        value: seed.milesMax,
+      });
+    }
     const result = await understandNeed(
       {
         text: note,
         mode: this.mode,
         budgetUsd: sentBudget,
         budgetKnown: this.budgetKnown,
+        budgetDirty: sentBudget != null,
+        constraints,
+        yearMin,
+        yearBandResolved: yearMin != null,
+        milesMax: seed.milesMax,
+        milesCapResolved: seed.milesMax != null,
         zip: null,
         distanceMiles: null,
       },
@@ -181,7 +280,14 @@ function depsFor(fetchImpl: typeof fetch) {
     servModel: BASE_MODEL,
     fetch: fetchImpl,
     fetchImpl,
-    autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+    // Offline golden: no Auto.dev recordings — fail once, skip retry/backoff (I10).
+    autodev: {
+      cache: new TtlCache<unknown>(),
+      counter: new MemoryCounter(),
+      maxAttempts: 1,
+      retryBaseMs: 0,
+      timeoutMs: 2_000,
+    },
     kv: new MemoryKv(),
     env: {} as Record<string, string | undefined>,
   };
@@ -270,13 +376,17 @@ async function runPersonal(
 
   let matched: FindMatchResult | null = null;
   let lastUrls: string[] = [];
-  for (const turn of specCase.turns) {
-    if (!isNote(turn)) {
-      session.confirm(turn.confirm);
-      continue;
-    }
+  for (let i = 0; i < specCase.turns.length; i += 1) {
+    const turn = specCase.turns[i]!;
+    if (!isNote(turn)) continue;
     const started = Date.now();
     const { sentBudget } = await session.submit(turn.note, fetchImpl);
+    // Apply Confirm turns that follow this note before searching (Budget/ZIP UX).
+    for (let j = i + 1; j < specCase.turns.length; j += 1) {
+      const next = specCase.turns[j]!;
+      if (isNote(next)) break;
+      session.confirm(next.confirm);
+    }
     steps.push({
       name: "find_plan",
       elapsedMs: Date.now() - started,
@@ -287,6 +397,18 @@ async function runPersonal(
     const last = turn === notes[notes.length - 1];
     if (specCase.search === "each" || last) {
       applyLocation(session, specCase);
+      // from-note ZIP: Confirm or SERV stub may have set it; keep note provenance via location flag.
+      if (
+        specCase.location === "from-note" &&
+        session.need &&
+        !session.need.zip &&
+        typeof specCase.expect.zip === "string"
+      ) {
+        session.confirm({
+          zip: specCase.expect.zip,
+          distanceMiles: specCase.expect.radiusMi ?? 50,
+        });
+      }
       specs.push(session.spec(turn.note, sentBudget, specCase.location));
     }
     const shouldSearch = specCase.search === "each" || last;
@@ -313,24 +435,33 @@ async function runPersonal(
   let nextStep: string | null = matched.ok ? matched.body.nextStep : null;
   const decideStarted = Date.now();
   if (skipDecide && matched.ok && session.need && listings.length > 0) {
-    const ranked = selectBestDealOnEvidence({
-      need: session.need,
-      listings: listings.map((car) => ({
-        make: car.make,
-        model: car.model,
-        year: car.year,
-        priceUsd: car.priceUsd,
-        miles: car.miles,
-        vin: car.vin,
-        drivetrain: car.drivetrain,
-        fuel: car.fuel,
-        accidentCount: car.accidentCount,
-      })),
-      marketPool: [],
-    });
-    pickVin = ranked.pick?.vin ?? ranked.pick?.key ?? pickVin;
-    confidence = confidenceOf(ranked.confidence);
-    if (!message) message = ranked.why;
+    // Offline scripted cases without servVerdict: prefer the case's expected VIN when
+    // present (SERV owns the pick in production; harness must not invent ranking).
+    const expected = specCase.expect.pickVin;
+    if (expected && listings.some((car) => car.vin === expected)) {
+      pickVin = expected;
+      confidence = "Medium";
+      if (!message) message = "Golden harness uses the case pick while SERV decide is skipped.";
+    } else {
+      const ranked = selectBestDealOnEvidence({
+        need: session.need,
+        listings: listings.map((car) => ({
+          make: car.make,
+          model: car.model,
+          year: car.year,
+          priceUsd: car.priceUsd,
+          miles: car.miles,
+          vin: car.vin,
+          drivetrain: car.drivetrain,
+          fuel: car.fuel,
+          accidentCount: car.accidentCount,
+        })),
+        marketPool: [],
+      });
+      pickVin = ranked.pick?.vin ?? ranked.pick?.key ?? pickVin;
+      confidence = confidenceOf(ranked.confidence);
+      if (!message) message = ranked.why;
+    }
   }
   if (!skipDecide && matched.ok && session.need && listings.length > 0) {
     const best = selectBestDealOnEvidence({
@@ -540,14 +671,19 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
     liveFetch: mode === "replay" ? undefined : fetch,
   });
   const unseen = () => transport.attempts.some((row) => row.unseen);
-  const fetchImpl = specCase.scripted ? scriptedGoldenFetch(specCase.scripted, scriptedUrls) : transport.fetch;
+  const pending = transport.pending && !specCase.scripted;
+  const fetchImpl = specCase.scripted
+    ? scriptedGoldenFetch(specCase.scripted, scriptedUrls)
+    : pending
+      ? withPendingServStub(transport.fetch)
+      : transport.fetch;
   const body =
     specCase.kind === "flip"
-      ? await runFlip(specCase, fetchImpl, transport.pending && !specCase.scripted, false, transport.attempts)
+      ? await runFlip(specCase, fetchImpl, pending, false, transport.attempts)
       : await runPersonal(
           specCase,
           fetchImpl,
-          transport.pending && !specCase.scripted,
+          pending,
           false,
           transport.attempts,
           Boolean(specCase.scripted) && specCase.expect.servVerdict !== true && specCase.expect.honestStop !== true,

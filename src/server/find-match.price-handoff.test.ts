@@ -161,10 +161,11 @@ describe("models attribution provenance", () => {
         { make: "Toyota", model: "RAV4" },
       ],
       preferredModelsSource: "user_note" as const,
+      preferredMakes: ["Mazda", "Toyota"],
       openToOtherMakes: true,
     };
     const directions = proposeDirections(need, undefined, new Date("2026-11-08T00:00:00Z"));
-    expect(directions[0]?.segment).toBe("Models you named");
+    expect(directions.some((d) => d.segment === "Models you named")).toBe(true);
   });
 });
 

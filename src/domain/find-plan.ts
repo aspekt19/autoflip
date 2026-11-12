@@ -334,38 +334,6 @@ function normalizeBodyStyle(raw: string): FindPlanBodyStyle {
   return "any";
 }
 
-/**
- * Body style named in the note — validation grounding only (reject mismatched SERV
- * directions). Not a SearchSpec / UserIntent constraint source.
- */
-export function noteImpliedBodyStyle(note: string): FindPlanBodyStyle | null {
-  const blob = (note ?? "").toLowerCase();
-  if (/\b(suv|crossover|crossovers)\b/.test(blob)) return "suv";
-  if (/\b(truck|pickup)\b/.test(blob)) return "truck";
-  if (/\bminivan\b/.test(blob)) return "minivan";
-  if (/\bhatch(?:back)?\b/.test(blob)) return "hatchback";
-  if (/\bwagon\b/.test(blob)) return "wagon";
-  if (/\bconvertible\b/.test(blob)) return "convertible";
-  if (/\bcoupe\b/.test(blob)) return "coupe";
-  if (/\bvan\b/.test(blob)) return "van";
-  if (/\bsedan\b/.test(blob)) return "sedan";
-  return null;
-}
-
-/** EV / battery-electric intent from the note (not hybrid/Prius alone). */
-export function noteImpliesEv(note: string): boolean {
-  return /\b(?:bev|battery[\s-]?electric)\b|\belectric(?:\s+(?:car|vehicle|suv|hatch(?:back)?|sedan))?\b|\bev\b(?!\s*charger)/i.test(
-    note,
-  );
-}
-
-function bodyStylesConflict(implied: FindPlanBodyStyle, direction: FindPlanBodyStyle): boolean {
-  if (implied === "any" || direction === "any") return false;
-  if (implied === direction) return false;
-  // Cargo van ≠ pickup truck; coupe ≠ sedan; etc.
-  return true;
-}
-
 function bodyStyleOnlyDirection(bodyStyles: FindPlanBodyStyle[]): FindPlanDirection {
   const primary = bodyStyles.find((item) => item !== "any") ?? "any";
   const label =
@@ -521,30 +489,9 @@ export function validateFindPlan(
     }
   }
 
-  // Prefer the body style the buyer named when SERV invents a conflicting pool
-  // (coupe→sedans, cargo van→pickups, EV→gas crossovers).
-  const impliedBody = noteImpliedBodyStyle(note);
-  let resolvedStyles = styles;
-  if (impliedBody && impliedBody !== "any") {
-    if (!resolvedStyles.includes(impliedBody) || resolvedStyles.includes("any")) {
-      resolvedStyles = [impliedBody];
-      dropped.push("bodyStyles→note");
-    }
-    const aligned = directions.filter((dir) => {
-      const dirBody = normalizeBodyStyle(dir.bodyStyle);
-      return !bodyStylesConflict(impliedBody, dirBody);
-    });
-    if (aligned.length === 0) {
-      directions = [bodyStyleOnlyDirection([impliedBody])];
-      dropped.push("directions.body→note");
-    } else {
-      directions = aligned.map((dir) =>
-        normalizeBodyStyle(dir.bodyStyle) === "any" ? { ...dir, bodyStyle: impliedBody } : dir,
-      );
-    }
-  }
-
   // Drop directions whose models were all rejected; keep body-style-only when nothing survives.
+  // Do not invent body/fuel from note regex — SERV owns interpretation; unusable plans fail validation.
+  const resolvedStyles = styles;
   const withModels = directions.filter((dir) => dir.models.length > 0);
   if (withModels.length > 0) {
     directions = withModels;
@@ -566,12 +513,7 @@ export function validateFindPlan(
   directions = directions.slice(0, 3);
   if (directions.length === 0) directions = [bodyStyleOnlyDirection(resolvedStyles)];
 
-  // EV note: do not leave fuel as gas/any when the buyer asked for electric.
-  let resolvedFuel = fuel;
-  if (noteImpliesEv(note) && (fuel.value === "any" || fuel.value === "gas" || fuel.value === "hybrid")) {
-    resolvedFuel = { value: "ev", strength: fuel.strength === "none" ? "preferred" : fuel.strength, quote: fuel.quote };
-    dropped.push("fuel→ev");
-  }
+  const resolvedFuel = fuel;
 
   const plan: FindPlan = {
     summary: addressTheShopper(summary),

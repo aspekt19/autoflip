@@ -179,9 +179,11 @@ describe("note→constraint enforcement — production builders must not call no
     expect(text).not.toMatch(/\bawdLimitFromText\b/);
   });
 
-  it("find-plan grounding does not call budgetFromText", () => {
+  it("find-plan grounding does not call budgetFromText or invent body/fuel from note", () => {
     const text = stripComments(readFileSync(join(SRC, "domain/find-plan.ts"), "utf8"));
     expect(text).not.toMatch(/\bbudgetFromText\b/);
+    expect(text).not.toMatch(/\bnoteImpliedBodyStyle\b/);
+    expect(text).not.toMatch(/\bnoteImpliesEv\b/);
   });
 
   it("no production path stamps origin:\"note\" via note parsers in constraint builders", () => {

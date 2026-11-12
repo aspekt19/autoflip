@@ -139,7 +139,10 @@ export type FindAgentToolState = {
 export type FindAgentToolDeps = {
   fetch: typeof fetch;
   autodevKey: string;
-  autodev: Pick<AutodevDeps, "cache" | "counter" | "reserve" | "timeoutMs">;
+  autodev: Pick<
+    AutodevDeps,
+    "cache" | "counter" | "reserve" | "timeoutMs" | "maxAttempts" | "retryBaseMs" | "sleep"
+  >;
   /** Optional seed inventory already in hand (match pool). */
   seedListings?: readonly Listing[];
 };
@@ -741,6 +744,9 @@ export async function executeFindAgentTool(
     counter: deps.autodev.counter,
     reserve: deps.autodev.reserve,
     timeoutMs: deps.autodev.timeoutMs,
+    maxAttempts: deps.autodev.maxAttempts,
+    retryBaseMs: deps.autodev.retryBaseMs,
+    sleep: deps.autodev.sleep,
     source: "autodev",
   };
 

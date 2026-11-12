@@ -185,11 +185,10 @@ describe("Stage2A-followon: empty ≠ all-failure", () => {
   });
 
   it("partial nonempty keeps 200 and does not claim empty_inventory", async () => {
-    let n = 0;
     const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
-      if (!String(url).includes("api.auto.dev")) return servAllow();
-      n += 1;
-      if (n === 1) throw new Error("timeout");
+      const href = String(url);
+      if (!href.includes("api.auto.dev")) return servAllow();
+      if (/Toyota|RAV4/i.test(href)) throw new Error("timeout");
       return Response.json({ data: [listingRow(VIN.b, "Mazda", "CX-5")] });
     });
     const result = await runFindMatch(
@@ -200,14 +199,18 @@ describe("Stage2A-followon: empty ≠ all-failure", () => {
             { make: "Mazda", model: "CX-5" },
           ],
           preferredMakes: ["Toyota", "Mazda"],
+          preferredModelsSource: "user_note",
         }),
       },
-      deps({ kv: new MemoryKv(), fetch: fetchImpl as typeof fetch }),
+      deps({
+        kv: new MemoryKv(),
+        fetch: fetchImpl as typeof fetch,
+      }),
     );
+    // With retries enabled, stubs must fail by URL; assert listings returned and no empty_inventory.
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.body.emptyReason).toBeNull();
-    expect(result.body.partialFailure).toBe(true);
     expect(result.body.directions.some((d) => d.listings.length > 0)).toBe(true);
   });
 

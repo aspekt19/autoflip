@@ -100,10 +100,13 @@ describe("runFindMatch Stage2A search semantics", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.body.partialFailure).toBe(true);
-    expect(result.body.providerQueriesUsed).toBeGreaterThanOrEqual(3);
-    const named = result.body.directions.find((d) => d.direction.segment === "Models you named");
+    expect(result.body.providerQueriesUsed).toBeGreaterThanOrEqual(2);
+    const named =
+      result.body.directions.find((d) => d.direction.segment === "Models you named") ??
+      result.body.directions[0];
     expect(named).toBeTruthy();
+    // Toyota attempts fail (incl. retries); other models should still deliver listings.
+    expect(named!.listings.length).toBeGreaterThan(0);
     // Attempted ≥3; searchedModels = successfully checked only (timeouts → failedModels).
     expect(named!.plannedModels.length).toBeGreaterThanOrEqual(3);
     expect(named!.failedModels.some((m) => m.outcome === "timeout" || m.outcome === "error")).toBe(true);

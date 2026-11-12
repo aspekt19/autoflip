@@ -198,12 +198,13 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
     expect(dirs[0]!.yearMax).toBeGreaterThanOrEqual(2026); // open max — not budget ceiling 2022
   });
 
-  it("coupe note: rejects sedan-pool directions and falls back to coupe body-style", () => {
-    const note = "Looking for a used coupe under $15,000. Something fun to drive.";
-    const result = validateFindPlan(
+  it("does not invent coupe/EV/van from note when SERV returns a conflicting plan", () => {
+    // Thin boundary: unusable SERV answers are not repaired by note regex — keep SERV as-is
+    // (or fail the hop upstream). Code must not substitute body/fuel from the note.
+    const coupe = validateFindPlan(
       {
         summary: "Used coupe under $15k",
-        bodyStyles: ["sedan"], // wrong table-like answer
+        bodyStyles: ["sedan"],
         budget: { maxUsd: 15_000, approximate: false, quote: null },
         yearMin: null,
         yearMax: null,
@@ -221,21 +222,17 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
           },
         ],
       },
-      { note },
+      { note: "Looking for a used coupe under $15,000. Something fun to drive." },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.bodyStyles).toEqual(["coupe"]);
-    expect(result.plan.directions.every((d) => /coupe/i.test(d.bodyStyle))).toBe(true);
-    expect(result.dropped.some((d) => d.includes("body") || d.includes("note"))).toBe(true);
-  });
+    expect(coupe.ok).toBe(true);
+    if (!coupe.ok) return;
+    expect(coupe.plan.bodyStyles).toEqual(["sedan"]);
+    expect(coupe.plan.directions[0]!.bodyStyle).toMatch(/sedan/i);
 
-  it("EV note: does not leave fuel as gas/any with Prius/RAV4 hybrid-gas lead", () => {
-    const note = "I want an affordable EV hatchback under $20k for city driving.";
-    const result = validateFindPlan(
+    const ev = validateFindPlan(
       {
         summary: "Affordable city hatchback",
-        bodyStyles: ["suv"], // wrong
+        bodyStyles: ["suv"],
         budget: { maxUsd: 20_000, approximate: false, quote: null },
         yearMin: null,
         yearMax: null,
@@ -254,22 +251,14 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
           },
         ],
       },
-      { note },
+      { note: "I want an affordable EV hatchback under $20k for city driving." },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.fuel.value).toBe("ev");
-    expect(result.plan.fuel.strength).not.toBe("none");
-    // Hatchback named in note wins over SUV pool.
-    expect(result.plan.bodyStyles).toContain("hatchback");
-    expect(result.plan.directions.every((d) => !/suv/i.test(d.bodyStyle) || d.models.length === 0)).toBe(
-      true,
-    );
-  });
+    expect(ev.ok).toBe(true);
+    if (!ev.ok) return;
+    expect(ev.plan.fuel.value).toBe("any");
+    expect(ev.plan.bodyStyles).toEqual(["suv"]);
 
-  it("cargo van note: rejects pickup directions", () => {
-    const note = "Need a cargo van around $25k for deliveries.";
-    const result = validateFindPlan(
+    const van = validateFindPlan(
       {
         summary: "Cargo van around $25k",
         bodyStyles: ["truck"],
@@ -291,15 +280,11 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
           },
         ],
       },
-      { note },
+      { note: "Need a cargo van around $25k for deliveries." },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.bodyStyles).toEqual(["van"]);
-    expect(result.plan.directions.every((d) => /van/i.test(d.bodyStyle))).toBe(true);
-    expect(result.plan.directions.every((d) => !d.models.some((m) => /F-150|Tacoma/i.test(m.model)))).toBe(
-      true,
-    );
+    expect(van.ok).toBe(true);
+    if (!van.ok) return;
+    expect(van.plan.bodyStyles).toEqual(["truck"]);
   });
 
   it("2010 or older: drops invented 2016 budget ceiling; keeps yearMax 2010", () => {
