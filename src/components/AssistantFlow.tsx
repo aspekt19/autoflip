@@ -28,6 +28,7 @@ import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
 import type { FindPlan } from "@/domain/find-plan";
 import { CoverageLine } from "./CoverageNote";
+import { RunMirror } from "./RunMirror";
 import { DecisionNote } from "./DecisionNote";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
@@ -320,6 +321,7 @@ function AssistantFlow({
   } | null>(null);
   /** Owner-bound search context from /api/match — required for next-check / decide. */
   const [searchContextToken, setSearchContextToken] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [servNextCheckEnabled, setServNextCheckEnabled] = useState(false);
   /** PR B: one-shot decide path instead of next-check loop. */
   const [decidePathEnabled, setDecidePathEnabled] = useState(false);
@@ -437,6 +439,7 @@ function AssistantFlow({
         body: JSON.stringify({
           text,
           mode,
+          runId: opts?.freshNote ? null : runId,
           budgetUsd: opts?.freshNote || !budgetFormDirty ? null : budgetKnown && Number.isFinite(amount) ? amount : null,
           budgetKnown: opts?.freshNote || !budgetFormDirty ? false : budgetKnown,
           budgetDirty: opts?.freshNote ? false : budgetFormDirty,
@@ -459,11 +462,13 @@ function AssistantFlow({
         message?: string;
         guard?: string;
         criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
+        runId?: string | null;
       };
       if (!response.ok || !body.need) {
         setError(body.message || "That note could not be read.");
         return;
       }
+      if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
       const finalNeed = body.need;
       if (body.findPlan) setFindPlan(body.findPlan);
       if (Array.isArray(body.directions) && body.directions.length > 0) {
@@ -864,7 +869,7 @@ function AssistantFlow({
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchContextToken: token }),
+        body: JSON.stringify({ searchContextToken: token, runId }),
       });
       const body = (await response.json()) as {
         ok?: boolean;
@@ -885,6 +890,7 @@ function AssistantFlow({
         freeEvidenceNote?: string;
         loop?: { continue?: boolean; reason?: string; detail?: string };
         needAfter?: StructuredNeed;
+        runId?: string | null;
       };
       if (!response.ok || !body.ok) {
         setFindLoopOpen(false);
@@ -900,6 +906,7 @@ function AssistantFlow({
       }
       if (body.needAfter) setNeed(body.needAfter);
       if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
+      if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
       if (body.bestDeal) setBestDeal(body.bestDeal);
       if (body.pickAgentVerdict) setPickAgentVerdict(body.pickAgentVerdict);
       if (body.pickSecondPass) setPickSecondPass(body.pickSecondPass);
@@ -1497,6 +1504,7 @@ function AssistantFlow({
         body: JSON.stringify({
           need,
           searchIdempotencyKey,
+          runId,
           // C1 plan directions — skip proposeDirections collapse when present.
           ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
@@ -1523,6 +1531,7 @@ function AssistantFlow({
         decidePathEnabled?: boolean;
         compsPool?: unknown;
         error?: string;
+        runId?: string | null;
       };
       if (typeof body.balance === "number") publishCreditBalance(body.balance);
       else void refreshPublishedCreditBalance();
@@ -1608,6 +1617,7 @@ function AssistantFlow({
           ? body.searchContextToken.trim()
           : null;
       setSearchContextToken(nextToken);
+      if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
       setServNextCheckEnabled(Boolean(body.servNextCheckEnabled && nextToken));
       setDecidePathEnabled(Boolean(body.decidePathEnabled && nextToken));
       setAppliedNextChecks([]);
@@ -2060,6 +2070,7 @@ function AssistantFlow({
             setSource(null);
             setGroups([]);
             setBestDeal(null);
+            setRunId(null);
             setPickAgentVerdict(null);
             setPickSecondPass(null);
             setFindLoopOpen(false);
@@ -2481,6 +2492,7 @@ function AssistantFlow({
 
       {stage === "results" ? (
         <div id="find-results" className="find-results">
+          <RunMirror runId={runId} />
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
@@ -2891,6 +2903,7 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
+                    {runId ? null : (
                     <ServDecisionJournal
                       proofRecords={proofRecords}
                       agentVerdict={buildFindAgentVerdict({
@@ -2905,6 +2918,7 @@ function AssistantFlow({
                       })}
                       defaultOpen
                     />
+                    )}
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>Check checklist (detail)</p>

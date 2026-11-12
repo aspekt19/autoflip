@@ -1,0 +1,236 @@
+/**
+ * Turn a pipeline result into a stored Run. Routes call this after the real work.
+ * A thrown store error must not fail the shopper's search, so callers catch.
+ */
+import type { FailureReasonId, RunKind, SourceId } from "@/domain/buyer-copy-table";
+import {
+  applyObservation,
+  createRun,
+  newRunId,
+  type ProofObservation,
+  type RunInputs,
+  type RunListing,
+  type RunObservation,
+  type RunRecord,
+} from "@/domain/run";
+import type { SearchFormEdits, SearchSpec } from "@/domain/search-spec";
+import type { Kv } from "@/io/kv";
+import { insertRun, readRun, updateRun } from "@/io/run-store";
+
+export type SyncRunInput = {
+  runId?: string | null;
+  ownerId: string;
+  kind: RunKind;
+  note: string;
+  clarifications?: string[];
+  mode?: "personal" | "flip";
+  vin?: string | null;
+  formEdits?: SearchFormEdits | null;
+  spec?: SearchSpec | null;
+  proofs?: ProofObservation[];
+  listings?: RunListing[];
+  picks?: string[];
+  sources?: SourceId[];
+  queryCount?: number | null;
+  verdict?: string | null;
+  confidence?: string | null;
+  creditsCharged?: number;
+  failureReasons?: FailureReasonId[];
+  terminal?: boolean;
+};
+
+function inputsFrom(input: SyncRunInput, prior: RunInputs | null): RunInputs {
+  const clarifications = [...(prior?.clarifications ?? [])];
+  for (const line of input.clarifications ?? []) {
+    const text = line.trim();
+    if (text && !clarifications.includes(text)) clarifications.push(text);
+  }
+  return {
+    note: input.note.trim() || prior?.note || "",
+    clarifications,
+    mode: input.mode ?? prior?.mode ?? (input.kind === "resale" ? "flip" : "personal"),
+    vin: input.vin !== undefined ? input.vin : (prior?.vin ?? null),
+    formEdits: input.formEdits ?? prior?.formEdits ?? null,
+  };
+}
+
+function observationFrom(input: SyncRunInput): RunObservation {
+  return {
+    note: input.note,
+    clarifications: input.clarifications,
+    formEdits: input.formEdits,
+    vin: input.vin,
+    spec: input.spec,
+    proofs: input.proofs,
+    listings: input.listings,
+    picks: input.picks,
+    sources: input.sources,
+    queryCount: input.queryCount,
+    verdict: input.verdict,
+    confidence: input.confidence,
+    creditsCharged: input.creditsCharged,
+    failureReasons: input.failureReasons,
+    terminal: input.terminal,
+  };
+}
+
+/** Create or update the owner's run. Returns the id, or null when the store rejects the write. */
+export async function syncRun(kv: Kv, input: SyncRunInput): Promise<string | null> {
+  const requested = input.runId?.trim() || null;
+  if (requested) {
+    const existing = await readRun(kv, requested);
+    if (existing && existing.ownerId === input.ownerId && existing.kind === input.kind) {
+      const next = await updateRun(kv, existing.id, (current) => applyObservation(current, observationFrom(input)));
+      return next?.id ?? null;
+    }
+    if (existing) return null;
+  }
+
+  let record = createRun({
+    id: requested ?? newRunId(),
+    ownerId: input.ownerId,
+    kind: input.kind,
+    inputs: inputsFrom(input, null),
+  });
+  record = applyObservation(record, observationFrom(input));
+  const inserted = await insertRun(kv, record);
+  if (inserted) return record.id;
+  const raced = await readRun(kv, record.id);
+  if (!raced || raced.ownerId !== input.ownerId) return null;
+  const next = await updateRun(kv, raced.id, (current) => applyObservation(current, observationFrom(input)));
+  return next?.id ?? null;
+}
+
+export function proofsFromRecords(records: unknown): ProofObservation[] {
+  if (!Array.isArray(records)) return [];
+  const out: ProofObservation[] = [];
+  for (const row of records) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as {
+      purpose?: unknown;
+      status?: unknown;
+      servResponseId?: unknown;
+      model?: unknown;
+      timestamp?: unknown;
+    };
+    if (typeof rec.purpose !== "string" || !rec.purpose.trim()) continue;
+    out.push({
+      purpose: rec.purpose,
+      status: typeof rec.status === "string" ? rec.status : null,
+      responseId: typeof rec.servResponseId === "string" ? rec.servResponseId : null,
+      model: typeof rec.model === "string" ? rec.model : null,
+      timestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
+    });
+  }
+  return out;
+}
+
+export function listingFromCar(car: {
+  vin?: string | null;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  priceUsd?: number | null;
+  miles?: number | null;
+  dealer?: string | null;
+  vdp?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): RunListing | null {
+  const vin = car.vin?.trim();
+  if (!vin) return null;
+  return {
+    vin,
+    year: typeof car.year === "number" && Number.isFinite(car.year) ? car.year : 0,
+    make: car.make?.trim() || "",
+    model: car.model?.trim() || "",
+    trim: car.trim?.trim() || null,
+    priceUsd: typeof car.priceUsd === "number" ? car.priceUsd : null,
+    miles: typeof car.miles === "number" ? car.miles : null,
+    dealer: car.dealer?.trim() || null,
+    vdp: car.vdp?.trim() || null,
+    city: car.city?.trim() || null,
+    state: car.state?.trim() || null,
+  };
+}
+
+export async function loadOwnedRun(kv: Kv, id: string, ownerId: string): Promise<RunRecord | null> {
+  const run = await readRun(kv, id);
+  if (!run || run.ownerId !== ownerId) return null;
+  return run;
+}
+
+/** Store the run, but never fail the shopper request when the store errors. */
+export async function syncRunSafely(kv: Kv, input: SyncRunInput): Promise<string | null> {
+  try {
+    return await syncRun(kv, input);
+  } catch {
+    return null;
+  }
+}
+
+type ResaleCar = {
+  vin?: string | null;
+  listing?: {
+    year?: number | null;
+    make?: string | null;
+    model?: string | null;
+    trim?: string | null;
+    priceUsd?: number | null;
+    miles?: number | null;
+    dealer?: string | null;
+    vdp?: string | null;
+    city?: string | null;
+    state?: string | null;
+  } | null;
+};
+
+/** Record a resale job step onto the Run. Plan-only steps stay in progress. */
+export async function syncResaleRun(
+  kv: Kv,
+  input: {
+    ownerId: string;
+    runId?: string | null;
+    note: string;
+    client: {
+      best?: ResaleCar | null;
+      alternatives?: ResaleCar[] | null;
+      proofRecords?: unknown;
+      verdictAction?: string | null;
+      confidence?: string | null;
+      chargedCredit?: boolean;
+      providerQueriesUsed?: number | null;
+      done?: boolean;
+      emptyReason?: string | null;
+      step?: number | null;
+    };
+  },
+): Promise<string | null> {
+  const cars = [input.client.best, ...(input.client.alternatives ?? [])].flatMap((car) => {
+    if (!car) return [];
+    const row = listingFromCar({ ...car.listing, vin: car.vin });
+    return row ? [row] : [];
+  });
+  const queries = typeof input.client.providerQueriesUsed === "number" ? input.client.providerQueriesUsed : 0;
+  const finished = input.client.done === true || Boolean(input.client.emptyReason);
+  const sources: SourceId[] = [];
+  if (queries > 0) sources.push("cars_for_sale");
+  if (cars.length > 1) sources.push("similar_cars");
+  return syncRunSafely(kv, {
+    runId: input.runId,
+    ownerId: input.ownerId,
+    kind: "resale",
+    mode: "flip",
+    note: input.note,
+    proofs: proofsFromRecords(input.client.proofRecords),
+    listings: finished || cars.length > 0 ? cars : undefined,
+    picks: input.client.best?.vin ? [input.client.best.vin] : undefined,
+    sources,
+    queryCount: finished || queries > 0 ? queries : undefined,
+    verdict: finished ? (input.client.verdictAction ?? null) : null,
+    confidence: finished ? (input.client.confidence ?? null) : null,
+    creditsCharged: input.client.chargedCredit ? 1 : 0,
+    terminal: finished,
+  });
+}

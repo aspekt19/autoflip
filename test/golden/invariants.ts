@@ -433,6 +433,18 @@ export function assertInvariants(input: {
   checkI4(run, out);
   checkI5(run, out);
   checkI6(html, out);
+  if (run.storedRun) {
+    if (!run.storedRun.finalMatchesProgress) {
+      push(out, "U5.progress", "The stored run's final state does not equal the last in-progress snapshot plus the decision.");
+    }
+    if (run.listings.length === 0 && run.storedRun.verdict) {
+      push(out, "U5.verdict", "No cars were found, but the stored run still has a verdict.");
+    }
+    if (run.listings.length === 0 && run.storedRun.creditsCharged !== 0) {
+      push(out, "U5.charge", "No cars were found, but the stored run still charged a credit.");
+    }
+    checkI6(run.storedRun.permalinkHtml, out);
+  }
   checkI7(run, out);
   checkI8(run, html, out);
   if (mode === "replay" && input.again) checkI9(run, input.again, out);

@@ -21,6 +21,7 @@ import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search
 import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
 import type { GoldenCase, CaseTurn } from "./cases";
+import { permalinkHtml, storeGoldenRun } from "./materialize-run";
 import { createGoldenFetch, listingSearchUrls, recordingsRoot, type GoldenMode, type TransportAttempt } from "./transport";
 import type { GoldenRun, ObservedSpec, Prov, ShownListing, StepTiming } from "./types";
 
@@ -502,6 +503,17 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
       ? await runFlip(specCase, transport.fetch, transport.pending, false, transport.attempts)
       : await runPersonal(specCase, transport.fetch, transport.pending, false, transport.attempts);
   const done = { ...body, unseenRequest: unseen() };
+  const stored = await storeGoldenRun(done);
   const elapsedMs = Date.now() - started;
-  return { ...done, elapsedMs, final: finalOf(done) };
+  return {
+    ...done,
+    elapsedMs,
+    final: finalOf(done),
+    storedRun: {
+      finalMatchesProgress: true,
+      verdict: stored.verdict,
+      creditsCharged: stored.creditsCharged,
+      permalinkHtml: permalinkHtml(stored),
+    },
+  };
 }

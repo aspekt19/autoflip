@@ -7,6 +7,7 @@ import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
+import { RunMirror } from "@/components/RunMirror";
 import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import { actionLabel } from "@/domain/decision-action";
 import { providerResponseId } from "@/domain/serv-response-id";
@@ -146,6 +147,7 @@ function CheckFlowForm() {
   }>(null);
   const [focusVinPending, setFocusVinPending] = useState(false);
   const [result, setResult] = useState<CheckResultView | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<"loading" | "signed-out" | "missing" | string>("loading");
   const allowanceGen = useRef(0);
   const vinInputRef = useRef<HTMLInputElement>(null);
@@ -313,6 +315,7 @@ function CheckFlowForm() {
                 kind: "vin",
                 vin: vin.trim().toUpperCase(),
                 optionalZip: optionalZip.trim() || undefined,
+                ...(runId ? { runId } : {}),
                 ...(opts?.forceFresh ? { forceFresh: true } : {}),
               }
             : {
@@ -339,6 +342,7 @@ function CheckFlowForm() {
         credits?: number;
         balance?: number;
         offerFreshCheck?: boolean;
+        runId?: string | null;
       };
 
       if (response.status === 401 || response.status === 403) {
@@ -402,6 +406,7 @@ function CheckFlowForm() {
       }
 
       setResult(body);
+      if (kind === "vin" && typeof body.runId === "string" && body.runId) setRunId(body.runId);
       await refreshAllowance(body);
       if (body.spentCredit) {
         await refreshPublishedCreditBalance();
@@ -622,6 +627,7 @@ function CheckFlowForm() {
       {result ? (
         <CheckResultCard
           result={result}
+          runId={kind === "vin" ? runId : null}
           freshPending={pending}
           onFreshCheck={
             result.offerFreshCheck && kind === "vin"
@@ -638,10 +644,12 @@ function CheckFlowForm() {
 
 function CheckResultCard({
   result,
+  runId = null,
   onFreshCheck,
   freshPending,
 }: {
   result: CheckResultView;
+  runId?: string | null;
   onFreshCheck?: () => void;
   freshPending?: boolean;
 }) {
@@ -663,6 +671,7 @@ function CheckResultCard({
   const savedDate = result.settledAt?.slice(0, 10) ?? null;
   return (
     <article className="warn-box check-result" aria-live="polite">
+      {runId ? <RunMirror runId={runId} /> : null}
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
       <h2>{result.title}</h2>
       <p className="lead">
@@ -694,12 +703,14 @@ function CheckResultCard({
         <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
       ) : null}
       <p>{result.summary}</p>
+      {runId ? null : (
       <ServDecisionJournal
         agentVerdict={result.agentVerdict}
         proofRecords={result.proofRecords}
         defaultOpen
         verifyId={result.settledAt ? `check-${result.settledAt}` : null}
       />
+      )}
       {result.servTrace && result.servTrace.calls.length > 0 ? (
         <section aria-label="Recorded agent calls">
           <h3>Recorded agent calls</h3>

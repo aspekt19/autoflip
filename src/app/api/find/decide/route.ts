@@ -9,6 +9,8 @@ import { getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
 import { findContextOwnerId } from "@/server/find-context-owner";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
+import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
+import type { SourceId } from "@/domain/buyer-copy-table";
 
 export const dynamic = "force-dynamic";
 /**
@@ -21,6 +23,7 @@ export async function POST(request: Request) {
   const id = await findContextOwnerId();
   const body = (await request.json().catch(() => null)) as {
     searchContextToken?: unknown;
+    runId?: unknown;
   } | null;
 
   if (!body || typeof body !== "object") {
@@ -59,11 +62,43 @@ export async function POST(request: Request) {
   );
 
   if (!result.ok) {
+    const failedRunId = await syncRunSafely(kv, {
+      runId: typeof body.runId === "string" ? body.runId : null,
+      ownerId: id,
+      kind: "find",
+      note: "",
+      proofs: [{ purpose: "find_decide", status: "failed", responseId: null }],
+      terminal: true,
+      failureReasons: ["decision_failed"],
+      verdict: null,
+    });
     return Response.json(
-      { ok: false, error: result.error, message: result.message },
+      { ok: false, error: result.error, message: result.message, runId: failedRunId },
       { status: result.status },
     );
   }
+
+  const sources: SourceId[] = [];
+  for (const receipt of result.freeGovReceipts) {
+    if (receipt.checkId === "free_gov_recalls" && !sources.includes("government_recalls")) sources.push("government_recalls");
+    if (receipt.checkId === "free_gov_vpic" && !sources.includes("factory_details")) sources.push("factory_details");
+    if (receipt.checkId === "free_gov_safety" && !sources.includes("crash_tests")) sources.push("crash_tests");
+  }
+  const pick = result.bestDeal?.pick;
+  const pickVin = pick && typeof pick.vin === "string" ? pick.vin : null;
+  const runId = await syncRunSafely(kv, {
+    runId: typeof body.runId === "string" ? body.runId : null,
+    ownerId: id,
+    kind: "find",
+    note: result.needAfter.note ?? "",
+    mode: result.needAfter.mode === "flip" ? "flip" : "personal",
+    proofs: proofsFromRecords(result.pickProofRecords),
+    picks: pickVin ? [pickVin] : [],
+    sources,
+    verdict: result.pickAgentVerdict?.verdict ?? null,
+    confidence: result.pickAgentVerdict?.confidence ?? null,
+    terminal: true,
+  });
 
   return Response.json({
     ok: true,
@@ -86,6 +121,7 @@ export async function POST(request: Request) {
     decisionLog: result.decisionLog,
     carChecks: result.carChecks,
     replay: result.replay,
+    runId,
     /** Compatibility with next-check UI consumers. */
     replan: { need: result.needAfter, refine: {}, note: result.honesty },
     autonomousServ: result.decideSource === "SERV",
