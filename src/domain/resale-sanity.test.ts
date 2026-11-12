@@ -38,17 +38,28 @@ function car(partial: Partial<Listing> & Pick<Listing, "vin" | "priceUsd" | "yea
 const now = new Date("2026-11-12T00:00:00Z");
 
 describe("resale sanity gates", () => {
-  it("parses as-is and a 30-day sell window from the note without a profit target", () => {
-    const parsed = parseResaleSearchInput({
+  it("does not regex as-is / sell-within from freeText — form or SERV fields only", () => {
+    const fromNote = parseResaleSearchInput({
       budgetUsd: 15_000,
       freeText: "buy as-is, sell within 30 days",
     });
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    expect(parsed.input.asIs).toBe(true);
-    expect(parsed.input.sellWithinDays).toBe(30);
-    expect(parsed.input.targetProfitUsd).toBeNull();
-    expect(resaleSpecHash(parsed.input)).toBe(resaleSpecHash({ ...parsed.input }));
+    expect(fromNote.ok).toBe(true);
+    if (!fromNote.ok) return;
+    expect(fromNote.input.asIs).toBe(false);
+    expect(fromNote.input.sellWithinDays).toBeNull();
+    expect(fromNote.input.targetProfitUsd).toBeNull();
+
+    const fromForm = parseResaleSearchInput({
+      budgetUsd: 15_000,
+      freeText: "buy as-is, sell within 30 days",
+      asIs: true,
+      sellWithinDays: 30,
+    });
+    expect(fromForm.ok).toBe(true);
+    if (!fromForm.ok) return;
+    expect(fromForm.input.asIs).toBe(true);
+    expect(fromForm.input.sellWithinDays).toBe(30);
+    expect(resaleSpecHash(fromForm.input)).toBe(resaleSpecHash({ ...fromForm.input }));
   });
 
   it("keeps recon at 0 when as-is and flags days to sell past 30", () => {

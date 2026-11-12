@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   BEST_DEAL_TIE_EPSILON,
-  prefersLowMilesFromNote,
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
@@ -233,8 +232,7 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
     expect(result.honesty).toMatch(/not a guarantee|current evidence/i);
   });
 
-  it("ranks a lower-mileage car above a high-mile peer when the note asks for low miles", () => {
-    expect(prefersLowMilesFromNote("San Diego SUV, low miles, under $18k")).toBe(false);
+  it("ranks a lower-mileage car above a high-mile peer among same-model peers", () => {
     const rows: BestDealListing[] = [
       {
         make: "Toyota",

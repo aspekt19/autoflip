@@ -81,9 +81,9 @@ describe("radar cycle", () => {
     });
     const personalAfter = (await listAlerts(kv)).filter((item) => item.mode === "personal").length;
     expect(personalAfter).toBe(personalBefore);
-    // Personal RAV4 group (1) + Flip liquid segments (3).
-    expect(second.autodevCalls).toBe(4);
-    expect(calls).toBe(5);
+    // Personal RAV4 group (1) + unnamed Flip criteria query (1) — no invented model catalog.
+    expect(second.autodevCalls).toBe(2);
+    expect(calls).toBe(3);
   });
 
   it("keeps fetched listings and records SERV activity when SERV times out (no invented alerts)", async () => {

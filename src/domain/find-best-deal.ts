@@ -239,19 +239,6 @@ export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
 /** Absolute miles above this under condition-first draw a strong wear penalty. */
 export const BEST_DEAL_HIGH_MILES_SOFT = 120_000;
 export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
-/**
- * FMVSS 126 required electronic stability control on new passenger cars
- * starting with the 2012 model year. A safety-oriented search ranks older
- * cars below that line and says why.
- */
-export const ESC_REQUIRED_FROM_MODEL_YEAR = 2012;
-
-export function safetyOrientedRequest(_note: string | null | undefined): boolean {
-  return false;
-}
-
-export const PRE_ESC_RANK_NOTE =
-  "Cars from before 2012 were ranked lower. Electronic stability control was not required on new passenger cars until the 2012 model year, so an older car often does not have it.";
 
 /** Buyer flag for cars at or above the hard mileage line. */
 export function veryHighMileageLabel(miles: number | null | undefined): string | null {
@@ -478,26 +465,6 @@ export function fuelIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
 
 function listingKey(row: BestDealListing): string {
   return bestDealCarKey(row);
-}
-
-/**
- * Note cues that amplify wear/age even when the form left condition unspecified.
- * Bare "reliable" / "reliable for road trips" is a reliability priority — not this quote.
- * Prefer StructuredNeed.conditionPriority when extraction already set it.
- */
-/** @deprecated Note interpreters deleted — always false. Use StructuredNeed.conditionPriority. */
-export function prefersConditionFromNote(_note: string | null | undefined): boolean {
-  return false;
-}
-
-/** @deprecated Note interpreters deleted — always false. */
-export function prefersNotTooOldFromNote(_note: string | null | undefined): boolean {
-  return false;
-}
-
-/** @deprecated Note interpreters deleted — always false. */
-export function prefersLowMilesFromNote(_note: string | null | undefined): boolean {
-  return false;
 }
 
 function listingStubForComps(row: BestDealListing): Listing | null {
@@ -823,8 +790,8 @@ function scoreOne(
   const ageYears = Math.max(0.5, ctx.nowYear - row.year);
   const mpy = row.miles != null ? row.miles / ageYears : null;
   const assumedPace = ctx.milesPerYearAssumption;
-  const notTooOld = prefersNotTooOldFromNote(ctx.need.note) || conditionFirst;
-  const lowMilesPref = prefersLowMilesFromNote(ctx.need.note) || conditionFirst;
+  const notTooOld = conditionFirst;
+  const lowMilesPref = conditionFirst;
   let lowMileageUnverified = false;
   const extraSellerQuestions: string[] = [];
   if (mpy != null) {
@@ -1295,9 +1262,6 @@ function scoreOne(
   const odoExclude = implausibleOdometer(row.year, row.miles, ctx.nowYear);
   if (odoExclude && row.miles != null) unknowns.push(implausibleOdometerReason(row.year, row.miles));
   const excludedFromPick = identityExclude || stopExclude || priceExclude || odoExclude;
-  if (safetyOrientedRequest(ctx.need.note) && row.year > 0 && row.year < ESC_REQUIRED_FROM_MODEL_YEAR) {
-    unknowns.push(PRE_ESC_RANK_NOTE);
-  }
   const excludedReason = identityExclude
     ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
     : stopExclude
@@ -1644,15 +1608,8 @@ function rankAll(
     }),
   );
   const preferAwd = need.awdPreference === true;
-  const safetyFirst = false;
-  const lowMilesPref = false;
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
-    if (safetyFirst) {
-      const aOld = a.year > 0 && a.year < ESC_REQUIRED_FROM_MODEL_YEAR;
-      const bOld = b.year > 0 && b.year < ESC_REQUIRED_FROM_MODEL_YEAR;
-      if (aOld !== bOld) return aOld ? 1 : -1;
-    }
     // A reported accident never ranks above a lower-mileage car with no reported accident.
     const aAcc = reportedAccidentCount(a);
     const bAcc = reportedAccidentCount(b);
@@ -1662,11 +1619,6 @@ function rankAll(
     const bHigh = b.miles != null && b.miles >= BEST_DEAL_HIGH_MILES_HARD;
     if (aHigh && !bHigh && bAcc === 0 && b.miles != null && a.miles != null && b.miles < a.miles) return 1;
     if (bHigh && !aHigh && aAcc === 0 && a.miles != null && b.miles != null && a.miles < b.miles) return -1;
-    // Soft low-miles preference: among otherwise-close cars, lower odometer wins before score ties.
-    if (lowMilesPref && a.miles != null && b.miles != null && Math.abs(a.miles - b.miles) >= 15_000) {
-      const scoreGap = Math.abs((b.score ?? 0) - (a.score ?? 0));
-      if (scoreGap < 4 && a.miles !== b.miles) return a.miles - b.miles;
-    }
     if (b.score !== a.score) return b.score - a.score;
     // Soft AWD before VIN lexicographic key so preferably-AWD does not bury AWD under FWD.
     if (preferAwd) {
@@ -1960,10 +1912,6 @@ export function selectBestDealOnEvidence(input: {
     ...choice.reasons,
     note,
     priceProvisional ? "Asking-price comparison remains provisional." : null,
-    safetyOrientedRequest(input.need.note) &&
-    rankedAll.some((car) => car.year > 0 && car.year < ESC_REQUIRED_FROM_MODEL_YEAR)
-      ? PRE_ESC_RANK_NOTE
-      : null,
   ]
     .filter(Boolean)
     .join(" ")

@@ -183,16 +183,9 @@ export function parseResaleSearchInput(
     }
   }
 
-  const freeTextForFlags =
-    typeof body.freeText === "string"
-      ? body.freeText
-      : typeof body.note === "string"
-        ? body.note
-        : "";
-
+  // asIs / sellWithinDays: form fields or SERV-extracted values only — never regex freeText/note.
   let asIs = false;
   if (typeof body.asIs === "boolean") asIs = body.asIs;
-  else if (/\bas[-\s]?is\b/i.test(freeTextForFlags)) asIs = true;
 
   let sellWithinDays: number | null = null;
   if (body.sellWithinDays != null && body.sellWithinDays !== "") {
@@ -201,12 +194,6 @@ export function parseResaleSearchInput(
       issues.push({ field: "sellWithinDays", message: "Sell-within days must be a number from 1 to 365, or blank." });
     } else {
       sellWithinDays = Math.round(n);
-    }
-  } else {
-    const match = freeTextForFlags.match(/\b(?:sell\s+within|within|in)\s+(\d{1,3})\s+days\b/i);
-    if (match) {
-      const n = Number(match[1]);
-      if (Number.isFinite(n) && n > 0 && n <= 365) sellWithinDays = Math.round(n);
     }
   }
 

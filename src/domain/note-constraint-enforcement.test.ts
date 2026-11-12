@@ -339,4 +339,72 @@ describe("note→search enforcement — no free-text readers / catalogs outside 
     expect(text).not.toMatch(/\bproposeDirections\b/);
     expect(text).toMatch(/search_listings/);
   });
+
+  it("resale-search-input never regexes freeText/note for asIs or sellWithinDays", () => {
+    const text = stripComments(readFileSync(join(SRC, "domain/resale-search-input.ts"), "utf8"));
+    expect(text).not.toMatch(/freeTextForFlags/);
+    expect(text).not.toMatch(/\\bas\[-\\s\]\?is\\b/);
+    expect(text).not.toMatch(/sell\s*\+\s*within/);
+    expect(text).not.toMatch(/\.test\(\s*freeText/);
+    expect(text).not.toMatch(/\.match\(\s*(?:freeText|note)/);
+    // Form/SERV boolean + number fields remain the only writers.
+    expect(text).toMatch(/typeof body\.asIs === "boolean"/);
+    expect(text).toMatch(/body\.sellWithinDays/);
+  });
+
+  it("Radar watch-queries never invents Flip make/model catalogs", () => {
+    const text = stripComments(readFileSync(join(SRC, "domain/watch-queries.ts"), "utf8"));
+    expect(text).not.toMatch(/\bFLIP_BROAD_SCAN_MODELS\b/);
+    expect(text).not.toMatch(/\bFLIP_SCAN_PAGES\b/);
+    expect(text).not.toMatch(/Corolla/);
+    expect(text).not.toMatch(/RAV4/);
+    expect(text).not.toMatch(/Camry/);
+    // Unnamed Flip still builds criteria queries; it must not substitute models.
+    expect(text).toMatch(/\bisBroadFlip\b/);
+    expect(text).toMatch(/\blistingQueries\b/);
+  });
+
+  it("dead note-preference stubs stay deleted", () => {
+    const text = stripComments(readFileSync(join(SRC, "domain/find-best-deal.ts"), "utf8"));
+    for (const forbidden of [
+      "prefersConditionFromNote",
+      "prefersNotTooOldFromNote",
+      "prefersLowMilesFromNote",
+      "safetyOrientedRequest",
+      "PRE_ESC_RANK_NOTE",
+    ]) {
+      expect(text, `find-best-deal still has ${forbidden}`).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+    }
+  });
+
+  it("walk: no production src regexes shopper freeText/note for asIs/sellWindow or invents Flip models", () => {
+    const hits: string[] = [];
+    // Literal patterns that used to mint Resale/Radar constraints from free text.
+    const FORBIDDEN_SNIPPETS = [
+      { re: /freeTextForFlags/, label: "freeTextForFlags" },
+      { re: /\\bas\[-\\s\]\?is\\b/, label: "as-is regex" },
+      { re: /sell\\s\+within.*?days/, label: "sell-within regex" },
+      { re: /\bFLIP_BROAD_SCAN_MODELS\b/, label: "FLIP_BROAD_SCAN_MODELS" },
+      { re: /\bFLIP_SCAN_PAGES\b/, label: "FLIP_SCAN_PAGES" },
+      { re: /\bprefersConditionFromNote\b/, label: "prefersConditionFromNote" },
+      { re: /\bprefersNotTooOldFromNote\b/, label: "prefersNotTooOldFromNote" },
+      { re: /\bprefersLowMilesFromNote\b/, label: "prefersLowMilesFromNote" },
+      { re: /\bsafetyOrientedRequest\b/, label: "safetyOrientedRequest" },
+    ];
+    const HARDCODED_LIQUID_FLIP =
+      /make:\s*["']Toyota["']\s*,\s*model:\s*["']Corolla["'][\s\S]{0,160}make:\s*["']Toyota["']\s*,\s*model:\s*["']RAV4["'][\s\S]{0,160}make:\s*["']Toyota["']\s*,\s*model:\s*["']Camry["']/;
+
+    for (const abs of walkTsFiles(SRC)) {
+      const path = relative(ROOT, abs).replace(/\\/g, "/");
+      const body = stripComments(readFileSync(abs, "utf8"));
+      for (const { re, label } of FORBIDDEN_SNIPPETS) {
+        if (!re.test(body)) continue;
+        // Dealer listing page phrase scans are not shopper freeText interpreters.
+        if (label === "as-is regex" && path === "src/domain/listing/red-flags.ts") continue;
+        hits.push(`${path}: ${label}`);
+      }
+      if (HARDCODED_LIQUID_FLIP.test(body)) hits.push(`${path}: Corolla/RAV4/Camry Flip catalog`);
+    }
+    expect(hits).toEqual([]);
+  });
 });

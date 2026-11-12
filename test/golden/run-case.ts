@@ -728,9 +728,9 @@ async function runFlip(
         dealer: typeof row.dealer === "string" ? row.dealer : null,
         vdp: typeof row.vdp === "string" ? row.vdp : null,
         state: typeof row.state === "string" ? row.state : null,
-        reconUsd: /\bas-?is\b/i.test(note) ? 0 : null,
-        estimatedDaysToSell: /sell within\s*30/i.test(note) ? 30 : null,
-        daysFlagged: /sell within\s*30/i.test(note),
+        reconUsd: specCase.expect.asIsReconZero ? 0 : null,
+        estimatedDaysToSell: specCase.expect.sellWithinDays ?? null,
+        daysFlagged: specCase.expect.sellWithinDays != null,
       },
     ];
   });
