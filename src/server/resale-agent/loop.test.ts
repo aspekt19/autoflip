@@ -322,7 +322,7 @@ describe("runResaleAgentLoop", () => {
                   searchWhy: null,
                   summary: "Negotiate the Civic.",
                   confidence: "medium",
-                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 15_500, why: "Code PnL." }],
+                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 11_000, why: "Code PnL." }],
                   relaxedConditions: [],
                 }),
               },

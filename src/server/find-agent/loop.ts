@@ -455,7 +455,7 @@ function chatBody(input: {
     maxTokens: input.maxTokens,
     model: input.model,
     // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
-    // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
+    // supported reasoning_effort. Prompt Guard / Shadow live on the Responses API.
     tools: undefined,
     reasoningEffort: input.reasoningEffort ?? "low",
   });
@@ -577,7 +577,7 @@ async function finalizeVerdict(input: {
   ];
 
   // Chat finish is schema-only with a supported reasoning_effort (never "none").
-  // Extensions (Prompt Guard / Shadow) stay on /v1/responses tools mode.
+  // Extensions (Prompt Guard / Shadow) stay on Responses-API tools mode.
   const withExtensions = chatBody({
     messages,
     model: input.bundle.model,
@@ -1519,7 +1519,7 @@ export async function runFindAgentLoop(input: {
     return runToolsMode(shared);
   }
 
-  // auto: /v1/responses tools first. Fall back to schema-only chat only when the
+  // auto: Responses-API tools first. Fall back to schema-only chat only when the
   // Responses tools path is unsupported/empty — not on transient serv_http (keep
   // tools ownership; chat is a last resort without function tools).
   const toolsAttempt = await runToolsMode(shared);

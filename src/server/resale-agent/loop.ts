@@ -460,7 +460,7 @@ function chatBody(input: {
     maxTokens: input.maxTokens,
     model: input.model,
     // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
-    // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
+    // supported reasoning_effort. Prompt Guard / Shadow live on the Responses API.
     tools: undefined,
     reasoningEffort: input.reasoningEffort ?? "low",
   });
@@ -1480,7 +1480,7 @@ export async function runResaleAgentLoop(input: {
     return runToolsMode(shared);
   }
 
-  // Prefer /v1/responses tools. Fall back to schema-only chat only when tools
+  // Prefer Responses-API tools. Fall back to schema-only chat only when tools
   // are unsupported/empty — never on serv_http (Resale must stay on tools when available).
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
