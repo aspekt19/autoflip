@@ -37,6 +37,7 @@ DATA_DIR="$(mktemp -d /tmp/lemonless-e2e-XXXXXX)"
 export DATA_DIR
 echo "[e2e-ci] starting Next on ${APP_PORT} (STUB upstreams wired, DATA_DIR=${DATA_DIR})"
 LEMONLESS_E2E_STUB=1 \
+FIND_AGENT_LOOP=0 \
 AUTH_SECRET="$AUTH_SECRET" \
 AUTH_GOOGLE_ID=e2e-stub-google-id \
 AUTH_GOOGLE_SECRET=e2e-stub-google-secret \

@@ -269,9 +269,11 @@ export async function runOneQuery(
       kv: deps.kv,
       userId: deps.userId,
       servKey: keys.servKey,
+      autodevKey: keys.autodevKey,
       servModel: deps.servModel,
       servBaseUrl: deps.servBaseUrl,
       fetchImpl,
+      env: process.env,
     },
   );
 
@@ -338,6 +340,7 @@ export async function runOneQuery(
     });
   }
 
+  const agentLoop = decided.agentLoop ?? null;
   return settle({
     ...base,
     ok: true,
@@ -352,6 +355,12 @@ export async function runOneQuery(
     failure: null,
     proofRecords: proofs,
     elapsedMs: 0,
+    agentMode: agentLoop?.agentMode ?? null,
+    toolRounds: agentLoop?.toolRounds ?? 0,
+    verdictReached: agentLoop?.verdictReached ?? Boolean(verdict),
+    relaxedConditions: agentLoop?.relaxedConditions ?? [],
+    journalServCalls: agentLoop?.journalServCalls ?? 0,
+    journalToolCalls: agentLoop?.journalToolCalls ?? 0,
   });
 }
 

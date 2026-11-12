@@ -48,6 +48,11 @@ export type LiveEvalPick = {
   confidence: string | null;
 };
 
+export type LiveEvalRelaxedCondition = {
+  name: string;
+  why: string;
+};
+
 export type LiveEvalCaseResult = {
   id: string;
   note: string;
@@ -60,6 +65,13 @@ export type LiveEvalCaseResult = {
   elapsedMs: number;
   estimatedUsd: number;
   fixtureDir: string | null;
+  /** Agentic Find loop mode that won this query, when used. */
+  agentMode?: "tools" | "next_action" | null;
+  toolRounds?: number;
+  verdictReached?: boolean;
+  relaxedConditions?: LiveEvalRelaxedCondition[];
+  journalServCalls?: number;
+  journalToolCalls?: number;
 };
 
 export type LiveEvalReport = {
