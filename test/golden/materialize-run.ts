@@ -23,7 +23,12 @@ export async function storeGoldenRun(golden: Omit<GoldenRun, "final" | "elapsedM
       : null,
     proofs: golden.proofRecords.flatMap((row) =>
       row.purpose
-        ? [{ purpose: row.purpose, status: row.status ?? null, responseId: row.servResponseId ?? null }]
+        ? [{
+            purpose: row.purpose,
+            status: row.status ?? null,
+            responseId: row.servResponseId ?? null,
+            detail: row.reason ?? null,
+          }]
         : [],
     ),
     listings: golden.listings.map((car) => ({

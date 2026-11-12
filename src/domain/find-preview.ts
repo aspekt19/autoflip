@@ -6,6 +6,7 @@ import { attachNoteGeo } from "./find-intake-stage";
 import { fallbackFindPlan, planToDirections, planToStructuredNeed, type FindPlan } from "./find-plan";
 import type { SearchDirection } from "./directions";
 import type { StructuredNeed } from "./need";
+import { broadenOpenDirections } from "./open-search";
 import { broadenStarterDirections } from "./starter-search";
 
 export function previewFindFromNote(
@@ -18,7 +19,11 @@ export function previewFindFromNote(
   radiusIsDefault: boolean;
 } {
   const findPlan = fallbackFindPlan(note, mode, {});
-  const directions = broadenStarterDirections(note, planToDirections(findPlan));
+  const directions = broadenOpenDirections(
+    note,
+    broadenStarterDirections(note, planToDirections(findPlan)),
+    findPlan.bodyStyles.find((style) => style !== "any") ?? null,
+  );
   const mapped = planToStructuredNeed(findPlan, mode, note);
   const withGeo = attachNoteGeo(mapped, { applyDefaultRadius: true });
   const { locationResolution: _location, radiusIsDefault, ...need } = withGeo;

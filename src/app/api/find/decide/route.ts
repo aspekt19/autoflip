@@ -15,6 +15,7 @@ import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server
 import type { SourceId } from "@/domain/buyer-copy-table";
 import { buildDecisionProofRecord, VERDICT_RUBRIC_ID } from "@/domain/decision-proof-record";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
+import { towingCapacityCaveat } from "@/domain/open-search";
 
 export const dynamic = "force-dynamic";
 /**
@@ -112,7 +113,12 @@ export async function POST(request: Request) {
       ownerId: id,
       kind: "find",
       note: "",
-      proofs: [{ purpose: "find_decide", status: "failed", responseId: null }],
+      proofs: [{
+        purpose: "find_decide",
+        status: "failed",
+        responseId: null,
+        detail: result.message || "The decision did not finish.",
+      }],
       terminal: true,
       failureReasons: ["decision_failed"],
       verdict: null,
@@ -146,7 +152,7 @@ export async function POST(request: Request) {
     verdict: proposedVerdict,
     confidence: result.pickAgentVerdict?.confidence ?? null,
     confidenceReason: result.bestDeal?.why ?? result.pickAgentVerdict?.reasons?.[0]?.text ?? null,
-    buyerMessage: result.bestDeal?.why ?? null,
+    buyerMessage: [result.bestDeal?.why, towingCapacityCaveat(result.needAfter.note)].filter(Boolean).join(" "),
     terminal: true,
   });
   const stored = settledRunId ? await readRun(kv, settledRunId) : null;

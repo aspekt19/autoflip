@@ -137,7 +137,33 @@ function normalizeStateToken(token: string): string | null {
   return STATE_ABBR[t] ?? null;
 }
 
-/** Parse "Columbus OH", "Columbus, Ohio", "near Austin TX". */
+const PLACE_SUFFIX = /\s+(?:area|metro|metropolitan area|region|vicinity)$/i;
+
+/** City names in the free table, longest first so "san francisco" wins over "san". */
+export function knownCityNames(): string[] {
+  const names = new Set<string>();
+  for (const key of Object.keys(CITY_ZIP)) {
+    const city = key.split("|")[0];
+    if (city) names.add(city);
+  }
+  return [...names].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * A table city written as a place, including "Atlanta area".
+ * A bare city word is left to the near/in/around parser so a model name
+ * that shares a city (Lincoln) is not treated as a location.
+ */
+export function cityPhraseInText(text: string): string | null {
+  for (const city of knownCityNames()) {
+    const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${escaped}\\s+(?:area|metro|region)\\b`, "i");
+    if (re.test(text)) return city;
+  }
+  return null;
+}
+
+/** Parse "Columbus OH", "Columbus, Ohio", "near Austin TX", "Atlanta area". */
 export function parseCityStatePhrase(phrase: string): { city: string; state: string } | null {
   const cleaned = phrase
     .trim()
@@ -145,6 +171,7 @@ export function parseCityStatePhrase(phrase: string): { city: string; state: str
     .replace(/^in\s+/i, "")
     .replace(/^around\s+/i, "")
     .replace(/^from\s+/i, "")
+    .replace(PLACE_SUFFIX, "")
     .replace(/[.,]+$/g, "")
     .trim();
   if (!cleaned) return null;

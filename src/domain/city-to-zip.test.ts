@@ -27,6 +27,11 @@ describe("city-to-zip", () => {
     expect(zipFieldMark(resolved)).toBe("from your note");
   });
 
+  it("resolves a city plus area without a state abbreviation", () => {
+    expect(parseCityStatePhrase("Atlanta area")).toEqual({ city: "atlanta", state: "GA" });
+    expect(resolveLocationZip({ zip: null, locationPhrase: "atlanta area" }).zip).toBe("30303");
+  });
+
   it("marks needed when a place cannot be resolved", () => {
     const resolved = resolveLocationZip({ zip: null, locationPhrase: "Somewhereville ZZ" });
     expect(resolved.zip).toBeNull();

@@ -33,11 +33,17 @@ describe("providerResponseId", () => {
     expect(providerResponseId("   ")).toBeNull();
   });
 
-  it("never surfaces an id from a failed call, even when shaped like a real completion id", () => {
+  it("keeps a real completion id when the call failed, and still drops synthetic ids", () => {
     expect(
       providerResponseIdFromCall({
         ok: false,
         id: "chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo",
+      }),
+    ).toBe("chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo");
+    expect(
+      providerResponseIdFromCall({
+        ok: false,
+        id: "synthetic-test-find-pick",
       }),
     ).toBeNull();
     expect(
