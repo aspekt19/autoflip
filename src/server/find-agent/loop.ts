@@ -321,22 +321,32 @@ function constraintsFromFormEdits(
   const form = formEdits ?? {};
   // Already provenance-tagged (orchestrator / job serialization)?
   const looksTagged = Object.values(form).some(
-    (v) => v && typeof v === "object" && !Array.isArray(v) && "provenance" in (v as object) && "value" in (v as object),
+    (v) =>
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      "value" in (v as object) &&
+      ("origin" in (v as object) || "provenance" in (v as object)),
   );
   if (looksTagged) {
-    // Constraints already provenance-tagged — trust them; raw note stays in the prompt.
+    // Form-edits channel: only origin "user" (legacy "form") — note stays in the prompt as context.
     const intent = { note, fields: {} as import("@/domain/serv-boundary").UserIntent["fields"] };
+    const constraints: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(form)) {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const row = raw as { value?: unknown; provenance?: unknown; quote?: unknown };
-      if (row.provenance !== "note" && row.provenance !== "form") continue;
-      (intent.fields as Record<string, unknown>)[key] = {
+      const row = raw as { value?: unknown; provenance?: unknown; origin?: unknown; quote?: unknown };
+      const origin = typeof row.origin === "string" ? row.origin : row.provenance;
+      if (origin !== "user" && origin !== "form") continue;
+      const field = {
         value: row.value,
-        provenance: row.provenance,
+        provenance: "user" as const,
+        origin: "user" as const,
         ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
       };
+      (intent.fields as Record<string, unknown>)[key] = field;
+      constraints[key] = field;
     }
-    return { intent, constraints: form };
+    return { intent, constraints };
   }
   const intent = buildUserIntentFromFlatForm({ note, form });
   return { intent, constraints: serializeUserIntentConstraints(intent) };
@@ -352,7 +362,7 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   }
   const edits =
     Object.keys(constraints).length > 0
-      ? `\nUser-set constraints (provenance-tagged; untouched fields absent): ${JSON.stringify(constraints)}`
+      ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",

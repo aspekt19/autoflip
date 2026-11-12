@@ -15,7 +15,12 @@ import {
   validateFindPlan,
   type FindPlan,
 } from "@/domain/find-plan";
-import { buildSearchSpec, type SearchSpec } from "@/domain/search-spec";
+import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
+import {
+  isUserProvenanced,
+  pickUserFormConstraints,
+  type ConstraintBag,
+} from "@/domain/constraint-provenance";
 import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
 import { intakeFromNote } from "@/domain/note-intake";
@@ -68,8 +73,10 @@ export async function understandNeed(
     mode?: "personal" | "flip";
     budgetUsd?: number | null;
     budgetKnown?: boolean;
-    /** False means the number is leftover form state and must not beat the note. */
+    /** @deprecated Prefer constraints.priceMaxUsd origin user. */
     budgetDirty?: boolean;
+    /** Provenanced form bag — only origin user reaches SearchSpec / SERV as form. */
+    constraints?: ConstraintBag | SearchFormEdits | null;
     budgetScope?: StructuredNeed["budgetScope"];
     zip?: string | null;
     distanceMiles?: number | null;
@@ -95,33 +102,56 @@ export async function understandNeed(
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
 
-  // Only dirty form budget reaches SERV as a form override — never a finite leftover.
-  const formBudget = body.budgetDirty === true ? (body.budgetUsd ?? null) : null;
+  // Merge legacy *Dirty flags into the provenanced bag, then keep user-origin only.
+  const constraintBag: ConstraintBag = { ...(body.constraints ?? {}) };
+  if (body.budgetDirty === true && !constraintBag.priceMaxUsd) {
+    constraintBag.priceMaxUsd = { value: body.budgetUsd ?? null, origin: "user" };
+  }
+  if (body.radiusDirty === true && !constraintBag.radiusMi) {
+    constraintBag.radiusMi = { value: body.distanceMiles ?? null, origin: "user" };
+  }
+  // Legacy Confirm geo: radiusDirty + flat zip means the shopper answered ZIP on the form.
+  if (
+    body.radiusDirty === true &&
+    !constraintBag.zip &&
+    typeof body.zip === "string" &&
+    body.zip.trim()
+  ) {
+    constraintBag.zip = { value: body.zip.trim(), origin: "user" };
+  }
+  const userConstraints = pickUserFormConstraints(constraintBag);
+
+  const formBudget = isUserProvenanced(userConstraints.priceMaxUsd)
+    ? userConstraints.priceMaxUsd.value
+    : null;
   const formOverrides = {
-    ...(body.budgetDirty === true ? { budgetUsd: formBudget } : {}),
-    ...(body.yearMin !== undefined ? { yearMin: body.yearMin ?? null } : {}),
-    ...(body.yearMax !== undefined ? { yearMax: body.yearMax ?? null } : {}),
-    ...(body.milesMax !== undefined ? { milesMax: body.milesMax ?? null } : {}),
-    ...(body.zip !== undefined && body.zip != null ? { zip: body.zip } : {}),
+    ...(isUserProvenanced(userConstraints.priceMaxUsd) ? { budgetUsd: formBudget } : {}),
+    ...(isUserProvenanced(userConstraints.yearMin) ? { yearMin: userConstraints.yearMin.value } : {}),
+    ...(isUserProvenanced(userConstraints.yearMax) ? { yearMax: userConstraints.yearMax.value } : {}),
+    ...(isUserProvenanced(userConstraints.milesMax) ? { milesMax: userConstraints.milesMax.value } : {}),
+    ...(isUserProvenanced(userConstraints.zip) && userConstraints.zip.value
+      ? { zip: userConstraints.zip.value }
+      : {}),
   };
+
+  const budgetIsUser = isUserProvenanced(userConstraints.priceMaxUsd);
+  const radiusIsUser = isUserProvenanced(userConstraints.radiusMi);
 
   const explicit: Parameters<typeof overlayExplicit>[1] = {
     mode,
     budgetUsd: formBudget,
-    budgetKnown: body.budgetDirty === false ? false : body.budgetKnown,
-    budgetDirty: body.budgetDirty,
+    budgetKnown: body.budgetDirty === false && !budgetIsUser ? false : body.budgetKnown,
+    budgetDirty: budgetIsUser ? true : body.budgetDirty,
     budgetScope: body.budgetScope,
-    zip: body.zip,
-    // Radius only when dirty — a finite leftover must not become a constraint.
-    distanceMiles: body.radiusDirty === true ? body.distanceMiles : undefined,
+    zip: isUserProvenanced(userConstraints.zip) ? userConstraints.zip.value : undefined,
+    distanceMiles: radiusIsUser ? userConstraints.radiusMi!.value : undefined,
     repairAbility: body.repairAbility,
     useCase: body.useCase,
     targetProfitUsd: body.targetProfitUsd,
-    // Preserve prior clarification resolutions across sequential /api/need follow-up posts.
-    yearMin: body.yearMin,
-    yearMax: body.yearMax,
+    yearMin: isUserProvenanced(userConstraints.yearMin) ? userConstraints.yearMin.value : body.yearMin,
+    yearMax: isUserProvenanced(userConstraints.yearMax) ? userConstraints.yearMax.value : body.yearMax,
     yearBandResolved: body.yearBandResolved,
-    milesMax: body.milesMax,
+    milesMax: isUserProvenanced(userConstraints.milesMax) ? userConstraints.milesMax.value : body.milesMax,
     milesCapResolved: body.milesCapResolved,
     conditionPriority: body.conditionPriority,
   };
@@ -310,7 +340,11 @@ export async function understandNeed(
   need = supplementNeedFromNote(need, screened.text);
 
   const formZip =
-    typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim()) ? body.zip.trim() : null;
+    isUserProvenanced(userConstraints.zip) &&
+    typeof userConstraints.zip.value === "string" &&
+    /^\d{5}$/.test(userConstraints.zip.value.trim())
+      ? userConstraints.zip.value.trim()
+      : null;
 
   // Drop stale wizard ZIP when this note named a city/place without those digits.
   // Keep an explicit Confirm/form ZIP (answers needsZip / "near me").
@@ -334,9 +368,9 @@ export async function understandNeed(
   }
   // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
   if (formZip) need = { ...need, zip: formZip };
-  // Radius reaches need only when the shopper dirty-edited it (or chose Nationwide).
-  if (body.radiusDirty === true) {
-    need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  // Radius reaches need only when the shopper user-edited it (or chose Nationwide).
+  if (radiusIsUser) {
+    need = { ...need, distanceMiles: userConstraints.radiusMi!.value ?? null };
   }
   // Answered ZIP clears the blocking question for Confirm.
   if (formZip && findPlan.location.needsZip) {
@@ -360,34 +394,8 @@ export async function understandNeed(
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
 
-  // Only mark form dirty when the shopper explicitly edited the field.
-  // Note/SERV-derived values must keep note|serv provenance — never pretend they are form.
-  const formEditsForSpec = {
-    priceMaxUsd:
-      body.budgetDirty === true && checked.need.budgetKnown && checked.need.budgetUsd != null
-        ? { value: checked.need.budgetUsd, dirty: true as const }
-        : undefined,
-    yearMin:
-      body.yearMin != null && checked.need.yearMin != null
-        ? { value: checked.need.yearMin, dirty: true as const }
-        : undefined,
-    yearMax:
-      body.yearMax != null && checked.need.yearMax != null
-        ? { value: checked.need.yearMax, dirty: true as const }
-        : undefined,
-    milesMax:
-      body.milesMax != null && checked.need.milesMax != null
-        ? { value: checked.need.milesMax, dirty: true as const }
-        : undefined,
-    zip:
-      body.zip != null && checked.need.zip
-        ? { value: checked.need.zip, dirty: true as const }
-        : undefined,
-    radiusMi:
-      body.radiusDirty === true
-        ? { value: checked.need.distanceMiles, dirty: true as const }
-        : undefined,
-  };
+  // Only user-origin fields become SearchSpec form edits — never stamp note/SERV/suggestion as form.
+  const formEditsForSpec: SearchFormEdits = { ...userConstraints };
   const searchSpec = buildSearchSpec({
     note: checked.need.note ?? screened.text,
     mode,

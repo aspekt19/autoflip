@@ -29,19 +29,23 @@ function readFormEdits(value: unknown): SearchFormEdits | null {
   for (const key of numeric) {
     const cell = row[key];
     if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
-    const rec = cell as { value?: unknown; dirty?: unknown };
-    if (rec.dirty !== true) continue;
+    const rec = cell as { value?: unknown; dirty?: unknown; origin?: unknown };
+    const isUser = rec.origin === "user" || rec.dirty === true;
+    if (!isUser) continue;
     if (rec.value === null) {
-      out[key] = { value: null, dirty: true };
+      out[key] = { value: null, origin: "user" };
       continue;
     }
-    if (typeof rec.value === "number" && Number.isFinite(rec.value)) out[key] = { value: Math.round(rec.value), dirty: true };
+    if (typeof rec.value === "number" && Number.isFinite(rec.value)) {
+      out[key] = { value: Math.round(rec.value), origin: "user" };
+    }
   }
   const zip = row.zip;
   if (zip && typeof zip === "object" && !Array.isArray(zip)) {
-    const rec = zip as { value?: unknown; dirty?: unknown };
-    if (rec.dirty === true && (rec.value === null || typeof rec.value === "string")) {
-      out.zip = { value: typeof rec.value === "string" ? rec.value : null, dirty: true };
+    const rec = zip as { value?: unknown; dirty?: unknown; origin?: unknown };
+    const isUser = rec.origin === "user" || rec.dirty === true;
+    if (isUser && (rec.value === null || typeof rec.value === "string")) {
+      out.zip = { value: typeof rec.value === "string" ? rec.value : null, origin: "user" };
     }
   }
   return out;

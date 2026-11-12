@@ -62,12 +62,15 @@ function listing(partial?: Partial<Listing>): Listing {
   };
 }
 
-describe("UserIntent — no non-user-set constraints to SERV", () => {
-  it("omits untouched defaults (radius, year band) from serialized constraints", () => {
+describe("UserIntent — only origin=user Form edits to SERV", () => {
+  it("omits note-extracted fields from Form-edits serialization (note is context)", () => {
     const intent = buildUserIntent({ note: "reliable car under $12,000 near 43215" });
+    // Note values live on intent for context, but Form edits channel is empty.
+    expect(intent.fields.priceMaxUsd?.provenance).toBe("note");
+    expect(intent.fields.zip?.provenance).toBe("note");
     const serialized = serializeUserIntentConstraints(intent);
-    expect(serialized.priceMaxUsd).toEqual({ value: 12_000, provenance: "note" });
-    expect(serialized.zip).toEqual({ value: "43215", provenance: "note" });
+    expect(serialized.priceMaxUsd).toBeUndefined();
+    expect(serialized.zip).toBeUndefined();
     expect(serialized.radiusMi).toBeUndefined();
     expect(serialized.yearMin).toBeUndefined();
     expect(assertNoNonUserSetConstraints(serialized, intent).ok).toBe(true);
@@ -86,10 +89,10 @@ describe("UserIntent — no non-user-set constraints to SERV", () => {
     }
   });
 
-  it("FAILS architecture when null-padded form fields are sent as constraints", () => {
+  it("FAILS architecture when note provenance is sent as Form edits", () => {
     const intent = buildUserIntent({ note: "SUV under 20k" });
     const padded = {
-      priceMaxUsd: { value: 20_000, provenance: "note" },
+      priceMaxUsd: { value: 20_000, provenance: "note", origin: "note" },
       yearMin: null,
       milesMax: null,
       radiusMi: null,
@@ -97,37 +100,52 @@ describe("UserIntent — no non-user-set constraints to SERV", () => {
     const check = assertNoNonUserSetConstraints(padded, intent);
     expect(check.ok).toBe(false);
     if (!check.ok) {
+      expect(check.hits.some((h) => h.key === "priceMaxUsd")).toBe(true);
       expect(check.hits.some((h) => h.key === "yearMin")).toBe(true);
       expect(check.hits.some((h) => h.key === "radiusMi")).toBe(true);
     }
   });
 
-  it("flat bare numbers are not form-dirty; note extraction still applies", () => {
+  it("flat bare numbers are not user-origin; note extraction still applies on intent", () => {
     const intent = buildUserIntentFromFlatForm({
       note: "under $11k near 43215",
       form: { budgetUsd: 11_000, zip: "43215", yearMin: null, milesMax: null, distanceMiles: null },
     });
-    // Bare finite values must NOT become form provenance — note still extracts budget/zip.
-    expect(intent.fields.priceMaxUsd).toEqual({ value: 11_000, provenance: "note" });
-    expect(intent.fields.zip).toEqual({ value: "43215", provenance: "note" });
+    // Bare finite values must NOT become user form — note still extracts onto intent.
+    expect(intent.fields.priceMaxUsd).toEqual({
+      value: 11_000,
+      provenance: "note",
+      origin: "note",
+    });
+    expect(intent.fields.zip).toEqual({ value: "43215", provenance: "note", origin: "note" });
     expect(intent.fields.yearMin).toBeUndefined();
     expect(intent.fields.milesMax).toBeUndefined();
     expect(intent.fields.radiusMi).toBeUndefined();
+    // Form-edits serialization stays empty.
+    expect(serializeUserIntentConstraints(intent)).toEqual({});
     expect(assertNoNonUserSetConstraints(serializeUserIntentConstraints(intent), intent).ok).toBe(
       true,
     );
   });
 
-  it("dirty-tagged flat edits become form provenance", () => {
+  it("user-origin (and legacy dirty) flat edits become form constraints", () => {
     const intent = buildUserIntentFromFlatForm({
       note: "SUV",
       form: {
         priceMaxUsd: { value: 15_000, dirty: true },
-        radiusMi: { value: null, dirty: true },
+        radiusMi: { value: null, origin: "user" },
       },
     });
-    expect(intent.fields.priceMaxUsd).toEqual({ value: 15_000, provenance: "form" });
-    expect(intent.fields.radiusMi).toEqual({ value: null, provenance: "form" });
+    expect(intent.fields.priceMaxUsd).toEqual({
+      value: 15_000,
+      provenance: "user",
+      origin: "user",
+    });
+    expect(intent.fields.radiusMi).toEqual({ value: null, provenance: "user", origin: "user" });
+    expect(serializeUserIntentConstraints(intent)).toEqual({
+      priceMaxUsd: { value: 15_000, origin: "user", provenance: "user" },
+      radiusMi: { value: null, origin: "user", provenance: "user" },
+    });
   });
 });
 

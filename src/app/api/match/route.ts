@@ -2,6 +2,7 @@ import { findDecidePathEnabled } from "@/domain/find-decide-path";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import type { SearchDirection } from "@/domain/directions";
 import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
+import { pickUserFormConstraints } from "@/domain/constraint-provenance";
 import { buildSearchSpec } from "@/domain/search-spec";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
@@ -64,6 +65,8 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     need?: unknown;
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
+    /** Provenanced form bag — only origin "user" becomes SearchSpec form edits. */
+    constraints?: import("@/domain/search-spec").SearchFormEdits;
     searchIdempotencyKey?: string;
     runId?: string;
     /** C1 find_plan — owns SearchSpec hard vs soft when present. */
@@ -403,11 +406,9 @@ export async function POST(request: Request) {
     const spec = buildSearchSpec({
       note,
       mode,
-      formEdits: validatedNeed.ok
-        ? {
-            radiusMi: { value: validatedNeed.need.distanceMiles, dirty: true },
-          }
-        : undefined,
+      // Never stamp need.distanceMiles as a user form edit — only client constraints
+      // with origin "user" may become form overrides (passed via body.constraints).
+      formEdits: body?.constraints ? pickUserFormConstraints(body.constraints) : undefined,
       servPlan: {
         ...(body?.findPlan ? findPlanToServHint(body.findPlan) : {}),
         ...(validatedNeed.ok

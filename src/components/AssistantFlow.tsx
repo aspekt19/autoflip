@@ -18,6 +18,13 @@ import { towingCapacityCaveat } from "@/domain/open-search";
 import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
+import {
+  isUserProvenanced,
+  servFormPayload,
+  setNonUserField,
+  setUserEdit,
+  type ConstraintBag,
+} from "@/domain/constraint-provenance";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -253,8 +260,12 @@ function AssistantFlow({
   const [text, setText] = useState(initialNote?.trim() ?? "");
   const [budget, setBudget] = useState(entryNeed?.budgetUsd != null ? entryNeed.budgetUsd.toLocaleString("en-US") : "");
   const [budgetKnown, setBudgetKnown] = useState(true);
-  /** True once the shopper types Max price on the budget step — never stamp FROM YOUR NOTE. */
-  const [budgetFormDirty, setBudgetFormDirty] = useState(false);
+  /**
+   * Field-level provenance for form constraints.
+   * Only `origin: "user"` reaches /api/need and /api/match as Form edits.
+   */
+  const [constraintBag, setConstraintBag] = useState<ConstraintBag>({});
+  const budgetFormDirty = isUserProvenanced(constraintBag.priceMaxUsd);
   const [need, setNeed] = useState<StructuredNeed | null>(entryNeed);
   const [noteMarks, setNoteMarks] = useState<NoteMarks | null>(entryNeed ? noteMarksFrom(entryNeed) : null);
   const [locationResolution, setLocationResolution] = useState<LocationZipResolution | null>(null);
@@ -307,6 +318,8 @@ function AssistantFlow({
   const [model, setModel] = useState("");
   const [yearMin, setYearMin] = useState(entryNeed?.yearMin != null ? String(entryNeed.yearMin) : "");
   const [yearMax, setYearMax] = useState(entryNeed?.yearMax != null ? String(entryNeed.yearMax) : "");
+  const [yearMinUserEdited, setYearMinUserEdited] = useState(false);
+  const [yearMaxUserEdited, setYearMaxUserEdited] = useState(false);
   const [dealRadarUi, setDealRadarUi] = useState(false);
   const [checkKind, setCheckKind] = useState<"link" | "vin">("vin");
   const [lookup, setLookup] = useState("");
@@ -461,17 +474,19 @@ function AssistantFlow({
           text,
           mode,
           runId: opts?.freshNote ? null : runId,
+          constraints: opts?.freshNote ? {} : servFormPayload(constraintBag),
           budgetUsd: opts?.freshNote || !budgetFormDirty ? null : budgetKnown && Number.isFinite(amount) ? amount : null,
           budgetKnown: opts?.freshNote || !budgetFormDirty ? false : budgetKnown,
-          budgetDirty: opts?.freshNote ? false : budgetFormDirty,
-          zip: zipForNeed,
-          // A fresh note omits radius so a city in the note can set one. Nationwide is an explicit choice.
-          ...(opts?.freshNote
-            ? {}
-            : {
-                distanceMiles: distanceForNeed,
-                radiusDirty: true,
-              }),
+          budgetOrigin: opts?.freshNote || !budgetFormDirty ? undefined : "user",
+          zip: opts?.freshNote ? null : isUserProvenanced(constraintBag.zip) ? constraintBag.zip.value : null,
+          zipOrigin: !opts?.freshNote && isUserProvenanced(constraintBag.zip) ? "user" : undefined,
+          // Only user-origin radius — never force radiusDirty on leftovers/suggestions.
+          ...(isUserProvenanced(constraintBag.radiusMi)
+            ? {
+                distanceMiles: constraintBag.radiusMi.value,
+                radiusOrigin: "user" as const,
+              }
+            : {}),
           repairAbility: opts?.freshNote ? undefined : need?.repairAbility,
           useCase: opts?.freshNote ? undefined : need?.useCase,
           targetProfitUsd: opts?.freshNote ? undefined : need?.targetProfitUsd,
@@ -557,9 +572,29 @@ function AssistantFlow({
       );
       setRadiusIsDefault(suggestDefaultRadius);
       setZipDraft(withCityZip.zip ?? "");
-      setDistanceDraft(
-        withCityZip.distanceMiles ?? (suggestDefaultRadius ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null),
-      );
+      const suggestedRadius = suggestDefaultRadius ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
+      setDistanceDraft(withCityZip.distanceMiles ?? suggestedRadius);
+      setConstraintBag((prev) => {
+        let next = opts?.freshNote ? {} : { ...prev };
+        if (withCityZip.zip && !isUserProvenanced(next.zip)) {
+          next = setNonUserField(next, "zip", withCityZip.zip, "note");
+        }
+        if (withCityZip.distanceMiles != null && !isUserProvenanced(next.radiusMi)) {
+          next = setNonUserField(next, "radiusMi", withCityZip.distanceMiles, "note");
+        } else if (suggestedRadius != null && !isUserProvenanced(next.radiusMi)) {
+          next = setNonUserField(next, "radiusMi", suggestedRadius, "suggestion");
+        }
+        if (withCityZip.yearMin != null && !isUserProvenanced(next.yearMin)) {
+          next = setNonUserField(next, "yearMin", withCityZip.yearMin, "serv");
+        }
+        if (withCityZip.yearMax != null && !isUserProvenanced(next.yearMax)) {
+          next = setNonUserField(next, "yearMax", withCityZip.yearMax, "serv");
+        }
+        if (withCityZip.budgetUsd != null && !isUserProvenanced(next.priceMaxUsd)) {
+          next = setNonUserField(next, "priceMaxUsd", withCityZip.budgetUsd, "note");
+        }
+        return next;
+      });
       if (withCityZip.yearMin != null) setYearMin(String(withCityZip.yearMin));
       if (withCityZip.yearMax != null) setYearMax(String(withCityZip.yearMax));
       if (withCityZip.budgetUsd != null) setBudget(withCityZip.budgetUsd.toLocaleString("en-US"));
@@ -814,24 +849,51 @@ function AssistantFlow({
     setPending("need");
     try {
       // One sync round-trip carrying prior resolutions (yearBandResolved / condition / miles).
+      const followConstraints = servFormPayload(constraintBag);
+      if (current.yearBandResolved && current.yearMin != null) {
+        followConstraints.yearMin = { value: current.yearMin, origin: "user" };
+      }
+      if (current.yearBandResolved && current.yearMax != null) {
+        followConstraints.yearMax = { value: current.yearMax, origin: "user" };
+      }
+      if (current.milesCapResolved && current.milesMax != null) {
+        followConstraints.milesMax = { value: current.milesMax, origin: "user" };
+      }
       const response = await fetch("/api/need", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
           mode: current.mode,
-          budgetUsd: current.budgetUsd,
+          constraints: followConstraints,
+          budgetUsd: isUserProvenanced(followConstraints.priceMaxUsd)
+            ? followConstraints.priceMaxUsd.value
+            : null,
           budgetKnown: current.budgetKnown,
+          budgetOrigin: isUserProvenanced(followConstraints.priceMaxUsd) ? "user" : undefined,
           budgetScope: current.budgetScope,
-          zip: current.zip,
-          distanceMiles: current.distanceMiles,
+          zip: isUserProvenanced(followConstraints.zip) ? followConstraints.zip.value : undefined,
+          zipOrigin: isUserProvenanced(followConstraints.zip) ? "user" : undefined,
+          distanceMiles: isUserProvenanced(followConstraints.radiusMi)
+            ? followConstraints.radiusMi.value
+            : undefined,
+          radiusOrigin: isUserProvenanced(followConstraints.radiusMi) ? "user" : undefined,
           repairAbility: current.repairAbility,
           useCase: current.useCase,
           targetProfitUsd: current.targetProfitUsd,
-          yearMin: current.yearMin,
-          yearMax: current.yearMax,
+          yearMin: isUserProvenanced(followConstraints.yearMin)
+            ? followConstraints.yearMin.value
+            : undefined,
+          yearMinOrigin: isUserProvenanced(followConstraints.yearMin) ? "user" : undefined,
+          yearMax: isUserProvenanced(followConstraints.yearMax)
+            ? followConstraints.yearMax.value
+            : undefined,
+          yearMaxOrigin: isUserProvenanced(followConstraints.yearMax) ? "user" : undefined,
           yearBandResolved: current.yearBandResolved,
-          milesMax: current.milesMax,
+          milesMax: isUserProvenanced(followConstraints.milesMax)
+            ? followConstraints.milesMax.value
+            : undefined,
+          milesMaxOrigin: isUserProvenanced(followConstraints.milesMax) ? "user" : undefined,
           milesCapResolved: current.milesCapResolved,
           conditionPriority: current.conditionPriority,
         }),
@@ -1128,9 +1190,10 @@ function AssistantFlow({
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
-            yearMin: yearMin ? Number(yearMin) : need.yearMin ?? undefined,
-            yearMax: yearMax ? Number(yearMax) : need.yearMax ?? undefined,
+            yearMin: yearMinUserEdited && yearMin ? Number(yearMin) : undefined,
+            yearMax: yearMaxUserEdited && yearMax ? Number(yearMax) : undefined,
           },
+          constraints: servFormPayload(constraintBag),
         }),
       });
       const body = (await response.json()) as {
@@ -1712,7 +1775,9 @@ function AssistantFlow({
             setPickAgentVerdict(null);
             setPickSecondPass(null);
             setFindLoopOpen(false);
-            setBudgetFormDirty(false);
+            setConstraintBag({});
+            setYearMinUserEdited(false);
+            setYearMaxUserEdited(false);
             findIdempotencyKey.current = null;
             try {
               sessionStorage.removeItem("af-find-idem");
@@ -1762,8 +1827,12 @@ function AssistantFlow({
               id="budget"
               value={budget}
               onChange={(event) => {
-                setBudgetFormDirty(true);
-                setBudget(event.target.value);
+                const next = event.target.value;
+                setBudget(next);
+                const amount = parseUsdInput(next);
+                setConstraintBag((prev) =>
+                  setUserEdit(prev, "priceMaxUsd", amount != null && Number.isFinite(amount) ? amount : null),
+                );
               }}
               inputMode="decimal"
               disabled={!budgetKnown}
@@ -1796,10 +1865,21 @@ function AssistantFlow({
             distanceMiles={distanceDraft}
             onZipChange={(next) => {
               setZipDraft(next);
-              // Clearing ZIP clears radius (Nationwide). Adding ZIP must not invent a radius.
-              if (!next.trim()) setDistanceDraft(null);
+              if (!next.trim()) {
+                setDistanceDraft(null);
+                setConstraintBag((prev) => {
+                  let bag = setUserEdit(prev, "zip", null);
+                  bag = setUserEdit(bag, "radiusMi", null);
+                  return bag;
+                });
+              } else {
+                setConstraintBag((prev) => setUserEdit(prev, "zip", next.trim()));
+              }
             }}
-            onDistanceChange={setDistanceDraft}
+            onDistanceChange={(miles) => {
+              setDistanceDraft(miles);
+              setConstraintBag((prev) => setUserEdit(prev, "radiusMi", miles));
+            }}
           />
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
@@ -2004,6 +2084,11 @@ function AssistantFlow({
               });
               setZipDraft(nextZip);
               setDistanceDraft(trimmed ? need.distanceMiles : null);
+              setConstraintBag((prev) => {
+                let bag = setUserEdit(prev, "zip", trimmed);
+                if (!trimmed) bag = setUserEdit(bag, "radiusMi", null);
+                return bag;
+              });
               setLocationResolution(
                 trimmed
                   ? { zip: trimmed, from: "note_zip", needed: false, cityLabel: null }
@@ -2023,6 +2108,7 @@ function AssistantFlow({
             onDistanceChange={(miles) => {
               setNeed({ ...need, distanceMiles: miles });
               setDistanceDraft(miles);
+              setConstraintBag((prev) => setUserEdit(prev, "radiusMi", miles));
               setRadiusIsDefault(false);
             }}
           />
@@ -2054,6 +2140,7 @@ function AssistantFlow({
             marked={Boolean(noteMarks?.miles)}
             onCommit={(next) => {
               setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved });
+              setConstraintBag((prev) => setUserEdit(prev, "milesMax", next.milesMax));
               if (noteMarks?.miles) {
                 setNoteMarks({ ...noteMarks, miles: false });
               }
@@ -2066,6 +2153,8 @@ function AssistantFlow({
             onCommit={(next) => {
               setNeed({ ...need, yearMin: next.yearMin, yearBandResolved: next.yearBandResolved });
               setYearMin(next.yearMin != null ? String(next.yearMin) : "");
+              setYearMinUserEdited(true);
+              setConstraintBag((prev) => setUserEdit(prev, "yearMin", next.yearMin));
               if (noteMarks?.year && next.yearMin !== need.yearMin) {
                 setNoteMarks({ ...noteMarks, year: false });
               }
@@ -2107,11 +2196,11 @@ function AssistantFlow({
               setNeed({ ...need, budgetUsd: next.budgetUsd, budgetKnown: next.budgetKnown });
               setBudget(next.budgetUsd != null ? next.budgetUsd.toLocaleString("en-US") : "");
               setBudgetKnown(next.budgetKnown);
+              setConstraintBag((prev) => setUserEdit(prev, "priceMaxUsd", next.budgetUsd));
               // Any edit on the confirm Max price field clears FROM YOUR NOTE.
               if (noteMarks?.budget) {
                 setNoteMarks({ ...noteMarks, budget: false });
               }
-              setBudgetFormDirty(true);
             }}
           />
           {need.mode === "personal" ? <p className="hint">This limit applies to the vehicle asking price only; taxes, title and dealer fees are not estimated.</p> : null}
@@ -2129,8 +2218,22 @@ function AssistantFlow({
                 setModel("");
               }}
               onModel={setModel}
-              onYearMin={setYearMin}
-              onYearMax={setYearMax}
+              onYearMin={(value) => {
+                setYearMin(value);
+                setYearMinUserEdited(true);
+                const n = value.trim() ? Number(value) : null;
+                setConstraintBag((prev) =>
+                  setUserEdit(prev, "yearMin", n != null && Number.isFinite(n) ? n : null),
+                );
+              }}
+              onYearMax={(value) => {
+                setYearMax(value);
+                setYearMaxUserEdited(true);
+                const n = value.trim() ? Number(value) : null;
+                setConstraintBag((prev) =>
+                  setUserEdit(prev, "yearMax", n != null && Number.isFinite(n) ? n : null),
+                );
+              }}
             />
           ) : null}
           <div className="btn-row">

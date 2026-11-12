@@ -329,15 +329,19 @@ function resaleFormEdits(input: {
   milesMax: number | null;
   sellWithinDays: number | null;
 }): SearchFormEdits {
-  return {
-    priceMaxUsd: { value: input.budgetUsd, dirty: true },
-    zip: { value: input.zip, dirty: true },
-    radiusMi: { value: input.distanceMiles, dirty: true },
-    yearMin: { value: input.yearMin, dirty: input.yearMin != null },
-    yearMax: { value: input.yearMax, dirty: input.yearMax != null },
-    milesMax: { value: input.milesMax, dirty: input.milesMax != null },
-    sellWithinDays: { value: input.sellWithinDays, dirty: input.sellWithinDays != null },
+  // Resale search inputs are explicit shopper form fields for this product.
+  const edits: SearchFormEdits = {
+    priceMaxUsd: { value: input.budgetUsd, origin: "user" },
+    zip: { value: input.zip, origin: "user" },
+    radiusMi: { value: input.distanceMiles, origin: "user" },
   };
+  if (input.yearMin != null) edits.yearMin = { value: input.yearMin, origin: "user" };
+  if (input.yearMax != null) edits.yearMax = { value: input.yearMax, origin: "user" };
+  if (input.milesMax != null) edits.milesMax = { value: input.milesMax, origin: "user" };
+  if (input.sellWithinDays != null) {
+    edits.sellWithinDays = { value: input.sellWithinDays, origin: "user" };
+  }
+  return edits;
 }
 
 /** Record a resale job step onto the Run. Plan-only steps stay in progress. */
