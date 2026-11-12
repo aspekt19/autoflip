@@ -33,12 +33,7 @@ import { checkedMmyKeysForCheck, freeGovToolCoverage, plainPublicCheckProgress }
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
-import {
-  BUDGET_AROUND_TOLERANCE_FRAC,
-  budgetIsApproximateFromNote,
-  needPrefersAwd,
-  type StructuredNeed,
-} from "./need";
+import { type StructuredNeed } from "./need";
 import { median as statsMedian } from "./stats";
 import type { Listing } from "./types";
 
@@ -251,8 +246,8 @@ export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
  */
 export const ESC_REQUIRED_FROM_MODEL_YEAR = 2012;
 
-export function safetyOrientedRequest(note: string | null | undefined): boolean {
-  return /\b(safe|safety|new driver|first car)\b/i.test(note ?? "");
+export function safetyOrientedRequest(_note: string | null | undefined): boolean {
+  return false;
 }
 
 export const PRE_ESC_RANK_NOTE =
@@ -490,22 +485,19 @@ function listingKey(row: BestDealListing): string {
  * Bare "reliable" / "reliable for road trips" is a reliability priority — not this quote.
  * Prefer StructuredNeed.conditionPriority when extraction already set it.
  */
-export function prefersConditionFromNote(note: string | null | undefined): boolean {
-  if (!note) return false;
-  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\binspection\b|\bhistory report\b|\brather pay .{0,48}condition\b|\bcondition (matters|first|over)\b/i.test(
-    note,
-  );
+/** @deprecated Note interpreters deleted — always false. Use StructuredNeed.conditionPriority. */
+export function prefersConditionFromNote(_note: string | null | undefined): boolean {
+  return false;
 }
 
-export function prefersNotTooOldFromNote(note: string | null | undefined): boolean {
-  if (!note) return false;
-  return /\bnot too old\b|\bnewer\b|\brecent model\b/i.test(note);
+/** @deprecated Note interpreters deleted — always false. */
+export function prefersNotTooOldFromNote(_note: string | null | undefined): boolean {
+  return false;
 }
 
-/** Soft “low miles” without a hard odometer cap still ranks lower-mileage cars higher. */
-export function prefersLowMilesFromNote(note: string | null | undefined): boolean {
-  if (!note) return false;
-  return /\b(low miles|low mileage|not too many miles|lower miles|low odometer)\b/i.test(note);
+/** @deprecated Note interpreters deleted — always false. */
+export function prefersLowMilesFromNote(_note: string | null | undefined): boolean {
+  return false;
 }
 
 function listingStubForComps(row: BestDealListing): Listing | null {
@@ -1144,11 +1136,7 @@ function scoreOne(
 
   // Soft AWD preference ranking only — never invent a hard AWD filter from note regex.
   {
-    const wantsAwd = needPrefersAwd({
-      awdPreference: ctx.need.awdPreference,
-      note: ctx.need.note,
-      mustHaves: ctx.need.mustHaves ?? [],
-    });
+    const wantsAwd = ctx.need.awdPreference === true;
     if (wantsAwd) {
       const awd = isAwdDrivetrain(row.drivetrain);
       const points = awd ? WEIGHTS.awd : 0;
@@ -1172,8 +1160,8 @@ function scoreOne(
   // $20k ask cannot nearly tie an in-budget car under a ~$15k note.
   if (ctx.need.budgetKnown && ctx.need.budgetUsd != null && row.priceUsd != null) {
     const budget = ctx.need.budgetUsd;
-    const approx = budgetIsApproximateFromNote(ctx.need.note);
-    const softTol = approx ? Math.round(budget * BUDGET_AROUND_TOLERANCE_FRAC) : 0;
+    const approx = false;
+    const softTol = 0;
     const over = row.priceUsd - budget;
     const overSoft = row.priceUsd - (budget + softTol);
     let points: number;
@@ -1384,29 +1372,22 @@ function observedBodyFamily(
 }
 
 /** One body the note names. "SUV or sedan", or a family note with no body word, is not a body request. */
-function noteBodyFamily(note: string | null | undefined): BodyFamily | null {
-  const text = (note ?? "").toLowerCase();
-  const hits: BodyFamily[] = [];
-  if (/\b(suv|crossover|crossovers)\b/.test(text)) hits.push("suv");
-  if (/\b(truck|pickup|pickups)\b/.test(text)) hits.push("truck");
-  if (/\bsedan\b/.test(text)) hits.push("car");
-  return hits.length === 1 ? hits[0]! : null;
+/** @deprecated Note interpreters deleted — body family comes from SERV/form models only. */
+function noteBodyFamily(_note: string | null | undefined): BodyFamily | null {
+  return null;
 }
 
 function preferredBodyFamily(
-  need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[] },
+  need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[]; bodyStyle?: string | null },
 ): BodyFamily | null {
-  const fromNote = noteBodyFamily(need.note);
   const models = need.preferredModels ?? [];
-  if (models.length === 0) return fromNote;
+  if (models.length === 0) return null;
   const families = models.map((item) => modelBodyFamily(item.model));
   // One unmapped name means we cannot tell whether the named models share a body.
-  if (families.some((item) => item == null)) return fromNote;
+  if (families.some((item) => item == null)) return null;
   const unique = new Set(families);
   if (unique.size !== 1) return null;
-  const shared = families[0]!;
-  if (fromNote && fromNote !== shared) return null;
-  return shared;
+  return families[0]!;
 }
 
 function bodyClassIndex(
@@ -1662,13 +1643,9 @@ function rankAll(
       bodyClassByKey: opts.bodyClassByKey,
     }),
   );
-  const preferAwd = needPrefersAwd({
-    awdPreference: need.awdPreference,
-    note: need.note,
-    mustHaves: need.mustHaves ?? [],
-  });
-  const safetyFirst = safetyOrientedRequest(need.note);
-  const lowMilesPref = prefersLowMilesFromNote(need.note);
+  const preferAwd = need.awdPreference === true;
+  const safetyFirst = false;
+  const lowMilesPref = false;
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
     if (safetyFirst) {
@@ -1798,11 +1775,7 @@ export function selectBestDealOnEvidence(input: {
   const rankedAll = rankAll(listings, input.need, rankOpts);
   // When Preferably AWD is set, keep confirmed-AWD cars in the published shortlist
   // even if diversify/top-N would otherwise drop them for a higher-scoring FWD peer.
-  const wantsAwdShortlist = needPrefersAwd({
-    awdPreference: input.need.awdPreference,
-    note: input.need.note,
-    mustHaves: input.need.mustHaves ?? [],
-  });
+  const wantsAwdShortlist = input.need.awdPreference === true;
   let ranked = rankedAll.slice(0, shortlistMax);
   if (wantsAwdShortlist) {
     const awdKept = ranked.filter((row) => isAwdDrivetrain(row.drivetrain));

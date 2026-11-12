@@ -117,14 +117,11 @@ import { veryHighMileageLabel } from "@/domain/find-best-deal";
 import { buyerDealerListingLink } from "@/domain/listing-vdp-verifiability";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
-  ageGapBuyerHonesty,
   applyFollowUp,
   explicitNeedFromText,
   followUps,
-  needPrefersAwd,
   USE_CASES,
   searchScopeLabel,
-  softPrefGapsFromText,
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
@@ -2281,13 +2278,6 @@ function AssistantFlow({
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
-            ? softPrefGapsFromText(need.note).map((gap) => (
-                <p className="hint" key={`results-${gap.id}`}>
-                  {gap.id === "age" ? ageGapBuyerHonesty(need) : gap.honesty}
-                </p>
-              ))
-            : null}
-          {need
             ? (() => {
                 const allListings = groups.flatMap((g) => g.listings);
                 const snaps = observedModelSnapshots(
@@ -2303,7 +2293,7 @@ function AssistantFlow({
                   groups.length === 0 || groups.every((group) => group.listings.length === 0);
                 const checks = proposeFindNextChecks({
                   need,
-                  softGaps: softPrefGapsFromText(need.note),
+                  softGaps: [],
                   observedListingCount: allListings.length,
                   observedModelCount: snaps.length,
                   emptyInventory: empty,

@@ -94,10 +94,9 @@ function finitePositive(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
 }
 
-/** Detect city-heavy intent from shopper note (Find). */
-export function parseCityHeavyFromNote(note: string | null | undefined): boolean {
-  if (!note) return false;
-  return /\bmostly\s+city\b|\bcity\s+driving\b|\bcity[\s-]?heavy\b|\bmainly\s+city\b/i.test(note);
+/** @deprecated Note interpreters deleted — always false. SERV owns driving-mix interpretation. */
+export function parseCityHeavyFromNote(_note: string | null | undefined): boolean {
+  return false;
 }
 
 export function buildFindFuelAssumptions(input: {

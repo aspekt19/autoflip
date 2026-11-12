@@ -1,7 +1,7 @@
 /**
- * Budget-first Resale inventory search.
- * Reuses Find match (Autodev free endpoints) + flip ranking, then SERV settle.
- * Code computes all P&L numbers; SERV never invents figures.
+ * Budget-first Resale plan search.
+ * Inventory + choose run only via the SERV Resale agent loop (`search_listings`).
+ * Classic runFindMatch / flip-rank inventory is deleted.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { type DecisionProofRecord } from "@/domain/decision-proof-record";
@@ -11,26 +11,21 @@ import {
   emptyResaleJournal,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
-import { rankFlipCandidates, sellWindowBlockedCount, topFlipCandidates } from "@/domain/flip-rank";
-import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
-import { buildResaleCandidatePnls, type ResaleCandidatePnl } from "@/domain/resale-pnl";
+import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
   needFromResaleSearchInput,
   parseResaleSearchInput,
   type ResaleSearchInput,
 } from "@/domain/resale-search-input";
-import type { Listing } from "@/domain/types";
-import { stateFromZip } from "@/domain/zip-to-state";
 import type { Kv } from "@/io/kv";
 import {
   logResaleStage,
   makeResaleDeadline,
   RESALE_INTERNAL_BUDGET_MS,
-  RESALE_STAGE_BUDGET_MS,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
-import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
-import { decideResale, planSearch } from "@/server/serv-plan-decide";
+import type { FindMatchDeps } from "@/server/find-match";
+import { planSearch } from "@/server/serv-plan-decide";
 
 export const RESALE_ALTERNATIVE_LIMIT = 4;
 export const RESALE_SHORTLIST_LIMIT = 8;
@@ -138,14 +133,6 @@ export type ResaleSearchResult =
         nextStep?: string;
       };
     };
-
-function mergeJournals(plan: ResaleDecisionJournal, settle: ResaleDecisionJournal): ResaleDecisionJournal {
-  return {
-    schemaVersion: "lemonless.resale_journal.v1",
-    steps: [...plan.steps, ...settle.steps],
-    servCalls: plan.servCalls + settle.servCalls,
-  };
-}
 
 export async function runResaleSearch(
   rawInput: unknown,
@@ -270,224 +257,23 @@ export async function runResaleSearch(
     };
   }
 
-  if (deadline.expired()) {
-    return {
-      ok: false,
-      status: 504,
-      body: {
-        error: "time_budget",
-        message:
-          "The resale search hit its time budget before inventory returned. No credit was used. Retry with the same filters — Auto.dev can be slow under load.",
-        nextStep: "Retry this search. If it keeps timing out, try a ZIP radius under 100 miles or a higher budget.",
-      },
-    };
-  }
-
-  const inventoryStarted = Date.now();
-  const inventoryCapMs = Math.min(RESALE_STAGE_BUDGET_MS.inventory, Math.max(1_000, deadline.remainingMs() - 8_000));
-  const idSet = new Set(plannedDirectionIds);
-  const inventoryDirections = directions
-    .filter((d) => idSet.has(d.id))
-    .sort((a, b) => plannedDirectionIds.indexOf(a.id) - plannedDirectionIds.indexOf(b.id));
-  const match = await runFindMatch(
-    {
-      need,
-      // Pass multi-direction list — never Confirm refine make/model for budget-only Resale.
-      directions: inventoryDirections.length > 0 ? inventoryDirections : directions,
-    },
-    {
-      ...deps,
-      parallelProviderQueries: true,
-      inventoryStageCapMs: inventoryCapMs,
-      deadline,
-    },
-  );
-  logResaleStage("inventory", inventoryStarted, {
+  // Classic inventory + flip-rank via runFindMatch is deleted.
+  // Stepped Resale job step 2 runs runResaleAgentLoop (search_listings) instead.
+  logResaleStage("inventory", Date.now(), {
     remainingMs: deadline.remainingMs(),
-    ok: match.ok,
-    queries: match.ok ? match.body.providerQueriesUsed : 0,
+    ok: false,
+    queries: 0,
   });
-  if (!match.ok) {
-    return {
-      ok: false,
-      status: match.status,
-      body: {
-        error: String(match.body.error ?? "search_failed"),
-        message: String(match.body.message ?? "Resale search failed."),
-        emptyReason: typeof match.body.emptyReason === "string" ? match.body.emptyReason : null,
-        headline: typeof match.body.headline === "string" ? match.body.headline : undefined,
-        nextStep: typeof match.body.nextStep === "string" ? match.body.nextStep : undefined,
-      },
-    };
-  }
-
-  const poolListings: Listing[] =
-    match.body.compsPool.length > 0
-      ? match.body.compsPool
-      : match.body.directions.flatMap((group) => group.listings);
-
-  const rankOptions = {
-    repairAbility: input.repairAbility,
-    targetProfitUsd: input.targetProfitUsd,
-    milesMax: input.milesMax,
-    asIs: input.asIs,
-    sellWithinDays: input.sellWithinDays,
-    enforceSanity: true as const,
-  };
-  const windowBlocked = sellWindowBlockedCount(poolListings, new Date(), rankOptions);
-  let ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, rankOptions);
-  let sellWindowWidenNote: string | null = null;
-  // A 30-day window must not turn a full inventory into "no cars matched".
-  // Cars outside the window stay listed with why, and are not the recommended flip.
-  if (ranked.length === 0 && poolListings.length > 0) {
-    const relaxed = rankFlipCandidates(poolListings, new Date(), rankOptions).filter((item) => !item.excluded);
-    ranked = relaxed.slice(0, RESALE_SHORTLIST_LIMIT);
-    if (windowBlocked > 0 && input.sellWithinDays != null) {
-      sellWindowWidenNote = `${windowBlocked} car${windowBlocked === 1 ? "" : "s"} missed the ${input.sellWithinDays}-day sell window estimate, so those cars stay listed with that flag instead of emptying the page.`;
-    } else if (ranked.length > 0) {
-      sellWindowWidenNote =
-        "No car cleared every soft sell constraint as a recommended flip; showing the closest priced comps with why they did not rank first.";
-    }
-  }
-
-  const pnls = buildResaleCandidatePnls(ranked, {
-    repairAbility: input.repairAbility,
-    resaleChannel: input.resaleChannel,
-    asIs: input.asIs,
-    sellWithinDays: input.sellWithinDays,
-    targetProfitUsd: input.targetProfitUsd,
-    taxState: stateFromZip(input.zip),
-  });
-
-  const emptyPool = pnls.length === 0;
-  const sellWindowEmptyDetail =
-    emptyPool && poolListings.length > 0 && windowBlocked > 0 && input.sellWithinDays != null
-      ? `Inventory had ${poolListings.length} listing${poolListings.length === 1 ? "" : "s"}, but none are estimated to sell within ${input.sellWithinDays} days after costs. Loosen the sell-within window or raise the budget.`
-      : null;
-
-  if (deps.stopAfter === "inventory") {
-    logResaleStage("inventory_stop", deadline.startedAtMs, {
-      remainingMs: deadline.remainingMs(),
-      candidates: pnls.length,
-      journalSteps: planJournal.steps.length,
-    });
-    const headline = emptyPool
-      ? match.body.headline ?? "No flip candidates in this budget"
-      : `Shortlisted ${pnls.length} flip candidate${pnls.length === 1 ? "" : "s"} — continuing agent steps`;
-    const message = emptyPool
-      ? sellWindowEmptyDetail ??
-        match.body.message ??
-        "No listings cleared similar-listing economics inside this budget. Try a higher budget, a wider radius, or fewer filters."
-      : [sellWindowWidenNote, `Code ranked ${pnls.length} candidates that are priced below similar listings (after costs). Next steps: triage, pick, and shopper decide.`]
-          .filter(Boolean)
-          .join(" ");
-    const nextStep = emptyPool
-      ? match.body.nextStep ??
-        (sellWindowEmptyDetail
-          ? "Widen the sell-within days or raise the budget, then search again (1 report credit)."
-          : "Raise the budget or clear optional filters, then search again (1 report credit).")
-      : "Continue the resale job — credit is charged only when the final verdict is delivered.";
-    return {
-      ok: true,
-      status: 200,
-      body: {
-        ok: true,
-        sample: false,
-        chargedCredit: false,
-        stopAfter: "inventory",
-        budgetUsd: input.budgetUsd,
-        candidates: pnls,
-        journal: planJournal,
-        headline,
-        message,
-        nextStep,
-        providerQueriesUsed: match.body.providerQueriesUsed,
-        scope: match.body.scope,
-        emptyReason: emptyPool ? match.body.emptyReason ?? "no_flip_candidates" : null,
-      },
-    };
-  }
-
-  const settleStarted = Date.now();
-  // Thin decide façade — PR B (gov checks + decide) plugs into decideResale / ports.decideResale.
-  const settled = await decideResale({
-    candidates: pnls,
-    budgetUsd: input.budgetUsd,
-    timeToSellPref: input.timeToSell,
-    // Keep the real key; settle enforces the global plan+settle cap with honest skip lines.
-    servKey: deps.servKey,
-    priorServCalls: planJournal.servCalls,
-    servBaseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    fetchImpl: deps.fetchImpl,
-    deadline,
-  });
-  logResaleStage("settle", settleStarted, {
-    remainingMs: deadline.remainingMs(),
-    bestVin: settled.best?.vin ?? null,
-    servCalls: settled.journal.servCalls,
-  });
-
-  const journal = mergeJournals(planJournal, settled.journal);
-
-  logResaleStage("done", deadline.startedAtMs, {
-    remainingMs: deadline.remainingMs(),
-    emptyPool,
-    journalSteps: journal.steps.length,
-  });
-  const margin =
-    settled.best == null
-      ? null
-      : settled.best.profitLowUsd != null
-        ? settled.best.profitLowUsd
-        : settled.best.profitMidUsd;
-  const buyer = resaleBuyerCopy({
-    outcome: settled.best ? "pick" : "skip",
-    action: settled.verdictAction,
-    confidence: settled.confidence,
-    marginUsd: margin,
-    skipReason: emptyPool
-      ? sellWindowEmptyDetail ??
-        (windowBlocked > 0 && input.sellWithinDays != null
-          ? `No car is estimated to sell within ${input.sellWithinDays} days.`
-          : "No listings cleared the price comparison inside this budget.")
-      : sellWindowWidenNote,
-    reviewNote: settled.reviewNote,
-    carTitle: settled.best
-      ? `${settled.best.listing.year} ${settled.best.listing.make} ${settled.best.listing.model}`
-      : null,
-  });
-  const headline = buyer.headline;
-  const message = buyer.message;
-
-  const nextStep = emptyPool
-    ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."
-    : "Review the costs, confirm the title, and inspect the car before you buy.";
-
   return {
-    ok: true,
-    status: 200,
+    ok: false,
+    status: 503,
     body: {
-      ok: true,
-      sample: false,
-      chargedCredit: true,
-      budgetUsd: input.budgetUsd,
-      best: settled.best,
-      alternatives: settled.alternatives,
-      verdictAction: settled.verdictAction,
-      verdictLabel: buyer.verdictLabel,
-      confidence: settled.confidence,
-      reviewNote: settled.reviewNote,
-      agentVerdict: settled.agentVerdict,
-      journal,
-      proofRecords: [...planProofRecords, ...settled.proofRecords],
-      headline,
-      message,
-      nextStep,
-      providerQueriesUsed: match.body.providerQueriesUsed,
-      scope: match.body.scope,
-      emptyReason: emptyPool ? match.body.emptyReason ?? "no_flip_candidates" : null,
-      creditNote: resaleCardCopy.creditNote,
+      error: "agent_loop_required",
+      message:
+        "Resale inventory requires the SERV agent loop (search_listings). Classic runFindMatch ranking is removed.",
+      emptyReason: null,
+      headline: "Agent loop required",
+      nextStep: "Use the stepped Resale job path so SERV can search and choose.",
     },
   };
 }

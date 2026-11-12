@@ -26,11 +26,9 @@ describe("find vertical slice (offline)", () => {
       applyCheckId: "compare_observed_asks",
     });
 
-    expect(slice.need.yearMin).toBe(2012);
+    expect(slice.need.yearMin).toBe(2012); // from followUpAnswers — not note regex
     expect(slice.need.conditionPriority).toBe("inspection_first");
-    expect(slice.softGaps.map((g) => g.id)).toEqual(
-      expect.arrayContaining(["age", "fuel_or_running_cost", "history"]),
-    );
+    expect(slice.softGaps).toEqual([]); // note soft-gap parsers deleted
     expect(slice.nextChecks.some((c) => c.id === "free_gov_recalls")).toBe(true);
     expect(slice.nextChecks.some((c) => c.id === "compare_observed_asks")).toBe(true);
     const freeIdx = slice.nextChecks.findIndex((c) => c.id.startsWith("free_gov_"));
@@ -102,7 +100,7 @@ describe("find vertical slice (offline)", () => {
       followUpAnswers: { age: "2015", condition: "inspection_first" },
       listings: LISTINGS.slice(0, 4),
     });
-    expect(slice.need.yearMin).toBe(2015);
+    expect(slice.need.yearMin).toBe(2015); // from followUpAnswers — not note regex
     expect(slice.nextChecks.length).toBeGreaterThan(0);
     expect(slice.shortlist.every((s) => s.ownershipFuelStatus === "unavailable")).toBe(true);
   });

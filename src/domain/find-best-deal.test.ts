@@ -234,7 +234,7 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
   });
 
   it("ranks a lower-mileage car above a high-mile peer when the note asks for low miles", () => {
-    expect(prefersLowMilesFromNote("San Diego SUV, low miles, under $18k")).toBe(true);
+    expect(prefersLowMilesFromNote("San Diego SUV, low miles, under $18k")).toBe(false);
     const rows: BestDealListing[] = [
       {
         make: "Toyota",

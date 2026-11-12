@@ -2,7 +2,6 @@ import {
   applyFollowUp,
   followUps,
   overlayExplicit,
-  supplementNeedFromNote,
   validateNeed,
   type FollowUp,
   type StructuredNeed,
@@ -375,9 +374,6 @@ export async function understandNeed(
   for (const answer of followAnswers) {
     need = applyFollowUp(need, answer.id, answer.value);
   }
-  // A limit written in the note stays when the model leaves the field blank.
-  need = supplementNeedFromNote(need, screened.text);
-
   const formZip =
     isUserProvenanced(userConstraints.zip) &&
     typeof userConstraints.zip.value === "string" &&

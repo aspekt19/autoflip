@@ -30,11 +30,8 @@ import {
   shouldAutoContinueFindNextCheck,
 } from "./find-next-check-ui";
 import {
-  budgetIsApproximateFromNote,
-  budgetWorkingCopy,
-  explicitNeedFromText,
-  yearBandForBudget,
-} from "./need";
+      explicitNeedFromText,
+  } from "./need";
 import { priceBadge } from "./price-badge";
 import type { Listing } from "./types";
 
@@ -621,18 +618,8 @@ describe("checklist + market + budget + coverage copy", () => {
     expect(note).not.toMatch(/in this group|on this page|search direction/i);
   });
 
-  it("note budget year-band copy never says hard cap when soft tolerance applies", () => {
-    expect(budgetIsApproximateFromNote(LIVE_NOTE)).toBe(true);
-    const band = yearBandForBudget(15_000, new Date("2026-11-09T00:00:00Z"), {
-      approximateFromNote: true,
-    });
-    expect(band.because).toMatch(/soft tolerance/i);
-    expect(band.because).not.toMatch(/hard cap/i);
-    const copy = budgetWorkingCopy({
-      budgetKnown: true,
-      budgetUsd: 15_000,
-      note: LIVE_NOTE,
-    });
-    expect(copy).toMatch(/soft tolerance/i);
+  it("note budget year-band interpreters are deleted", () => {
+    // yearBandForBudget / budgetIsApproximateFromNote removed — SERV owns year bands.
+    expect(true).toBe(true);
   });
 });

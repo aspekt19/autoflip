@@ -193,6 +193,32 @@ describe("note→constraint enforcement — production builders must not call no
     expect(stripComments(text)).not.toMatch(/provenance:\s*["']note["']/);
   });
 
+
+  it("production src no longer defines note interpreters for use-case/budget/year/AWD", () => {
+    const need = stripComments(readFileSync(join(SRC, "domain/need.ts"), "utf8"));
+    for (const forbidden of [
+      "useCaseFromText",
+      "budgetIsApproximateFromNote",
+      "makesFromText",
+      "preferredModelsFromText",
+      "bodyFromNote",
+      "needPrefersAwd",
+      "softPrefGapsFromText",
+      "yearBandForBudget",
+      "supplementNeedFromNote",
+    ]) {
+      expect(need, `need.ts still exports ${forbidden}`).not.toMatch(new RegExp(`\\bexport function ${forbidden}\\b`));
+    }
+  });
+
+  it("find-match no longer ranks or diversifies inventory", () => {
+    const text = stripComments(readFileSync(join(SRC, "server/find-match.ts"), "utf8"));
+    expect(text).not.toMatch(/\bpersonalRankScores\b/);
+    expect(text).not.toMatch(/\bselectBestDealOnEvidence\b/);
+    expect(text).not.toMatch(/\bdiversifyListingsByModel\b/);
+    expect(text).not.toMatch(/\bwithinBudget\b/);
+  });
+
   it("walk: search-spec + serv-boundary stay free of note-intake constraint imports", () => {
     const files = walkTsFiles(SRC)
       .map((abs) => ({ path: relative(ROOT, abs).replace(/\\/g, "/"), abs }))

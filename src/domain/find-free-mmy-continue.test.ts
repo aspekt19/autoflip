@@ -16,7 +16,7 @@ import {
   decideFindNextCheckLoop,
 } from "./find-next-check-loop";
 import { buildGroundedShortlist } from "./find-path";
-import { emptyNeed, softPrefGapsFromText } from "./need";
+import { emptyNeed } from "./need";
 import type { FreeGovEvidencePacket } from "./free-gov";
 
 function recallPacket(opts?: {
@@ -174,7 +174,7 @@ describe("progress-aware free MMY continuation", () => {
     };
     const checks = proposeFindNextChecks({
       need,
-      softGaps: softPrefGapsFromText("don't want hidden problems"),
+      softGaps: [],
       observedListingCount: listings.length,
       observedModelCount: 3,
       emptyInventory: false,
@@ -200,7 +200,7 @@ describe("progress-aware free MMY continuation", () => {
     expect(full.recalls.unchecked).toBe(0);
     const after = proposeFindNextChecks({
       need,
-      softGaps: softPrefGapsFromText("hidden problems"),
+      softGaps: [],
       observedListingCount: listings.length,
       observedModelCount: 3,
       emptyInventory: false,

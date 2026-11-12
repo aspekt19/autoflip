@@ -356,7 +356,7 @@ describe("planToDirections year floor", () => {
     // Hard filter stays open — budget year bands must not wipe older inventory.
     expect(dirs[0]!.yearMin).toBe(1990);
     expect(dirs[0]!.yearMax).toBeGreaterThanOrEqual(2026);
-    expect(dirs[0]!.yearBecause).toMatch(/ranking preference|starting year band/i);
+    expect(dirs[0]!.yearBecause).toMatch(/without a budget-invented year|Confirm/i);
     const need = planToStructuredNeed(plan, "personal", "Family 3-row SUV under $20,000 in Denver.");
     expect(need.yearMin).toBeNull();
     expect(need.yearBandResolved).toBe(false);

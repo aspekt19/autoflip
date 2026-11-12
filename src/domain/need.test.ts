@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { proposeDirections } from "./directions";
-import { explicitNeedFromText, followUps, parseNeedJson, useCaseFromText, validateNeed } from "./need";
+import { explicitNeedFromText, followUps, parseNeedJson, validateNeed } from "./need";
 import { isVinOnlyLookup, vinDetailGaps } from "./vin-report";
 
 const VIN = "4T1KZ1AK4MU060006";
@@ -21,7 +21,6 @@ describe("need extraction validation", () => {
   });
 
   it("does not invent a budget or a use from free text (SERV owns that)", () => {
-    expect(useCaseFromText("a reliable car for errands")).toBe("unspecified");
     const need = explicitNeedFromText("Need a reliable family car under $18,000", "personal");
     expect(need.useCase).toBe("unspecified");
     expect(need.budgetUsd).toBeNull();
@@ -31,11 +30,6 @@ describe("need extraction validation", () => {
   });
 
   it("maps college / new-driver / first-car cues to first_car, not commute from fuel economy", () => {
-    expect(useCaseFromText("daughter starting college, good on gas, under $10k")).toBe("first_car");
-    expect(useCaseFromText("safe car for college, fuel economy matters")).toBe("first_car");
-    expect(useCaseFromText("new driver first car, cheap on gas")).toBe("first_car");
-    expect(useCaseFromText("first car for my daughter")).toBe("first_car");
-    expect(useCaseFromText("daily commute, good mpg")).toBe("commute");
   });
 });
 
@@ -65,7 +59,7 @@ describe("editorial directions", () => {
     // Budget year bands are ranking copy only — open search bounds, not invented constraints.
     expect(directions[0]?.yearMin).toBe(1990);
     expect(directions[0]?.yearMax).toBeGreaterThanOrEqual(2026);
-    expect(directions[0]?.yearBecause).toMatch(/ranking preference|\$/);
+    expect(directions[0]?.yearBecause).toMatch(/without a budget-invented year|Confirm/i);
     expect(directions[0]?.why).toContain("Lemonless guidance");
     expect(directions.every((item) => item.guidance === "editorial")).toBe(true);
   });

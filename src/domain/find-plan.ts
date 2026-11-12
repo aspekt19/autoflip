@@ -7,7 +7,6 @@
 import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
-  yearBandForBudget,
   type PreferredModel,
   type StructuredNeed,
   type UseCase,
@@ -672,24 +671,18 @@ export function planToStructuredNeed(
 /** Map plan directions into SearchDirection rows (body-style-only keeps models empty). */
 export function planToDirections(plan: FindPlan, now = new Date()): SearchDirection[] {
   // Never invent a hard year floor or ceiling the buyer did not give (AUDIT R5).
-  // Budget yearBandForBudget is ranking-copy only — SERV picks years; open bounds are not a user constraint.
+  // SERV picks years; open bounds are not a user constraint.
   const openMin = 1990;
   const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
-  const bandBecause =
-    !buyerSetMin && !buyerSetMax
-      ? yearBandForBudget(plan.budget.maxUsd, now, { approximateFromNote: plan.budget.approximate }).because
-      : null;
   const ordered = orderedYearBounds(plan.yearMin ?? openMin, plan.yearMax ?? openMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
   const yearBecause =
     buyerSetMin || buyerSetMax
       ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
-      : bandBecause
-        ? `${bandBecause} That is a ranking preference, not a hard year filter — older cars can still appear.`
-        : "No year range in your note — searching without a budget-invented year ceiling.";
+      : "No year range from you or Confirm — searching without a budget-invented year ceiling.";
 
   return plan.directions.slice(0, 3).map((dir, index) => {
     const models = dir.models.slice(0, 6);

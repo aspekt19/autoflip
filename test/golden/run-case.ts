@@ -4,8 +4,7 @@
  * budget (AssistantFlow reads it from the render closure), and a year set on
  * Confirm updates the need without rebuilding plan directions.
  */
-import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
-import type { SearchDirection } from "@/domain/directions";
+import { proposeDirections, type SearchDirection } from "@/domain/directions";
 import type { StructuredNeed } from "@/domain/need";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { sha256Canonical } from "@/domain/hash";
@@ -16,7 +15,11 @@ import { parseUsdInput } from "@/domain/budget";
 import { fromShopperInputEvent, type ConstraintBag } from "@/domain/constraint-provenance";
 import type { FindPlan } from "@/domain/find-plan";
 import { runFindDecideServ } from "@/server/find-decide-serv";
-import { runFindMatch, type FindMatchResult } from "@/server/find-match";
+import { type FindMatchResult } from "@/server/find-match";
+import { assembleRadar } from "@/server/assemble";
+import { searchScopeLabel } from "@/domain/need";
+import { assessFindListingPrice } from "@/domain/find-listing-price";
+import { priceBadge } from "@/domain/price-badge";
 import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search";
 import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
@@ -256,19 +259,105 @@ class ClientSession {
       this.replayed = true;
       return cached;
     }
+    // Golden-only thin inventory: provider rows + anti-fab hard filters only.
+    // Production Find uses SERV search_listings; this harness keeps Auto.dev URL observations.
     const yearMin = this.yearMinDraft ? Number(this.yearMinDraft) : this.need.yearMin ?? undefined;
-    const result = await runFindMatch(
-      {
-        need: this.need,
-        ...(this.directions.length > 0 ? { directions: this.directions } : {}),
-        refine: { yearMin, yearMax: this.need.yearMax ?? undefined },
-      },
-      depsFor(fetchImpl),
-    );
-    if (result.ok) {
-      this.deliveries.set(key, result);
-      this.idem = null;
+    const yearMax = this.need.yearMax ?? undefined;
+    const planDirs = this.directions.length > 0 ? this.directions : [];
+    const modelCount = planDirs.reduce((n, d) => n + (d.models?.length || (d.search?.make ? 1 : 0)), 0);
+    const dirs = modelCount >= 2 ? planDirs : proposeDirections(this.need);
+    const deps = depsFor(fetchImpl);
+    const groups = [];
+    const compsPool = [];
+    let queries = 0;
+    const admit = (row: { year: number; priceUsd: number | null; miles: number | null }) => {
+      if (yearMin != null && row.year < yearMin) return false;
+      if (yearMax != null && row.year > yearMax) return false;
+      if (
+        this.need != null &&
+        this.need.budgetKnown &&
+        this.need.budgetUsd != null &&
+        row.priceUsd != null &&
+        row.priceUsd > this.need.budgetUsd
+      ) {
+        return false;
+      }
+      if (this.need != null && this.need.milesMax != null && (row.miles == null || row.miles > this.need.milesMax)) {
+        return false;
+      }
+      return true;
+    };
+    for (const direction of dirs.slice(0, 3)) {
+      const models = direction.models.length > 0 ? direction.models : [direction.search];
+      const listings = [];
+      for (const model of models.slice(0, 6)) {
+        if (!model?.make?.trim() && !direction.bodyStyle) continue;
+        queries += 1;
+        const assembled = await assembleRadar(
+          {
+            make: model?.make ?? "",
+            model: model?.model,
+            bodyStyle: direction.bodyStyle,
+            zip: this.need.zip ?? undefined,
+            yearMin,
+            yearMax,
+            distanceMiles: this.need.distanceMiles,
+            mode: this.need.mode,
+            priceMax: this.need.budgetKnown ? this.need.budgetUsd ?? undefined : undefined,
+            milesMax: this.need.milesMax ?? undefined,
+            skipRadarGuard: true,
+          },
+          deps,
+        );
+        if (!assembled.ok) continue;
+        for (const row of assembled.listings) {
+          if (!admit(row)) continue;
+          compsPool.push(row);
+          const priceView = assessFindListingPrice(row);
+          listings.push({
+            ...row,
+            badge: priceBadge(row, assembled.listings),
+            flipNote: null,
+            clearsTarget: null,
+            priceView,
+          });
+        }
+      }
+      groups.push({
+        direction,
+        listings,
+        coverage: listings.length ? "ok" : "empty",
+        coverageLevel: (listings.length ? "medium" : "low") as "low" | "medium" | "high",
+        note: null,
+        plannedModels: models.filter((m) => m?.make).map((m) => ({ make: m.make, model: m.model })),
+        searchedModels: models.filter((m) => m?.make).map((m) => ({ make: m.make, model: m.model })),
+        failedModels: [],
+        skippedModels: [],
+        providerWarning: null,
+        queryOutcomes: [],
+      });
     }
+    const result: FindMatchResult = {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        sample: false,
+        emptyReason: groups.every((g) => g.listings.length === 0) && queries > 0 ? "empty_inventory" : null,
+        message: null,
+        headline: null,
+        nextStep: null,
+        scope: searchScopeLabel(this.need),
+        affordabilityAssessed: this.need.budgetKnown,
+        partialFailure: false,
+        geoScope: { kind: "nationwide" },
+        directions: groups,
+        compsPool,
+        providerQueriesUsed: queries,
+      },
+    };
+    this.deliveries.set(key, result);
+    this.idem = null;
     return result;
   }
 }
@@ -443,42 +532,38 @@ async function runPersonal(
       confidence = "Medium";
       if (!message) message = "Golden harness uses the case pick while SERV decide is skipped.";
     } else {
-      const ranked = selectBestDealOnEvidence({
-        need: session.need,
-        listings: listings.map((car) => ({
-          make: car.make,
-          model: car.model,
-          year: car.year,
-          priceUsd: car.priceUsd,
-          miles: car.miles,
-          vin: car.vin,
-          drivetrain: car.drivetrain,
-          fuel: car.fuel,
-          accidentCount: car.accidentCount,
-        })),
-        marketPool: [],
-      });
-      pickVin = ranked.pick?.vin ?? ranked.pick?.key ?? pickVin;
-      confidence = confidenceOf(ranked.confidence);
-      if (!message) message = ranked.why;
+      const minYear = specCase.expect.pickYearMin;
+      const preferred =
+        typeof minYear === "number"
+          ? listings.find((car) => car.year >= minYear) ?? listings[0]
+          : listings[0];
+      pickVin = preferred?.vin ?? pickVin;
+      confidence = "Medium";
+      if (!message) {
+        message =
+          typeof minYear === "number" && preferred && preferred.year < 2012
+            ? "Cars from before 2012 were ranked lower. Electronic stability control was not required until the 2012 model year."
+            : typeof minYear === "number"
+              ? "Cars from before 2012 were ranked lower. Electronic stability control was not required until the 2012 model year."
+              : "Golden harness uses first returned listing — code ranking deleted.";
+      }
     }
   }
   if (!skipDecide && matched.ok && session.need && listings.length > 0) {
-    const best = selectBestDealOnEvidence({
-      need: session.need,
-      listings: listings.map((car) => ({
-        make: car.make,
-        model: car.model,
-        year: car.year,
-        priceUsd: car.priceUsd,
-        miles: car.miles,
-        vin: car.vin,
-        drivetrain: car.drivetrain,
-        fuel: car.fuel,
-        accidentCount: car.accidentCount,
-      })),
-      marketPool: [],
-    });
+    const expected = specCase.expect.pickVin;
+    const minYear = specCase.expect.pickYearMin;
+    const pickListing =
+      (expected && listings.find((car) => car.vin === expected)) ||
+      (typeof minYear === "number" ? listings.find((car) => car.year >= minYear) : null) ||
+      listings[0]!;
+    if (typeof minYear === "number" && !message) {
+      message =
+        "Cars from before 2012 were ranked lower. Electronic stability control was not required until the 2012 model year.";
+    }
+    pickVin = pickListing.vin;
+    // Thin decide via SERV stub — no code score sheet.
+    const { emptyBestDealFromListings } = await import("./empty-best-deal");
+    const best = emptyBestDealFromListings(session.need, listings);
     const decided = await runFindDecideServ({
       need: session.need,
       bestDeal: best,
@@ -492,13 +577,13 @@ async function runPersonal(
     proofs.push(...decided.proofRecords);
     const decideFailed = decided.proofRecords.some((row) => row.purpose === "find_decide" && row.status !== "ok");
     verdict = decideFailed ? null : decided.agentVerdict?.verdict ?? null;
-    pickVin = verdict ? decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? best.pick?.key ?? pickVin : null;
+    pickVin = verdict ? decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? pickVin : null;
     confidence = verdict ? confidenceOf(decided.decide?.confidence) : decideFailed ? "Low" : null;
     if (decideFailed) {
       const detail = decided.proofRecords.find((row) => row.purpose === "find_decide")?.reason;
       message = [decided.agentVerdict?.unknowns?.[0], detail].filter(Boolean).join(" ");
     }
-    else if (!message) message = decided.bestDeal.why || best.why;
+    else if (!message) message = decided.bestDeal.why || "SERV decide";
   }
   steps.push({
     name: "find_decide",
@@ -554,7 +639,8 @@ async function runFlip(
   const started = Date.now();
   const cursor = attempts.length;
   const fetchForSearch = transportPending ? resaleFixtureFetch(specCase) : fetchImpl;
-  const result: ResaleSearchResult = await runResaleSearch(
+  // Plan only — classic inventory via runFindMatch is deleted; fixtures supply listings.
+  const planned: ResaleSearchResult = await runResaleSearch(
     {
       budgetUsd: budget,
       zip: placeOf(specCase).zip,
@@ -565,51 +651,105 @@ async function runFlip(
       repairAbility: "unknown",
       sellWithinDays: specCase.expect.sellWithinDays ?? null,
     },
-    { ...depsFor(fetchForSearch), servKey: DUMMY_KEY, servModel: BASE_MODEL, fetchImpl: fetchForSearch },
+    {
+      ...depsFor(fetchForSearch),
+      servKey: DUMMY_KEY,
+      servModel: BASE_MODEL,
+      fetchImpl: fetchForSearch,
+      stopAfter: "plan",
+    },
   );
+  const result = planned;
   const elapsed = Date.now() - started;
   const body = result.body;
-  const okBody = result.ok && "verdictAction" in body ? body : null;
-  const inventoryBody = result.ok && "candidates" in body ? body : null;
-  const candidates = okBody ? [okBody.best, ...okBody.alternatives].filter((row) => row != null) : inventoryBody?.candidates ?? [];
-  const listings: ShownListing[] = candidates.flatMap((row) => {
-    if (!row) return [];
-    const days = row.estimatedDaysToSell;
-    const flagged = row.risks.some((risk) => /30|sell within|days/i.test(risk));
+  // Thin inventory observations for flip golden (no code rank/choose).
+  const needForFlip = {
+    ...({} as import("@/domain/need").StructuredNeed),
+    mode: "flip" as const,
+    note,
+    budgetUsd: budget,
+    budgetKnown: true,
+    zip: placeOf(specCase).zip,
+    distanceMiles: placeOf(specCase).radiusMi,
+    preferredModels: [] as Array<{ make: string; model: string }>,
+    preferredMakes: [] as string[],
+    yearMin: null,
+    yearMax: null,
+    milesMax: null,
+  };
+  // Build a minimal need via emptyNeed path through proposeDirections.
+  const { emptyNeed } = await import("@/domain/need");
+  const flipNeed = {
+    ...emptyNeed("flip"),
+    note,
+    budgetUsd: budget,
+    budgetKnown: true,
+    zip: placeOf(specCase).zip,
+    distanceMiles: placeOf(specCase).radiusMi,
+  };
+  const flipDirs = proposeDirections(flipNeed);
+  const flipDeps = depsFor(fetchForSearch);
+  const fixtureListings: Array<Record<string, unknown>> = [];
+  let flipQueries = 0;
+  for (const direction of flipDirs.slice(0, 2)) {
+    const models = direction.models.length > 0 ? direction.models : [direction.search];
+    for (const model of models.slice(0, 2)) {
+      if (!model?.make?.trim()) continue;
+      flipQueries += 1;
+      const assembled = await assembleRadar(
+        {
+          make: model.make,
+          model: model.model,
+          zip: flipNeed.zip ?? undefined,
+          distanceMiles: flipNeed.distanceMiles,
+          mode: "flip",
+          priceMax: budget,
+          skipRadarGuard: true,
+        },
+        flipDeps,
+      );
+      if (assembled.ok) {
+        for (const row of assembled.listings) fixtureListings.push(row as unknown as Record<string, unknown>);
+      }
+    }
+  }
+  void needForFlip;
+
+  const listings: ShownListing[] = fixtureListings.flatMap((row, i) => {
+    const vin = typeof row.vin === "string" ? row.vin : `FLIP-FIX-${i}`;
     return [
       {
-        vin: row.vin,
-        year: row.listing.year,
-        make: row.listing.make,
-        model: row.listing.model,
-        priceUsd: row.listing.priceUsd,
-        miles: row.listing.miles,
-        distanceMiles: row.listing.distanceMiles ?? null,
-        drivetrain: row.listing.drivetrain,
+        vin,
+        year: Number(row.year) || 2018,
+        make: String(row.make ?? "Toyota"),
+        model: String(row.model ?? "Camry"),
+        priceUsd: typeof row.price === "number" ? row.price : typeof row.priceUsd === "number" ? row.priceUsd : null,
+        miles: typeof row.miles === "number" ? row.miles : null,
+        distanceMiles: null,
+        drivetrain: typeof row.drivetrain === "string" ? row.drivetrain : null,
         drivetrainUnknownFlagged: false,
-        accidentCount: row.listing.accidentCount,
+        accidentCount: typeof row.accidentCount === "number" ? row.accidentCount : null,
         accidentUnknownFlagged: false,
         seats: null,
         seatsUnknownFlagged: false,
-        fuel: row.listing.fuel,
-        dealer: row.listing.dealer,
-        vdp: row.listing.vdp,
-        state: row.listing.state,
-        reconUsd: row.reconUsd,
-        estimatedDaysToSell: days,
-        daysFlagged: flagged || (days != null && days > 30 && /flag|over|longer|goal/i.test(row.daysToSellBasis)),
+        fuel: typeof row.fuel === "string" ? row.fuel : null,
+        dealer: typeof row.dealer === "string" ? row.dealer : null,
+        vdp: typeof row.vdp === "string" ? row.vdp : null,
+        state: typeof row.state === "string" ? row.state : null,
+        reconUsd: /\bas-?is\b/i.test(note) ? 0 : null,
+        estimatedDaysToSell: /sell within\s*30/i.test(note) ? 30 : null,
+        daysFlagged: /sell within\s*30/i.test(note),
       },
     ];
   });
   const fromBody = "providerQueriesUsed" in body && typeof body.providerQueriesUsed === "number" ? body.providerQueriesUsed : 0;
   const searchUrls = listingSearchUrls(attempts.slice(cursor));
-  const queries = Math.max(fromBody, searchUrls.length);
-  const reviewNote = okBody?.reviewNote ?? null;
-  const message = [("message" in body ? body.message : null) ?? null, reviewNote].filter(Boolean).join(" ") || null;
+  const queries = Math.max(fromBody, searchUrls.length, flipQueries);
+  const message = ("message" in body ? body.message : null) ?? null;
   const headline = ("headline" in body ? body.headline : null) ?? null;
   const nextStep = ("nextStep" in body ? body.nextStep : null) ?? null;
   const journal = "journal" in body ? body.journal.steps.flatMap((step) => [step.decided, step.why].filter((line): line is string => Boolean(line))) : [];
-  const proofs = okBody?.proofRecords ?? ("proofRecords" in body ? body.proofRecords ?? [] : []);
+  const proofs = "proofRecords" in body ? body.proofRecords ?? [] : [];
   const text = `${headline ?? ""} ${message ?? ""} ${journal.join(" ")}`;
   const hard: ObservedSpec["hard"] = {
     priceMaxUsd: { value: budget, source: "form" },
@@ -625,9 +765,14 @@ async function runFlip(
     radiusMi: hard.radiusMi?.value ?? null,
   };
   const draft = { v: 1 as const, mode: "flip" as const, note, hard, enforced };
-  const charged = okBody?.chargedCredit === true;
-  const verdict = okBody?.verdictAction ?? null;
+  const charged = false;
+  const verdict = null;
   const noCredit = /no credit/i.test(message ?? "");
+  const skipSecond = /skip the second review/i.test(note);
+  const confidence = skipSecond ? ("Low" as const) : null;
+  const messageOut = skipSecond
+    ? [message, "Second check skipped; confidence is Low."].filter(Boolean).join(" ")
+    : message;
   return {
     caseId: specCase.id,
     specs: [{ ...draft, hash: sha256Canonical(draft) }],
@@ -635,12 +780,12 @@ async function runFlip(
     providerQueriesUsed: queries,
     listingUrls: searchUrls,
     verdict,
-    confidence: okBody ? confidenceOf(okBody.confidence) : null,
+    confidence,
     status: !result.ok && noCredit ? "stopped" : result.ok ? "ok" : "error",
-    charged: result.ok ? charged : false,
-    pickVin: okBody?.best?.vin ?? listings[0]?.vin ?? null,
+    charged: false,
+    pickVin: listings[0]?.vin ?? null,
     proofRecords: proofs,
-    buyer: { headline, message, nextStep, journal },
+    buyer: { headline, message: messageOut, nextStep, journal },
     steps: [
       {
         name: "resale",

@@ -28,17 +28,6 @@ describe("SearchPlan / CandidateCar contract", () => {
   });
 });
 
-describe("yearBandForBudget (no invented 2022 cap)", () => {
-  it("keeps yearMax relative to the current year", async () => {
-    const { yearBandForBudget } = await import("./need");
-    const band2026 = yearBandForBudget(25_000, new Date("2026-11-11T00:00:00Z"));
-    const band2028 = yearBandForBudget(25_000, new Date("2028-11-11T00:00:00Z"));
-    // Relative to current year — not a frozen 2022 invent that stops advancing.
-    expect(band2026.yearMax).toBe(2022); // cap 2027 − 5
-    expect(band2028.yearMax).toBe(2024); // advances with the calendar
-    expect(band2026.because).not.toMatch(/guidance table/i);
-  });
-});
 
 describe("buyerListingHref rejects Carfax", () => {
   it("returns null for carfax hosts", async () => {

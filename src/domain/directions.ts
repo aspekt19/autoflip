@@ -1,5 +1,4 @@
 import type { PreferredModel, StructuredNeed } from "./need";
-import { budgetIsApproximateFromNote, yearBandForBudget } from "./need";
 import { orderedYearBounds } from "./year-span";
 
 export type CandidateModel = { make: string; model: string };
@@ -74,11 +73,8 @@ export function proposeDirections(
   refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number },
   now = new Date(),
 ): SearchDirection[] {
-  const band = yearBandForBudget(need.budgetUsd, now, {
-    approximateFromNote: budgetIsApproximateFromNote(need.note),
-  });
-  // Prefer Confirm refine / clarified need years. Budget year bands are ranking
-  // copy only — never invent them as search yearMin/yearMax constraints (SERV picks years).
+  // Prefer Confirm refine / clarified need years. Never invent budget year bands
+  // as search yearMin/yearMax constraints (SERV picks years).
   const openMin = 1990;
   const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = refine?.yearMin != null || need.yearMin != null;
@@ -88,7 +84,6 @@ export function proposeDirections(
   const ordered = orderedYearBounds(rawMin, rawMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
-  // Never claim a budget-band yearMax (e.g. 2022) came from the buyer's clarification.
   const yearBecause =
     buyerSetMin && buyerSetMax
       ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine.`
@@ -96,7 +91,7 @@ export function proposeDirections(
         ? `Oldest year ${yearMin} comes from your note or Confirm. Newer cars stay open — no budget-invented year ceiling.`
         : buyerSetMax && !buyerSetMin
           ? `Newest year ${yearMax} comes from your note or Confirm. No budget-invented year floor.`
-          : `${band.because} That is a ranking preference, not a hard year filter — older cars can still appear.`;
+          : "No year range from you or Confirm — searching without a budget-invented year filter.";
   if (refine?.make && refine.model) {
     // Only label "you named" when preferred models came from the buyer (not service/SERV).
     const userNamed =

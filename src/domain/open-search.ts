@@ -33,16 +33,16 @@ function noteNames(note: string, models: readonly StarterModel[]): boolean {
   return models.some((item) => text.includes(item.model.toLowerCase()));
 }
 
-export function hybridLimitFromText(text: string | null | undefined): "hard" | "soft" | null {
-  if (!text) return null;
-  return constraintStrength(text, HYBRID_WORD);
+/** @deprecated Note interpreters deleted — SERV owns hybrid strength. */
+export function hybridLimitFromText(_text: string | null | undefined): "hard" | "soft" | null {
+  return null;
 }
 
+/** @deprecated Note interpreters deleted — use structured bodyStyle only. */
 export function unnamedTruckRequest(note: string | null | undefined, bodyStyle?: string | null): boolean {
-  if (!note) return false;
-  const truck = bodyStyle?.toLowerCase() === "truck" || /\b(?:pick-?ups?|trucks?)\b/i.test(note);
-  if (!truck) return false;
-  return !noteNames(note, OPEN_TRUCK_MODELS);
+  if (bodyStyle?.toLowerCase() !== "truck") return false;
+  // Without note parsing, treat structured truck + no named models as unnamed.
+  return !noteNames(note ?? "", OPEN_TRUCK_MODELS);
 }
 
 function queued(directions: readonly SearchDirection[]): StarterModel[] {
