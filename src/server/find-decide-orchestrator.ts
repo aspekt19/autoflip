@@ -1,8 +1,10 @@
 /**
- * PR B Find decide orchestrator: free-gov (if needed) → C2 triage → C3 decide → C4 challenge.
- * When FIND_AGENT_LOOP is on (and SERV is keyed), prefers the agentic tool loop; falls back to triage→decide.
+ * Find decide orchestrator: free-gov (if needed) → agentic SERV loop (always when keyed).
+ * Classic triage→decide remains only for the labelled e2e stub / missing SERV key.
+ * Agent failure never falls through to a code choose.
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
+import { buildUserIntentFromFlatForm, serializeUserIntentConstraints } from "@/domain/serv-boundary";
 import { alignPublishedConfidence } from "@/domain/find-best-deal";
 import { decideBudgetMs, FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
@@ -201,7 +203,7 @@ export async function runFindDecideOrchestrator(
 
   const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
 
-  // 1b) Agentic SERV loop (preferred when flagged + keyed). Falls back to triage→decide on failure.
+  // 1b) Agentic SERV loop always when keyed (unless labelled e2e stub).
   const env = deps.env ?? process.env;
   const autodevKey = deps.autodevKey?.trim() || env.AUTODEV_API_KEY?.trim() || "";
   const agentEnabled = findAgentLoopEnabled(env, { servKey: deps.servKey });
@@ -211,17 +213,21 @@ export async function runFindDecideOrchestrator(
       marketPool.length > 0
         ? marketPool
         : marketPoolFromListingFacts(record.listings);
+    const note = deps.shopperNote?.trim() || record.need.note || "";
+    const flat: Record<string, unknown> = {};
+    if (record.need.zip) flat.zip = record.need.zip;
+    if (record.need.distanceMiles != null) flat.distanceMiles = record.need.distanceMiles;
+    if (record.need.budgetUsd != null && record.need.budgetKnown !== false) {
+      flat.budgetUsd = record.need.budgetUsd;
+    }
+    if (record.need.yearMin != null) flat.yearMin = record.need.yearMin;
+    if (record.need.yearMax != null) flat.yearMax = record.need.yearMax;
+    if (record.need.milesMax != null) flat.milesMax = record.need.milesMax;
+    const userIntent = buildUserIntentFromFlatForm({ note, form: flat });
     const agent = await runAgent({
-      note: deps.shopperNote?.trim() || record.need.note || "",
+      note,
       mode: resolveFindAgentMode(env),
-      formEdits: {
-        zip: record.need.zip,
-        distanceMiles: record.need.distanceMiles,
-        budgetUsd: record.need.budgetUsd,
-        yearMin: record.need.yearMin,
-        yearMax: record.need.yearMax,
-        milesMax: record.need.milesMax,
-      },
+      formEdits: serializeUserIntentConstraints(userIntent),
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
       deps: {
@@ -367,7 +373,8 @@ export async function runFindDecideOrchestrator(
         agentLoop: {
           agentMode: agent.agentMode,
           toolRounds: agent.toolRounds,
-          verdictReached: true,
+          // Completeness comes from the agent loop (chosen listing or documented nothing-fits).
+          verdictReached: agent.verdictReached,
           relaxedConditions: agent.relaxedConditions,
           journalServCalls: counts.servCalls,
           journalToolCalls: counts.toolCalls,
@@ -377,13 +384,26 @@ export async function runFindDecideOrchestrator(
         },
       };
     }
-    // Clear a stale checkpoint before falling through to classic triage→decide.
+    // Agent loop was required and failed — never substitute a code choose.
     if (record.agentLoopCheckpoint) {
       record = await updateFindSearchContext(deps.kv, record, { agentLoopCheckpoint: null });
     }
-    // Fall through to classic triage→decide when the agent loop cannot finish.
+    const agentErr =
+      !agent.ok && !("continue" in agent && agent.continue)
+        ? agent
+        : null;
+    return {
+      ok: false,
+      status: 503,
+      error: "agent_loop_failed",
+      message:
+        agentErr && "message" in agentErr && typeof agentErr.message === "string"
+          ? agentErr.message
+          : "The SERV agent loop did not finish. No code fallback pick was published.",
+    };
   }
 
+  // Classic triage→decide: labelled e2e stub or missing SERV/autodev key only.
   // 2) C2 triage
   const triage = await runFindTriageServ({
     need: record.need,

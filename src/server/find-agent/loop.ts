@@ -8,6 +8,11 @@ import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import {
+  assertNoNonUserSetConstraints,
+  buildUserIntentFromFlatForm,
+  serializeUserIntentConstraints,
+} from "@/domain/serv-boundary";
+import {
   applyFindAgentGuardrails,
   FIND_AGENT_NEXT_ACTION_SCHEMA,
   FIND_AGENT_RESULT_SCHEMA,
@@ -131,6 +136,7 @@ function enrichFindRelaxed(
   verdict: FindAgentVerdict,
   journal: readonly FindAgentJournalEntry[],
 ): FindAgentVerdict {
+  // Placeholders already stripped in validateFindAgentVerdict; synthesize when empty.
   if (verdict.relaxedConditions.length > 0) return verdict;
   const synthesized = synthesizeRelaxedConditionsFromSearches(searchesFromFindJournal(journal));
   if (synthesized.length === 0) return verdict;
@@ -307,17 +313,54 @@ function restoreFindStateFromCheckpoint(
   };
 }
 
+
+function constraintsFromFormEdits(
+  note: string,
+  formEdits?: Record<string, unknown> | null,
+): { intent: ReturnType<typeof buildUserIntentFromFlatForm>; constraints: Record<string, unknown> } {
+  const form = formEdits ?? {};
+  // Already provenance-tagged (orchestrator / job serialization)?
+  const looksTagged = Object.values(form).some(
+    (v) => v && typeof v === "object" && !Array.isArray(v) && "provenance" in (v as object) && "value" in (v as object),
+  );
+  if (looksTagged) {
+    // Constraints already provenance-tagged — trust them; raw note stays in the prompt.
+    const intent = { note, fields: {} as import("@/domain/serv-boundary").UserIntent["fields"] };
+    for (const [key, raw] of Object.entries(form)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const row = raw as { value?: unknown; provenance?: unknown; quote?: unknown };
+      if (row.provenance !== "note" && row.provenance !== "form") continue;
+      (intent.fields as Record<string, unknown>)[key] = {
+        value: row.value,
+        provenance: row.provenance,
+        ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
+      };
+    }
+    return { intent, constraints: form };
+  }
+  const intent = buildUserIntentFromFlatForm({ note, form });
+  return { intent, constraints: serializeUserIntentConstraints(intent) };
+}
+
 function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
+  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
+  const gate = assertNoNonUserSetConstraints(constraints, intent);
+  if (!gate.ok) {
+    throw new Error(
+      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
+    );
+  }
   const edits =
-    formEdits && Object.keys(formEdits).length > 0
-      ? `\nForm edits (structured overrides): ${JSON.stringify(formEdits)}`
+    Object.keys(constraints).length > 0
+      ? `\nUser-set constraints (provenance-tagged; untouched fields absent): ${JSON.stringify(constraints)}`
       : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints: relax the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard budget and must-haves stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters.",
-    "Explain every relaxation in relaxedConditions when you finish.",
-    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks.",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions.",
+    "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
+    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
     `Shopper note:\n${note.trim() || "(empty)"}${edits}`,

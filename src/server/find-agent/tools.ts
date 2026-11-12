@@ -4,6 +4,11 @@
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
+import {
+  assertThinSearchProxyDidNotDropProductRows,
+  buildThinSearchProxyResult,
+  mapBodyStyleForProvider,
+} from "@/domain/serv-boundary";
 import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
@@ -701,7 +706,9 @@ export async function executeFindAgentTool(
       };
     }
     const query = toListingQuery(parsed.value);
-    const providerBody = providerBodyStyleParam(resolveBodyIntent(parsed.value));
+    const bodyIntent = resolveBodyIntent(parsed.value);
+    const providerBody =
+      mapBodyStyleForProvider(bodyIntent) ?? providerBodyStyleParam(bodyIntent) ?? null;
     const providerUrl = listingsSearchUrl(query);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
@@ -712,25 +719,44 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
-    const { listings: filtered, funnel } = applySearchListingsFunnel(search.listings, parsed.value);
-    rememberListings(state, filtered);
+    // Observational funnel for SERV's eyes — product filters must not drop returned rows.
+    const { listings: funnelKept, funnel } = applySearchListingsFunnel(search.listings, parsed.value);
+    const proxy = buildThinSearchProxyResult({
+      providerListings: search.listings,
+      params: parsed.value,
+      funnel,
+    });
+    const dropGate = assertThinSearchProxyDidNotDropProductRows({
+      providerListings: search.listings,
+      returnedListings: proxy.listings,
+    });
+    if (!dropGate.ok) {
+      return {
+        name,
+        ok: false,
+        result: { error: "thin_proxy_violation", message: dropGate.detail },
+        summary: `search_listings architecture violation: ${dropGate.detail}`,
+      };
+    }
+    rememberListings(state, proxy.listings);
     const pageLimit = Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP);
-    const cars = capListingCards(filtered, pageLimit);
+    const cars = capListingCards(proxy.listings, pageLimit);
     const relaxHints = relaxHintsFromFunnel(funnel, parsed.value);
-    const totalReturned = filtered.length;
+    const totalReturned = proxy.listings.length;
     const truncated = search.listings.length >= (query.limit ?? LIMIT_MAX);
     const zeroStep = [...funnel].reverse().find((s) => s.count === 0);
+    const funnelKeptCount = funnelKept.length;
     const summary =
       totalReturned === 0
         ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
-        : `search_listings → ${totalReturned} hits, returning ${cars.length}`;
+        : `search_listings → ${totalReturned} provider hits (funnel would keep ${funnelKeptCount}), returning ${cars.length}`;
     return {
       name,
       ok: true,
       result: {
         query: {
           ...parsed.value,
-          providerBodyStyle: providerBody ?? null,
+          providerBodyStyle: providerBody,
           providerPriceMaxUsd:
             parsed.value.priceMaxUsd != null
               ? Math.round(parsed.value.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR)
@@ -739,6 +765,8 @@ export async function executeFindAgentTool(
         },
         totalReturned,
         funnel,
+        funnelWouldKeep: funnelKeptCount,
+        productFiltersWouldDrop: proxy.productFiltersWouldDrop,
         listings: cars,
         // Back-compat aliases for earlier agent prompts / tests.
         count: totalReturned,
@@ -749,7 +777,7 @@ export async function executeFindAgentTool(
         truncated,
         cached: search.cached,
         honesty:
-          "Asking prices only. Funnel steps are inventory filters — sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
+          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
       },
       summary,
     };
