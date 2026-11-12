@@ -285,7 +285,7 @@ export async function runFindDecideServ(input: {
             shortlistKeys,
             issues: revalidated.ok === false ? revalidated.issues : [],
           },
-          detail: "SERV decide failed validation — code pick published (confidence ≤ medium).",
+          detail: "SERV did not decide this one.",
           rawResponse,
         }),
       );
@@ -305,12 +305,12 @@ export async function runFindDecideServ(input: {
     );
   }
 
-  if (!decide && codePick && !servKey) {
+  if (!decide && codePick) {
     decide = {
       pickKey: codePick.key,
       action: "negotiate",
-      confidence: "medium",
-      confidenceWhy: "AI review unavailable — code ranking stands.",
+      confidence: "low",
+      confidenceWhy: "SERV did not decide this one.",
       reasons: [
         {
           text: codePick.factors[0]?.detail || "Leading on the code score among the shortlist.",
@@ -523,7 +523,7 @@ export async function runFindDecideServ(input: {
         decided:
           source === "SERV"
             ? `SERV picked ${pickLabel}.`
-            : `Code picked ${pickLabel} (AI review unavailable).`,
+            : "SERV did not decide this one.",
         why: decide.confidenceWhy,
         changed: null,
         model: decideModel,

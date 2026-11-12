@@ -90,8 +90,17 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
     expect(failures).toEqual([]);
   });
 
-  it("verdict_decide keeps prompt_guard + shadow; shadow uses documented default form", () => {
+  it("verdict_decide is bare gpt-6.1-sol with a strict schema and no prompt-guard tools", () => {
     const req = requestFor("verdict_decide", JSON.stringify({ facts: {} }), undefined, {});
+    expect(req.model).toBe("gpt-6.1-sol");
+    expect(toolParameterSchemas(req).map((tool) => tool.name)).toEqual([]);
+    const rf = (req as { response_format: { json_schema: { strict: boolean; schema: unknown } } }).response_format;
+    expect(rf.json_schema.strict).toBe(true);
+    expect(assertStrictJsonSchemaSubset(rf.json_schema.schema)).toEqual([]);
+  });
+
+  it("flip_judge shadow uses the documented default form", () => {
+    const req = requestFor("flip_judge", JSON.stringify({ facts: {} }), undefined, {});
     const tools = toolParameterSchemas(req);
     expect(tools.map((t) => t.name).sort()).toEqual(["serv_prompt_guard", "serv_shadow_agent"].sort());
     const guard = tools.find((t) => t.name === "serv_prompt_guard");

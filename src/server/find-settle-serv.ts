@@ -759,6 +759,8 @@ export async function runFindSettleServ(input: {
           : `SERV pickKey ${pickKey} is not in allowedKeys — hard rule reject; code fallback stands.`;
       pick = codeEligible;
       pickActor = "code";
+      pickConfidence = "low";
+      pickNote = "SERV did not decide this one.";
       pickModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
       pickRecordedAt = recordedAt;
       pickResponseId = null;
@@ -876,7 +878,7 @@ export async function runFindSettleServ(input: {
       decided:
         pickActor === "SERV"
           ? `SERV picked ${pickLabel} among ${eligible.length} eligible finalists.`
-          : `Code picked ${pickLabel} among ${eligible.length} eligible finalists (not SERV).`,
+          : "SERV did not decide this one.",
       why:
         pickActor === "SERV"
           ? "Published Find pick comes from SERV find_pick under allowlisted finalist facts."

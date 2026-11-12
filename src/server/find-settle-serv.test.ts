@@ -818,7 +818,7 @@ describe("find settle SERV", () => {
     );
     // Code-fallback pickStep cites find_pick proof fields, not shopper verdict_decide.
     const pickStep = settled.agentVerdict?.serv_steps[0];
-    expect(pickStep?.decided).toMatch(/Code picked/i);
+    expect(pickStep?.decided).toMatch(/SERV did not decide/i);
     expect(pickStep?.responseId).toBeNull();
   });
 

@@ -107,15 +107,15 @@ describe("SERV layer", () => {
       ]),
     );
     expect(PROFILES.verdict_challenge.jsonSchema?.name).toBe("report_verdict_challenge");
-    expect(PROFILES.verdict_challenge.feature).toBe("kronos");
-    expect(PROFILES.verdict_challenge.tools).toEqual(["prompt_guard"]);
-    expect(toolNames(requestFor("verdict_challenge", "{}").tools)).toEqual(["serv_prompt_guard"]);
-    expect(requestFor("verdict_challenge", "{}").model).toMatch(/-serv-kronos$/);
-    expect(PROFILES.find_close_call_multipath.feature).toBe("multipath");
-    expect(PROFILES.verdict_decide.feature).toBe("multipath");
-    expect(PROFILES.verdict_decide.tools).toEqual(expect.arrayContaining(["prompt_guard", "shadow"]));
-    expect(PROFILES.find_pick.feature).toBe("multipath");
-    expect(PROFILES.find_pick.tools).toEqual(expect.arrayContaining(["prompt_guard", "shadow"]));
+    expect(PROFILES.verdict_challenge.feature).toBe("none");
+    expect(PROFILES.verdict_challenge.tools).toEqual([]);
+    expect(toolNames(requestFor("verdict_challenge", "{}").tools)).toEqual([]);
+    expect(requestFor("verdict_challenge", "{}").model).not.toMatch(/-serv-/);
+    expect(PROFILES.find_close_call_multipath.feature).toBe("none");
+    expect(PROFILES.verdict_decide.feature).toBe("none");
+    expect(PROFILES.verdict_decide.tools).toEqual([]);
+    expect(PROFILES.find_pick.feature).toBe("none");
+    expect(PROFILES.find_pick.tools).toEqual([]);
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
   });
 
@@ -167,17 +167,22 @@ describe("SERV layer", () => {
   it("modelFor strips prior SERV suffixes including combined kronos-multipath forms", () => {
     // Combined emission is available when a profile sets feature: "kronos-multipath".
     // Strip must accept either order so PR A / callers can pass already-suffixed ids.
-    expect(modelFor("verdict_challenge", "gpt-5.6-sol")).toBe("gpt-5.6-sol-serv-kronos");
-    expect(modelFor("verdict_challenge", "gpt-5.6-sol-serv-kronos")).toBe("gpt-5.6-sol-serv-kronos");
-    expect(modelFor("find_pick", "gpt-5.6-sol-serv-kronos-multipath")).toBe(
-      "gpt-5.6-sol-serv-multipath",
+    expect(modelFor("verdict_challenge", "gpt-5.6-sol")).toBe("gpt-5.6-sol");
+    expect(modelFor("verdict_challenge", "gpt-5.6-sol-serv-kronos")).toBe("gpt-5.6-sol");
+    expect(modelFor("find_pick", "gpt-5.6-sol-serv-kronos-multipath")).toBe("gpt-5.6-sol");
+    expect(modelFor("find_pick", "gpt-5.6-sol-serv-multipath-kronos")).toBe("gpt-5.6-sol");
+    expect(modelFor("find_close_call_multipath", "gpt-5.6-sol")).toBe("gpt-5.6-sol");
+  });
+
+  it("Find and Check strict-JSON steps do not also send multipath plus prompt-guard tools", () => {
+    const ids = (Object.keys(PROFILES) as ProfileId[]).filter(
+      (id) => id.startsWith("find_") || id.startsWith("check_") || id === "verdict_decide" || id === "verdict_challenge",
     );
-    expect(modelFor("find_pick", "gpt-5.6-sol-serv-multipath-kronos")).toBe(
-      "gpt-5.6-sol-serv-multipath",
-    );
-    expect(modelFor("find_close_call_multipath", "gpt-5.6-sol")).toBe(
-      "gpt-5.6-sol-serv-multipath",
-    );
+    const toxic = ids.filter((id) => {
+      const entry = PROFILES[id] as ServProfile;
+      return Boolean(entry.jsonSchema) && entry.feature === "multipath" && entry.tools.length > 0;
+    });
+    expect(toxic).toEqual([]);
   });
 
   it("copies inference fields that exist and always builds an agent proof", () => {
