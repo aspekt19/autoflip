@@ -131,6 +131,50 @@ export async function POST(request: Request) {
     );
   }
 
+  // Mid-loop pause: persist progress only; client re-POSTs decide to continue.
+  if (result.loop.continue) {
+    const progressRunId = await syncRunSafely(kv, {
+      runId,
+      ownerId: id,
+      kind: "find",
+      note: result.needAfter.note ?? "",
+      mode: result.needAfter.mode === "flip" ? "flip" : "personal",
+      proofs: proofsFromRecords(result.pickProofRecords),
+      terminal: false,
+      failureReasons: [],
+      verdict: null,
+    });
+    return Response.json({
+      ok: true,
+      searchContextToken: result.searchContextToken,
+      bestDeal: null,
+      pickAgentVerdict: null,
+      message: result.loop.detail,
+      pickSecondPass: result.pickSecondPass,
+      pickProofRecords: result.pickProofRecords,
+      freeGovReceipts: result.freeGovReceipts,
+      freeGovCoverage: result.freeGovCoverage,
+      riskCoverage: result.riskCoverage,
+      freeEvidenceNote: result.freeEvidenceNote,
+      triageSource: result.triageSource,
+      decideSource: result.decideSource,
+      shortlistKeys: result.shortlistKeys,
+      loop: result.loop,
+      honesty: result.honesty,
+      needAfter: result.needAfter,
+      appliedCheckIds: result.appliedCheckIds,
+      decisionLog: result.decisionLog,
+      carChecks: result.carChecks,
+      replay: result.replay,
+      agentLoop: result.agentLoop ?? null,
+      runId: progressRunId ?? runId,
+      replan: { need: result.needAfter, refine: {}, note: result.honesty },
+      autonomousServ: true,
+      chosenId: "find_decide",
+      rematch: null,
+    });
+  }
+
   const sources: SourceId[] = [];
   for (const receipt of result.freeGovReceipts) {
     if (receipt.checkId === "free_gov_recalls" && !sources.includes("government_recalls")) sources.push("government_recalls");
@@ -182,6 +226,7 @@ export async function POST(request: Request) {
     decisionLog: result.decisionLog,
     carChecks: result.carChecks,
     replay: result.replay,
+    agentLoop: result.agentLoop ?? null,
     runId: settledRunId ?? runId,
     /** Compatibility with next-check UI consumers. */
     replan: { need: result.needAfter, refine: {}, note: result.honesty },

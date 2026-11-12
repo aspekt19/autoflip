@@ -77,18 +77,36 @@ describe("MCP API key", { timeout: 20_000 }, () => {
   });
 
   it("does not charge a credit when the VIN cannot be analyzed", async () => {
-    const kv = getKv();
-    await creditGrant(kv, "miss-user", 2, "seed-miss");
-    const created = await createApiKey(kv, "miss-user", "Miss");
-    const response = await call(created.token, {
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: { name: "full_report", arguments: { mode: "personal", vin: "1HGCM82673A123456" } },
-    });
-    const body = (await response.json()) as { result: { structuredContent: { error: string } } };
-    expect(body.result.structuredContent.error).toBe("listings_unconfigured");
-    expect(await creditBalance(kv, "miss-user")).toBe(2);
+    // Independent of live SERV keys: with SERV keyed, Prompt Guard can return
+    // rejected_input before listings_unconfigured. This case asserts the credit
+    // gate when listings are unconfigured (no Autodev / no charge).
+    const priorServ = process.env.SERV_API_KEY;
+    const priorOpenServ = process.env.OPENSERV_API_KEY;
+    const priorAutodev = process.env.AUTODEV_API_KEY;
+    delete process.env.SERV_API_KEY;
+    delete process.env.OPENSERV_API_KEY;
+    delete process.env.AUTODEV_API_KEY;
+    try {
+      const kv = getKv();
+      await creditGrant(kv, "miss-user", 2, "seed-miss");
+      const created = await createApiKey(kv, "miss-user", "Miss");
+      const response = await call(created.token, {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "full_report", arguments: { mode: "personal", vin: "1HGCM82673A123456" } },
+      });
+      const body = (await response.json()) as { result: { structuredContent: { error: string } } };
+      expect(body.result.structuredContent.error).toBe("listings_unconfigured");
+      expect(await creditBalance(kv, "miss-user")).toBe(2);
+    } finally {
+      if (priorServ === undefined) delete process.env.SERV_API_KEY;
+      else process.env.SERV_API_KEY = priorServ;
+      if (priorOpenServ === undefined) delete process.env.OPENSERV_API_KEY;
+      else process.env.OPENSERV_API_KEY = priorOpenServ;
+      if (priorAutodev === undefined) delete process.env.AUTODEV_API_KEY;
+      else process.env.AUTODEV_API_KEY = priorAutodev;
+    }
   });
 
   it("asks for an API key when none is sent", async () => {

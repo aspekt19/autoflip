@@ -122,6 +122,11 @@ export type ResaleJobRecord = {
   /** Plan-step proof rows merged into delivery with settle proofs. */
   planProofRecords: NonNullable<ResaleSearchOkBody["proofRecords"]>;
   settleCheckpoint: ResaleSettleCheckpoint | null;
+  /**
+   * Mid-loop agentic SERV checkpoint (Responses input + journal + tool/PnL state).
+   * When set, step 2 resumes the agent loop instead of restarting.
+   */
+  agentLoopCheckpoint?: import("@/server/serv/agent-loop-checkpoint").AgentLoopCheckpoint | null;
   providerQueriesUsed: number;
   scope: string | null;
   emptyReason: string | null;
@@ -597,6 +602,7 @@ export async function createAndRunResaleJobStep1(
     planJournal: emptyResaleJournal(),
     planProofRecords: [],
     settleCheckpoint: null,
+    agentLoopCheckpoint: null,
     providerQueriesUsed: 0,
     scope: null,
     emptyReason: null,
@@ -838,6 +844,8 @@ export async function advanceResaleJob(
             resaleChannel: job.input.resaleChannel,
             plannedDirectionIds: job.plannedDirectionIds,
           },
+          checkpoint: job.agentLoopCheckpoint ?? null,
+          deadline,
           deps: {
             servKey,
             autodevKey,
@@ -858,6 +866,21 @@ export async function advanceResaleJob(
             },
           },
         });
+        if ("continue" in agent && agent.continue) {
+          // Stay on step 1 completed so the next advance re-enters step 2 with the checkpoint.
+          job = {
+            ...job,
+            agentLoopCheckpoint: agent.checkpoint,
+            updatedAt: new Date().toISOString(),
+          };
+          await storeResaleJob(deps.kv, job);
+          logResaleStage("job_agent_loop_continue", deadline.startedAtMs, {
+            jobId,
+            toolRounds: agent.toolRounds,
+            roundsCompleted: agent.checkpoint.roundsCompleted,
+          });
+          return { ok: true, job, balance };
+        }
         if (agent.ok) {
           const mapped = mapResaleAgentLoopToSettle({
             agent,
@@ -871,6 +894,7 @@ export async function advanceResaleJob(
             stepCompleted: RESALE_JOB_FINAL_STEP,
             candidates: mapped.candidates,
             settleCheckpoint: mapped.checkpoint,
+            agentLoopCheckpoint: null,
             emptyReason: mapped.delivery.emptyReason,
             updatedAt: new Date().toISOString(),
           };
@@ -887,6 +911,10 @@ export async function advanceResaleJob(
           jobId,
           error: agent.error,
         });
+        if (job.agentLoopCheckpoint) {
+          job = { ...job, agentLoopCheckpoint: null, updatedAt: new Date().toISOString() };
+          await storeResaleJob(deps.kv, job);
+        }
         // Fall through to classic inventory when the agent loop cannot finish.
       }
 

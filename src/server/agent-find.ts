@@ -415,17 +415,24 @@ export async function advanceAgentFindRun(
         servNextCheckEnabled: false,
       });
       context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
-      const decided = await runFindDecideOrchestrator(
+      const decideDeps = {
+        kv: deps.kv,
+        userId: fresh.user_id,
+        servKey,
+        servBaseUrl: deps.servBaseUrl,
+        servModel: deps.servModel,
+        fetchImpl: deps.fetch,
+      };
+      let decided = await runFindDecideOrchestrator(
         { searchContextToken: context.token },
-        {
-          kv: deps.kv,
-          userId: fresh.user_id,
-          servKey,
-          servBaseUrl: deps.servBaseUrl,
-          servModel: deps.servModel,
-          fetchImpl: deps.fetch,
-        },
+        decideDeps,
       );
+      for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
+        decided = await runFindDecideOrchestrator(
+          { searchContextToken: context.token },
+          decideDeps,
+        );
+      }
       if (!decided.ok) {
         fresh.error = agentError({
           error_code: decided.error,
@@ -444,6 +451,27 @@ export async function advanceAgentFindRun(
           },
         });
         await mark(fresh, "failed", "failed");
+        await saveRun(deps.kv, fresh);
+        return fresh;
+      }
+      if (decided.loop.continue || !decided.pickAgentVerdict) {
+        fresh.error = agentError({
+          error_code: "decide_incomplete",
+          message: decided.loop.detail || "Find decide did not finish within the stepped loop budget.",
+          credit_spent: false,
+          retry_safe: true,
+          next_steps: {
+            action: "retry",
+            summary: "Call find status again to continue the decide loop.",
+            request: {
+              method: "GET",
+              url: `${deps.origin}/api/v1/find/${fresh.run_id}/status`,
+              headers: {},
+              body: {},
+            },
+          },
+        });
+        await mark(fresh, "settling", "settling");
         await saveRun(deps.kv, fresh);
         return fresh;
       }

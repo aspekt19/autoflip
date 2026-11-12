@@ -79,6 +79,14 @@ export type LiveEvalCaseResult = {
   relaxedConditions?: LiveEvalRelaxedCondition[];
   journalServCalls?: number;
   journalToolCalls?: number;
+  /** Documented SERV features active on the winning path (multipath / Prompt Guard / Shadow). */
+  featuresActive?: string[];
+  /** Exact FEATURE_REJECTION … flag strings when SERV rejected an extension. */
+  featureRejections?: string[];
+  /** SERV response ids observed in the agent journal (order preserved). */
+  servResponseIds?: string[];
+  /** Wall duration for this query in ms (alias of elapsedMs for report consumers). */
+  durationMs?: number;
 };
 
 export type LiveEvalReport = {

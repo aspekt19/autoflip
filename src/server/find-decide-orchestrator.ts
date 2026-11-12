@@ -35,14 +35,17 @@ export type FindAgentLoopMeta = {
   relaxedConditions: FindAgentRelaxedCondition[];
   journalServCalls: number;
   journalToolCalls: number;
+  featuresActive?: string[];
+  featureRejections?: string[];
+  servResponseIds?: string[];
 };
 
 export type FindDecideOrchestratorOk = {
   ok: true;
   status: 200;
   searchContextToken: string;
-  bestDeal: Awaited<ReturnType<typeof runFindDecideServ>>["bestDeal"];
-  pickAgentVerdict: Awaited<ReturnType<typeof runFindDecideServ>>["agentVerdict"];
+  bestDeal: Awaited<ReturnType<typeof runFindDecideServ>>["bestDeal"] | null;
+  pickAgentVerdict: Awaited<ReturnType<typeof runFindDecideServ>>["agentVerdict"] | null;
   pickSecondPass: Awaited<ReturnType<typeof runFindDecideServ>>["secondPass"];
   pickProofRecords: Awaited<ReturnType<typeof runFindDecideServ>>["proofRecords"];
   freeGovReceipts: FindFreeGovReceipt[];
@@ -52,7 +55,9 @@ export type FindDecideOrchestratorOk = {
   triageSource: "SERV" | "code";
   decideSource: "SERV" | "code";
   shortlistKeys: string[];
-  loop: { continue: false; reason: "decide_settled"; detail: string };
+  loop:
+    | { continue: false; reason: "decide_settled"; detail: string }
+    | { continue: true; reason: "agent_loop_budget"; detail: string };
   honesty: string;
   needAfter: FindSearchContextRecord["need"];
   appliedCheckIds: string[];
@@ -217,6 +222,8 @@ export async function runFindDecideOrchestrator(
         yearMax: record.need.yearMax,
         milesMax: record.need.milesMax,
       },
+      checkpoint: record.agentLoopCheckpoint ?? null,
+      budgetMs: remainingMs(),
       deps: {
         servKey: deps.servKey.trim(),
         autodevKey,
@@ -231,15 +238,83 @@ export async function runFindDecideOrchestrator(
         },
       },
     });
+    if ("continue" in agent && agent.continue) {
+      record = await updateFindSearchContext(deps.kv, record, {
+        agentLoopCheckpoint: agent.checkpoint,
+        loopSettled: false,
+      });
+      const coverage = freeGovToolCoverage(record.listings, receipts);
+      const counts = summarizeFindAgentJournal(agent.journal);
+      return {
+        ok: true,
+        status: 200,
+        searchContextToken: record.token,
+        bestDeal: null,
+        pickAgentVerdict: null,
+        pickSecondPass: {
+          status: "not_run",
+          action: null,
+          objection: "Agentic Find loop still running across requests.",
+          evidenceIds: [],
+          confidenceBefore: null,
+          confidenceAfter: null,
+        },
+        pickProofRecords: [],
+        freeGovReceipts: receipts,
+        freeGovCoverage: coverage,
+        riskCoverage: riskCoverageHonesty(record.listings, receipts),
+        freeEvidenceNote: freeEvidenceNote || coverage.note,
+        triageSource: "SERV",
+        decideSource: "SERV",
+        shortlistKeys: [],
+        loop: {
+          continue: true,
+          reason: "agent_loop_budget",
+          detail: `Agentic Find loop paused after toolRounds=${agent.toolRounds}; call decide again to continue.`,
+        },
+        honesty: "SERV agentic Find loop continuing under the request time budget.",
+        needAfter: record.need,
+        appliedCheckIds: record.appliedCheckIds,
+        decisionLog: record.decisionLog ?? [],
+        carChecks: record.carChecks ?? [],
+        replay: false,
+        offerPool: marketPool,
+        agentLoop: {
+          agentMode: agent.agentMode,
+          toolRounds: agent.toolRounds,
+          verdictReached: false,
+          relaxedConditions: [],
+          journalServCalls: counts.servCalls,
+          journalToolCalls: counts.toolCalls,
+        },
+      };
+    }
     if (agent.ok) {
       const mapped = mapFindAgentLoopToDecide({ agent });
       record = await updateFindSearchContext(deps.kv, record, {
         loopSettled: true,
         triageShortlistKeys: mapped.shortlistKeys,
+        agentLoopCheckpoint: null,
       });
       const coverage = freeGovToolCoverage(record.listings, receipts);
       const counts = summarizeFindAgentJournal(agent.journal);
       const lastServ = [...agent.journal].reverse().find((e) => e.kind === "serv");
+      const featuresActive = [
+        ...new Set(
+          agent.journal.flatMap((e) => (e.kind === "serv" ? e.features ?? [] : [])),
+        ),
+      ];
+      const featureRejections = [
+        ...new Set(
+          agent.journal.flatMap((e) => (e.kind === "serv" ? e.featureFlags ?? [] : [])).filter((f) =>
+            f.includes("FEATURE_REJECTION"),
+          ),
+        ),
+      ];
+      const servResponseIds = agent.journal
+        .filter((e): e is Extract<typeof e, { kind: "serv" }> => e.kind === "serv")
+        .map((e) => e.responseId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
       const proofRecords: DecisionProofRecord[] = [
         {
           schemaVersion: DECISION_PROOF_SCHEMA,
@@ -296,8 +371,15 @@ export async function runFindDecideOrchestrator(
           relaxedConditions: agent.relaxedConditions,
           journalServCalls: counts.servCalls,
           journalToolCalls: counts.toolCalls,
+          featuresActive,
+          featureRejections,
+          servResponseIds,
         },
       };
+    }
+    // Clear a stale checkpoint before falling through to classic triage→decide.
+    if (record.agentLoopCheckpoint) {
+      record = await updateFindSearchContext(deps.kv, record, { agentLoopCheckpoint: null });
     }
     // Fall through to classic triage→decide when the agent loop cannot finish.
   }

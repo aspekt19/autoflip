@@ -1,6 +1,8 @@
 /**
  * Agentic Resale SERV loop — tools mode (preferred) or next_action fallback.
  * Model: gpt-6.1-sol only. Code owns PnL; SERV picks flips with justification.
+ * Multi-round runs are stepped across requests under the Hobby 300s cap
+ * (persist checkpoint; never clip SERV call timeouts).
  */
 import {
   applyResaleAgentGuardrails,
@@ -14,6 +16,12 @@ import {
   type ResaleAgentRelaxedCondition,
   type ResaleAgentVerdict,
 } from "@/domain/resale-agent";
+import {
+  AGENT_LOOP_BUDGET_CONTINUE,
+  agentLoopMayStartRound,
+  makeAgentLoopDeadline,
+  type AgentLoopDeadline,
+} from "@/domain/agent-loop-deadline";
 import type { BuildResalePnlOptions, ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
 import { TtlCache } from "@/io/cache";
@@ -28,6 +36,13 @@ import {
   type ServChatToolDef,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
+import {
+  deserializeListingsByVin,
+  deserializePnlByVin,
+  serializeListingsByVin,
+  serializePnlByVin,
+  type AgentLoopCheckpoint,
+} from "@/server/serv/agent-loop-checkpoint";
 import {
   classifyAgentFeatureRejection,
   formatFeatureRejectionFlags,
@@ -99,6 +114,23 @@ export type ResaleAgentLoopDeps = {
   shopperContext?: Record<string, unknown> | null;
 };
 
+export type ResaleAgentLoopContinue = {
+  ok: false;
+  continue: true;
+  error: typeof AGENT_LOOP_BUDGET_CONTINUE;
+  message: string;
+  agentMode: ResaleAgentModeResolved;
+  requestedMode: ResaleAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: ResaleAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+};
+
 export type ResaleAgentLoopResult =
   | {
       ok: true;
@@ -117,8 +149,10 @@ export type ResaleAgentLoopResult =
       featureFlags: string[];
       servFeatures: AgentServFeatureJournal;
     }
+  | ResaleAgentLoopContinue
   | {
       ok: false;
+      continue?: false;
       agentMode: ResaleAgentModeResolved | null;
       requestedMode: ResaleAgentMode;
       toolRounds: number;
@@ -134,6 +168,83 @@ export type ResaleAgentLoopResult =
 
 type ChatMessage = ServChatTurnMessage;
 type ToolCallWire = ServChatToolCallWire;
+
+function buildResaleCheckpoint(input: {
+  phase: "tools" | "next_action";
+  toolRounds: number;
+  roundsCompleted: number;
+  responsesInput: ResponsesInputItem[];
+  messages: ChatMessage[];
+  journal: ResaleAgentJournalEntry[];
+  state: ResaleAgentToolState;
+  submitNudgeSent: boolean;
+  firstTurn: boolean;
+  featureRejections: AgentServFeatureRejection[];
+}): AgentLoopCheckpoint {
+  return {
+    v: 1,
+    product: "resale",
+    phase: input.phase,
+    toolRounds: input.toolRounds,
+    roundsCompleted: input.roundsCompleted,
+    responsesInput: input.responsesInput,
+    messages: input.messages,
+    journal: input.journal as unknown as Array<Record<string, unknown>>,
+    knownVins: [...input.state.knownVins],
+    listingsByVin: serializeListingsByVin(input.state.listingsByVin),
+    pnlByVin: serializePnlByVin(input.state.pnlByVin),
+    submitNudgeSent: input.submitNudgeSent,
+    firstTurn: input.firstTurn,
+    featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+  };
+}
+
+function restoreResaleStateFromCheckpoint(
+  checkpoint: AgentLoopCheckpoint | null | undefined,
+  seedListings?: readonly Listing[],
+): {
+  state: ResaleAgentToolState;
+  journal: ResaleAgentJournalEntry[];
+  toolRounds: number;
+  roundsCompleted: number;
+  responsesInput: ResponsesInputItem[] | null;
+  messages: ChatMessage[] | null;
+  submitNudgeSent: boolean;
+  firstTurn: boolean;
+  featureRejections: AgentServFeatureRejection[];
+  phase: "tools" | "next_action" | null;
+} {
+  if (!checkpoint || checkpoint.product !== "resale") {
+    return {
+      state: createResaleAgentToolState(seedListings),
+      journal: [],
+      toolRounds: 0,
+      roundsCompleted: 0,
+      responsesInput: null,
+      messages: null,
+      submitNudgeSent: false,
+      firstTurn: true,
+      featureRejections: [],
+      phase: null,
+    };
+  }
+  const state = createResaleAgentToolState(seedListings);
+  state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
+  state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
+  state.pnlByVin = deserializePnlByVin(checkpoint.pnlByVin);
+  return {
+    state,
+    journal: checkpoint.journal as unknown as ResaleAgentJournalEntry[],
+    toolRounds: checkpoint.toolRounds,
+    roundsCompleted: checkpoint.roundsCompleted,
+    responsesInput: checkpoint.responsesInput,
+    messages: checkpoint.messages as ChatMessage[],
+    submitNudgeSent: checkpoint.submitNudgeSent,
+    firstTurn: checkpoint.firstTurn,
+    featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
+    phase: checkpoint.phase,
+  };
+}
 
 function systemPrompt(note: string, shopperContext?: Record<string, unknown> | null): string {
   const ctx =
@@ -525,24 +636,68 @@ async function runToolsMode(input: {
   maxRounds: number;
   baseUrl: string;
   fetchImpl: typeof fetch;
+  deadline?: AgentLoopDeadline | null;
+  resume?: {
+    toolRounds: number;
+    roundsCompleted: number;
+    responsesInput: ResponsesInputItem[] | null;
+    messages: ChatMessage[] | null;
+    submitNudgeSent: boolean;
+    firstTurn: boolean;
+    featureRejections: AgentServFeatureRejection[];
+  } | null;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = resolveResaleAgentMode(process.env);
   const bundle = resaleAgentServFeatureBundle();
-  const rejections: AgentServFeatureRejection[] = [];
+  const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
   const instructions = systemPrompt(input.note, input.shopperContext);
   const seedUser =
     "Search for profitable flips that fit the shopper. Call tools as needed (search_listings injects code flipPnl; parallel OK). When ready, call submit_picks — do not invent VINs or dollars.";
-  const finishMessages: ChatMessage[] = [
-    { role: "system", content: instructions },
-    { role: "user", content: seedUser },
-  ];
+  const finishMessages: ChatMessage[] = input.resume?.messages?.length
+    ? [...input.resume.messages]
+    : [
+        { role: "system", content: instructions },
+        { role: "user", content: seedUser },
+      ];
   const applicationTools = resaleAgentResponsesTools();
-  let responsesInput: ResponsesInputItem[] = [responsesUserMessage(seedUser)];
-  let toolRounds = 0;
-  let firstTurn = true;
-  let submitNudgeSent = false;
+  let responsesInput: ResponsesInputItem[] = input.resume?.responsesInput?.length
+    ? [...input.resume.responsesInput]
+    : [responsesUserMessage(seedUser)];
+  let toolRounds = input.resume?.toolRounds ?? 0;
+  let firstTurn = input.resume?.firstTurn ?? true;
+  let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  const startRound = input.resume?.roundsCompleted ?? 0;
 
-  for (let round = 0; round < input.maxRounds; round += 1) {
+  for (let round = startRound; round < input.maxRounds; round += 1) {
+    if (!agentLoopMayStartRound(input.deadline)) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Resale loop paused under the request time budget; continue on the next search step.",
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        ...resaleLoopMeta(bundle, rejections),
+      };
+    }
     const body = responsesBody({
       instructions,
       input: responsesInput,
@@ -789,23 +944,36 @@ async function runNextActionMode(input: {
   maxRounds: number;
   baseUrl: string;
   fetchImpl: typeof fetch;
+  deadline?: AgentLoopDeadline | null;
+  resume?: {
+    toolRounds: number;
+    roundsCompleted: number;
+    responsesInput: ResponsesInputItem[] | null;
+    messages: ChatMessage[] | null;
+    submitNudgeSent: boolean;
+    firstTurn: boolean;
+    featureRejections: AgentServFeatureRejection[];
+  } | null;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = resolveResaleAgentMode(process.env);
   const bundle = resaleAgentServFeatureBundle();
-  const rejections: AgentServFeatureRejection[] = [];
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: [
-        systemPrompt(input.note, input.shopperContext),
-        "Each turn return JSON with action search or finish.",
-        "search runs search_listings with the provided filters.",
-        "finish must include the resale_agent_result fields (summary, confidence, picks, relaxedConditions).",
-      ].join(" "),
-    },
-    { role: "user", content: "Begin. Prefer a focused search first." },
-  ];
-  let toolRounds = 0;
+  const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
+  const messages: ChatMessage[] = input.resume?.messages?.length
+    ? [...input.resume.messages]
+    : [
+        {
+          role: "system",
+          content: [
+            systemPrompt(input.note, input.shopperContext),
+            "Each turn return JSON with action search or finish.",
+            "search runs search_listings with the provided filters.",
+            "finish must include the resale_agent_result fields (summary, confidence, picks, relaxedConditions).",
+          ].join(" "),
+        },
+        { role: "user", content: "Begin. Prefer a focused search first." },
+      ];
+  let toolRounds = input.resume?.toolRounds ?? 0;
+  const startRound = input.resume?.roundsCompleted ?? 0;
 
   const nextActionBody = (msgs: ChatMessage[]) =>
     chatBody({
@@ -819,7 +987,36 @@ async function runNextActionMode(input: {
       },
     });
 
-  for (let round = 0; round < input.maxRounds; round += 1) {
+  for (let round = startRound; round < input.maxRounds; round += 1) {
+    if (!agentLoopMayStartRound(input.deadline)) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "next_action",
+        toolRounds,
+        roundsCompleted: round,
+        responsesInput: [],
+        messages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent: false,
+        firstTurn: false,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Resale loop paused under the request time budget; continue on the next search step.",
+        agentMode: "next_action",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        ...resaleLoopMeta(bundle, rejections),
+      };
+    }
     let body = nextActionBody(messages);
     let turn = await postChat({
       apiKey: input.deps.servKey,
@@ -1117,6 +1314,7 @@ async function runNextActionMode(input: {
 /**
  * Run the Resale agentic SERV loop.
  * maxRounds is a runaway guard only — not a wall-clock timeout.
+ * Pass `deadline` + prior `checkpoint` to step across Hobby 300s requests.
  */
 export async function runResaleAgentLoop(input: {
   note: string;
@@ -1124,13 +1322,21 @@ export async function runResaleAgentLoop(input: {
   shopperContext?: Record<string, unknown> | null;
   deps: ResaleAgentLoopDeps;
   maxRounds?: number;
+  deadline?: AgentLoopDeadline | null;
+  checkpoint?: AgentLoopCheckpoint | null;
+  budgetMs?: number;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = input.mode ?? resolveResaleAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
   const fetchImpl = input.deps.fetch ?? fetch;
   const baseUrl = servApiBase(input.deps.servBaseUrl);
-  const journal: ResaleAgentJournalEntry[] = [];
-  const state = createResaleAgentToolState(input.deps.seedListings);
+  const restored = restoreResaleStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
+  const journal = restored.journal;
+  const state = restored.state;
+  const deadline =
+    input.deadline === undefined
+      ? makeAgentLoopDeadline(input.budgetMs)
+      : input.deadline;
   const toolDeps: ResaleAgentToolDeps = {
     fetch: fetchImpl,
     autodevKey: input.deps.autodevKey,
@@ -1140,6 +1346,16 @@ export async function runResaleAgentLoop(input: {
     },
     seedListings: input.deps.seedListings,
     pnlOptions: input.deps.pnlOptions,
+  };
+
+  const resume = {
+    toolRounds: restored.toolRounds,
+    roundsCompleted: restored.roundsCompleted,
+    responsesInput: restored.responsesInput,
+    messages: restored.messages,
+    submitNudgeSent: restored.submitNudgeSent,
+    firstTurn: restored.firstTurn,
+    featureRejections: restored.featureRejections,
   };
 
   const shared = {
@@ -1152,7 +1368,16 @@ export async function runResaleAgentLoop(input: {
     maxRounds,
     baseUrl,
     fetchImpl,
+    deadline,
+    resume: input.checkpoint ? resume : null,
   };
+
+  if (restored.phase === "next_action") {
+    return runNextActionMode(shared);
+  }
+  if (restored.phase === "tools") {
+    return runToolsMode(shared);
+  }
 
   if (requestedMode === "next_action") {
     return runNextActionMode(shared);
@@ -1164,6 +1389,7 @@ export async function runResaleAgentLoop(input: {
 
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
+  if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
   if (toolsAttempt.error !== "tools_unsupported_or_empty" && toolsAttempt.error !== "serv_http") {
     return toolsAttempt;
   }
@@ -1176,7 +1402,10 @@ export async function runResaleAgentLoop(input: {
     ok: true,
   });
 
-  return runNextActionMode(shared);
+  return runNextActionMode({
+    ...shared,
+    resume: null,
+  });
 }
 
 /** Journal step counts for eval reports. */

@@ -897,8 +897,8 @@ function AssistantFlow({
   }
 
   /**
-   * PR B: one-shot decide via owner-bound searchContextToken.
-   * Free-gov + triage + decide + challenge; never auto-continues.
+   * PR B: decide via owner-bound searchContextToken.
+   * Agentic SERV loops may pause under the 300s Hobby cap — client re-POSTs until settled.
    */
   async function applyLiveFindDecide(opts?: { token?: string; auto?: boolean; runId?: string | null }) {
     if (variant !== "find") return;
@@ -918,95 +918,126 @@ function AssistantFlow({
       }),
     );
     setFindLoopOpen(true);
-    const controller = new AbortController();
-    // Match /api/find/decide maxDuration (300s) — free-gov + 3× ~90s SERV steps.
-    const timer = window.setTimeout(() => controller.abort(), 300_000);
+    let activeToken = token;
+    let activeRunId = opts?.runId ?? runId;
+    const maxContinueSteps = 40;
     try {
-      const response = await fetch("/api/find/decide", {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchContextToken: token, runId: opts?.runId ?? runId }),
-      });
-      const body = (await response.json()) as {
-        ok?: boolean;
-        message?: string;
-        honesty?: string;
-        searchContextToken?: string;
-        bestDeal?: BestDealResult | null;
-        pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
-        pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null;
-        pickProofRecords?: DecisionProofRecord[];
-        freeGovReceipts?: FreeGovReceiptUiRow[];
-        freeGovCoverage?: {
-          note?: string;
-          anyUnchecked?: boolean;
-          fuel?: { unchecked?: number };
-        } | null;
-        riskCoverage?: { note?: string } | null;
-        freeEvidenceNote?: string;
-        loop?: { continue?: boolean; reason?: string; detail?: string };
-        needAfter?: StructuredNeed;
-        runId?: string | null;
-      };
-      if (!response.ok || !body.ok) {
+      for (let step = 0; step < maxContinueSteps; step += 1) {
+        const controller = new AbortController();
+        // Match /api/find/decide maxDuration (300s) per stepped request.
+        const timer = window.setTimeout(() => controller.abort(), 300_000);
+        let response: Response;
+        try {
+          response = await fetch("/api/find/decide", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ searchContextToken: activeToken, runId: activeRunId }),
+          });
+        } finally {
+          window.clearTimeout(timer);
+        }
+        const body = (await response.json()) as {
+          ok?: boolean;
+          message?: string;
+          honesty?: string;
+          searchContextToken?: string;
+          bestDeal?: BestDealResult | null;
+          pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
+          pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null;
+          pickProofRecords?: DecisionProofRecord[];
+          freeGovReceipts?: FreeGovReceiptUiRow[];
+          freeGovCoverage?: {
+            note?: string;
+            anyUnchecked?: boolean;
+            fuel?: { unchecked?: number };
+          } | null;
+          riskCoverage?: { note?: string } | null;
+          freeEvidenceNote?: string;
+          loop?: { continue?: boolean; reason?: string; detail?: string };
+          needAfter?: StructuredNeed;
+          runId?: string | null;
+        };
+        if (!response.ok || !body.ok) {
+          setFindLoopOpen(false);
+          const reason = body.message || body.honesty || "Decide could not finish.";
+          setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
+          setError(reason);
+          setNextCheckNote(reason);
+          return;
+        }
+        if (typeof body.searchContextToken === "string") {
+          activeToken = body.searchContextToken;
+          setSearchContextToken(body.searchContextToken);
+        }
+        if (typeof body.runId === "string" && body.runId) {
+          activeRunId = body.runId;
+          setRunId(body.runId);
+        }
+        if (body.loop?.continue) {
+          setPendingCheckLabel(
+            findNextCheckPendingLabel({
+              pending: true,
+              auto: Boolean(opts?.auto),
+              progressLine: body.loop.detail || "Still searching — continuing the AI review…",
+            }),
+          );
+          setNextCheckNote(body.loop.detail || "Continuing the AI review…");
+          continue;
+        }
+        const pickProofs = Array.isArray(body.pickProofRecords) ? body.pickProofRecords : [];
+        if (pickProofs.length > 0) {
+          setProofRecords((prev) => [...prev, ...pickProofs]);
+        }
+        if (body.needAfter) setNeed(body.needAfter);
+        if (body.bestDeal) setBestDeal(body.bestDeal);
+        if (body.pickAgentVerdict) setPickAgentVerdict(body.pickAgentVerdict);
+        if (body.pickSecondPass) setPickSecondPass(body.pickSecondPass);
+        if (Array.isArray(body.freeGovReceipts)) {
+          setFreeGovReceiptsForShortlist(body.freeGovReceipts);
+          // Mirror next-check: drive fuel/recall checklist from decide freeGovReceipts.
+          const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
+          if (fuelOutcome.attempted > 0) setFuelCheckOutcome(fuelOutcome);
+          // recallOutcome is consumed by the checklist via freeGovReceiptsForShortlist.
+          void summarizeRecallCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
+        }
+        if (body.freeGovCoverage && typeof body.freeGovCoverage.anyUnchecked === "boolean") {
+          setFreeGovAnyUnchecked(body.freeGovCoverage.anyUnchecked);
+        }
+        const toolNote =
+          body.freeGovCoverage && typeof body.freeGovCoverage.note === "string"
+            ? body.freeGovCoverage.note.trim()
+            : body.freeEvidenceNote?.trim() || "";
+        const riskNote =
+          body.riskCoverage && typeof body.riskCoverage.note === "string"
+            ? body.riskCoverage.note.trim()
+            : "";
+        if (toolNote || riskNote) {
+          setRiskCoverageNote(joinBuyerParts([toolNote, riskNote]));
+        }
+        const detail =
+          body.loop?.detail ||
+          body.honesty ||
+          "Public checks and AI review finished.";
+        setNextCheckNote(detail);
         setFindLoopOpen(false);
-        const reason = body.message || body.honesty || "Decide could not finish.";
-        setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
-        setError(reason);
-        setNextCheckNote(reason);
+        setPendingCheckLabel(null);
+        try {
+          sessionStorage.setItem(
+            "af-find-loop",
+            JSON.stringify({
+              token: activeToken,
+              settled: true,
+            }),
+          );
+        } catch {
+          /* ignore */
+        }
         return;
       }
-      const pickProofs = Array.isArray(body.pickProofRecords) ? body.pickProofRecords : [];
-      if (pickProofs.length > 0) {
-        setProofRecords((prev) => [...prev, ...pickProofs]);
-      }
-      if (body.needAfter) setNeed(body.needAfter);
-      if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
-      if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
-      if (body.bestDeal) setBestDeal(body.bestDeal);
-      if (body.pickAgentVerdict) setPickAgentVerdict(body.pickAgentVerdict);
-      if (body.pickSecondPass) setPickSecondPass(body.pickSecondPass);
-      if (Array.isArray(body.freeGovReceipts)) {
-        setFreeGovReceiptsForShortlist(body.freeGovReceipts);
-        // Mirror next-check: drive fuel/recall checklist from decide freeGovReceipts.
-        const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
-        if (fuelOutcome.attempted > 0) setFuelCheckOutcome(fuelOutcome);
-        // recallOutcome is consumed by the checklist via freeGovReceiptsForShortlist.
-        void summarizeRecallCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
-      }
-      if (body.freeGovCoverage && typeof body.freeGovCoverage.anyUnchecked === "boolean") {
-        setFreeGovAnyUnchecked(body.freeGovCoverage.anyUnchecked);
-      }
-      const toolNote =
-        body.freeGovCoverage && typeof body.freeGovCoverage.note === "string"
-          ? body.freeGovCoverage.note.trim()
-          : body.freeEvidenceNote?.trim() || "";
-      const riskNote =
-        body.riskCoverage && typeof body.riskCoverage.note === "string"
-          ? body.riskCoverage.note.trim()
-          : "";
-      if (toolNote || riskNote) {
-        setRiskCoverageNote(joinBuyerParts([toolNote, riskNote]));
-      }
-      const detail =
-        body.loop?.detail ||
-        body.honesty ||
-        "Public checks and AI review finished.";
-      setNextCheckNote(detail);
       setFindLoopOpen(false);
-      setPendingCheckLabel(null);
-      try {
-        sessionStorage.setItem(
-          "af-find-loop",
-          JSON.stringify({
-            token: typeof body.searchContextToken === "string" ? body.searchContextToken : token,
-            settled: true,
-          }),
-        );
-      } catch {
-        /* ignore */
-      }
+      setError("Decide could not finish within the stepped loop budget.");
+      setNextCheckNote("Decide could not finish within the stepped loop budget.");
     } catch (err) {
       setFindLoopOpen(false);
       const reason =
@@ -1017,7 +1048,6 @@ function AssistantFlow({
       setError(reason);
       setNextCheckNote(reason);
     } finally {
-      window.clearTimeout(timer);
       setPending(null);
     }
   }

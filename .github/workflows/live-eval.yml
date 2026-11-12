@@ -1,0 +1,174 @@
+# Live eval (8 queries) — manually triggered.
+#
+# Required repository secrets (values are never printed):
+#   CRON_SECRET     — Bearer token accepted by POST /api/internal/eval-live
+#                     (RADAR_CRON_SECRET on the site also works; this workflow
+#                     sends CRON_SECRET).
+#   EVAL_LIVE_URL   — Absolute prod origin, e.g. https://lemonless.com
+#                     (no trailing slash). The workflow POSTs
+#                     ${EVAL_LIVE_URL}/api/internal/eval-live.
+#
+# Optional:
+#   EVAL_LIVE_SEED  — Numeric seed for reproducible notes (default: run id hash).
+#
+# The workflow fails with a clear message if CRON_SECRET or EVAL_LIVE_URL is
+# missing. It never echoes secret values.
+name: Live eval (8 queries)
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Optional numeric seed (blank = derive from run id)"
+        required: false
+        type: string
+      max_queries:
+        description: "Max queries (1–8; default 8 = 5 Find + 3 Resale)"
+        required: false
+        default: "8"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-eval
+  cancel-in-progress: false
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Require secrets
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL }}
+        run: |
+          missing=0
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Repository secret CRON_SECRET is missing. Add it under Settings → Secrets and variables → Actions."
+            missing=1
+          fi
+          if [ -z "${EVAL_LIVE_URL}" ]; then
+            echo "::error::Repository secret EVAL_LIVE_URL is missing. Set it to the production origin (e.g. https://lemonless.com) with no trailing slash."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run stepped live eval against production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL }}
+          INPUT_SEED: ${{ github.event.inputs.seed }}
+          INPUT_MAX_QUERIES: ${{ github.event.inputs.max_queries }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p eval/results/live
+          node <<'NODE'
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+
+          const origin = String(process.env.EVAL_LIVE_URL || "").replace(/\/$/, "");
+          const secret = String(process.env.CRON_SECRET || "");
+          if (!origin) {
+            console.error("EVAL_LIVE_URL is empty.");
+            process.exit(1);
+          }
+          if (!secret) {
+            console.error("CRON_SECRET is empty.");
+            process.exit(1);
+          }
+
+          const maxQueries = Math.max(
+            1,
+            Math.min(8, Number(process.env.INPUT_MAX_QUERIES || "8") || 8),
+          );
+          const seedInput = String(process.env.INPUT_SEED || "").trim();
+          const seed = /^\d+$/.test(seedInput)
+            ? Number(seedInput)
+            : Number(
+                BigInt("0x" + crypto.createHash("sha256").update(String(process.env.GITHUB_RUN_ID || "0")).digest("hex").slice(0, 12)) %
+                  1_000_000_000n,
+              );
+
+          const url = `${origin}/api/internal/eval-live`;
+          const headers = {
+            "content-type": "application/json",
+            authorization: `Bearer ${secret}`,
+          };
+
+          async function post(body) {
+            const res = await fetch(url, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(body),
+            });
+            const text = await res.text();
+            let json;
+            try {
+              json = JSON.parse(text);
+            } catch {
+              json = { error: "invalid_json", message: text.slice(0, 200) };
+            }
+            if (!res.ok) {
+              const err = json && json.error ? String(json.error) : `http_${res.status}`;
+              const msg = json && json.message ? String(json.message) : res.statusText;
+              throw new Error(`${err}: ${msg}`);
+            }
+            return json;
+          }
+
+          (async () => {
+            console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} url=${url}`);
+            let report = await post({ action: "start", seed, maxQueries });
+            const batchId = report.batchId;
+            if (!batchId) throw new Error("start did not return batchId");
+            let hops = 0;
+            while (!report.done && hops < maxQueries + 2) {
+              hops += 1;
+              report = await post({ action: "step", batchId });
+              const last = report.lastResult;
+              if (last) {
+                console.log(
+                  `[${last.id}] product=${last.product} ok=${last.ok} mode=${last.agentMode ?? "—"} rounds=${last.toolRounds ?? 0} verdictReached=${last.verdictReached ?? false} durationMs=${last.durationMs ?? last.elapsedMs ?? 0}`,
+                );
+              }
+            }
+            const outPath = `eval/results/live/gha-${seed}-report.json`;
+            fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
+            console.log(`Wrote ${outPath} results=${(report.results || []).length} done=${report.done}`);
+            const failed = (report.results || []).filter((r) => !r.ok);
+            if (failed.length) {
+              console.error(`live-eval finished with ${failed.length} failing quer(y/ies).`);
+              process.exit(1);
+            }
+          })().catch((err) => {
+            console.error(String(err && err.message ? err.message : err));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-eval-report
+          path: eval/results/live/*-report.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -2,28 +2,44 @@
  * POST /api/internal/eval-live
  *
  * Auth: Bearer CRON_SECRET or RADAR_CRON_SECRET (same pattern as radar cron).
- * Allowed in production. Runs a small in-process live-eval batch.
+ * Allowed in production. Stepped live-eval: one query per request under Hobby 300s.
  * Never charges report credits (no debitFindDelivery).
  *
- * Body optional: { seed?, maxQueries?, notes? }
- * Default/max 8 queries (≈5 Find + 3 Resale), parallel, no charges.
+ * Body:
+ *   { action: "start", seed?, maxQueries?, notes? } → create batch, return batchId (no query yet)
+ *   { action: "step", batchId } → run the next query, return partial/full report
+ *   { seed?, maxQueries?, notes? } without action → start + first step (compat)
  */
-import { HTTP_MAX_QUERIES, runLiveEvalBatch } from "../../../../../eval/live/harness";
-import { resolveSeed } from "../../../../../eval/live/generate";
+import { HTTP_MAX_QUERIES } from "../../../../../eval/live/harness";
+import { generateQueries, resolveSeed } from "../../../../../eval/live/generate";
 import { liveKeysFromEnv } from "../../../../../eval/live/run-one";
+import { runOneQuery } from "../../../../../eval/live/run-one";
+import { runOneResaleQuery } from "../../../../../eval/live/run-one-resale";
+import type { GeneratedQuery } from "../../../../../eval/live/types";
+import { getKv } from "@/io/kv";
+import { runtimeDeps } from "@/server/deps";
+import {
+  appendEvalLiveResult,
+  createEvalLiveBatch,
+  evalLiveBatchToReport,
+  readEvalLiveBatch,
+  storeEvalLiveBatch,
+} from "@/server/eval-live-batch";
 import { bearer, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
-/** Agentic 8-query batch (5 Find + 3 Resale, concurrency 4) needs headroom beyond a single decide call. */
-export const maxDuration = 800;
+/** One query per request — must stay within Vercel Hobby maxDuration 300. */
+export const maxDuration = 300;
 
 type Body = {
+  action?: unknown;
+  batchId?: unknown;
   seed?: unknown;
   maxQueries?: unknown;
   notes?: unknown;
 };
 
-function parseBody(raw: unknown): {
+function parseStart(raw: unknown): {
   seed: number;
   maxQueries: number;
   notes: string[] | undefined;
@@ -43,12 +59,36 @@ function parseBody(raw: unknown): {
         : HTTP_MAX_QUERIES;
   const maxQueries = Math.max(1, Math.min(HTTP_MAX_QUERIES, requested));
   const notes = Array.isArray(body.notes)
-    ? body.notes.filter((n): n is string => typeof n === "string" && n.trim().length > 0).map((n) => n.trim())
+    ? body.notes
+        .filter((n): n is string => typeof n === "string" && n.trim().length > 0)
+        .map((n) => n.trim())
     : undefined;
-  return { seed, maxQueries, notes: notes && notes.length > 0 ? notes.slice(0, maxQueries) : undefined };
+  return {
+    seed,
+    maxQueries,
+    notes: notes && notes.length > 0 ? notes.slice(0, maxQueries) : undefined,
+  };
 }
 
-export async function POST(request: Request) {
+function queriesFromNotes(notes: string[], maxQueries: number): GeneratedQuery[] {
+  return notes.slice(0, maxQueries).map((note, i) => ({
+    id: `note_${String(i + 1).padStart(2, "0")}`,
+    product: "find" as const,
+    note,
+    zip: null,
+    distanceMiles: null,
+    tags: {
+      product: "find" as const,
+      city: "custom",
+      budget: "custom",
+      body: "custom",
+      need: "custom",
+      messy: false,
+    },
+  }));
+}
+
+async function authorize(request: Request): Promise<Response | null> {
   const radar = process.env.RADAR_CRON_SECRET?.trim() ?? "";
   const vercel = process.env.CRON_SECRET?.trim() ?? "";
   if (!radar && !vercel) {
@@ -65,29 +105,116 @@ export async function POST(request: Request) {
   if (!authed) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+  return null;
+}
+
+export async function POST(request: Request) {
+  const denied = await authorize(request);
+  if (denied) return denied;
 
   const keys = liveKeysFromEnv();
   if (!keys.ok) {
     return Response.json({ error: "missing_keys", message: keys.message }, { status: 503 });
   }
 
-  const parsed = parseBody(await request.json().catch(() => null));
+  const raw = (await request.json().catch(() => null)) as Body | null;
+  const actionRaw = typeof raw?.action === "string" ? raw.action.trim().toLowerCase() : "";
+  const action =
+    actionRaw === "start" || actionRaw === "step"
+      ? actionRaw
+      : typeof raw?.batchId === "string" && raw.batchId.trim()
+        ? "step"
+        : "start_and_step";
+
+  const kv = getKv();
   const maxUsdRaw = Number(process.env.EVAL_LIVE_MAX_USD?.trim() || "1.5");
   const maxUsd = Math.min(3, Number.isFinite(maxUsdRaw) ? maxUsdRaw : 1.5);
+  const runtime = runtimeDeps();
+  const userId = "internal-eval-live";
 
-  const report = await runLiveEvalBatch({
+  async function runNextQuery(batchId: string) {
+    const batch = await readEvalLiveBatch(kv, batchId);
+    if (!batch || batch.exp < Math.floor(Date.now() / 1000)) {
+      return Response.json(
+        { error: "batch_not_found", message: "Eval batch expired or was not found." },
+        { status: 404 },
+      );
+    }
+    if (batch.status === "completed" || batch.nextIndex >= batch.queries.length) {
+      const report = evalLiveBatchToReport(batch);
+      return Response.json({
+        ok: report.results.every((r) => r.ok),
+        charged: false,
+        done: true,
+        batchId: batch.batchId,
+        nextIndex: batch.nextIndex,
+        ...report,
+      });
+    }
+
+    const query = batch.queries[batch.nextIndex]!;
+    const deps = {
+      kv,
+      userId,
+      servKey: keys.servKey ?? runtime.servKey,
+      autodevKey: keys.autodevKey ?? runtime.autodevKey,
+      servModel: runtime.servModel,
+      servBaseUrl: runtime.servBaseUrl,
+      secrets: [keys.servKey, keys.autodevKey].filter((v): v is string => Boolean(v)),
+    };
+    const result =
+      query.product === "resale"
+        ? await runOneResaleQuery(query, deps)
+        : await runOneQuery(query, deps);
+    const next = appendEvalLiveResult(batch, result);
+    await storeEvalLiveBatch(kv, next);
+    const report = evalLiveBatchToReport(next);
+    return Response.json({
+      ok: report.results.every((r) => r.ok),
+      charged: false,
+      done: next.status === "completed",
+      batchId: next.batchId,
+      nextIndex: next.nextIndex,
+      lastResult: result,
+      ...report,
+    });
+  }
+
+  if (action === "step") {
+    const batchId = typeof raw?.batchId === "string" ? raw.batchId.trim() : "";
+    if (!batchId) {
+      return Response.json(
+        { error: "invalid_body", message: "batchId is required for action=step." },
+        { status: 400 },
+      );
+    }
+    return runNextQuery(batchId);
+  }
+
+  const parsed = parseStart(raw);
+  const queries = parsed.notes
+    ? queriesFromNotes(parsed.notes, parsed.maxQueries)
+    : generateQueries(parsed.seed, parsed.maxQueries);
+  const batch = createEvalLiveBatch({
     seed: parsed.seed,
     maxQueries: parsed.maxQueries,
     maxUsd,
-    mode: "live",
-    notes: parsed.notes,
-    recordFixtures: false,
-    userId: "internal-eval-live",
+    queries,
   });
+  await storeEvalLiveBatch(kv, batch);
 
-  return Response.json({
-    ok: report.results.every((r) => r.ok),
-    charged: false,
-    ...report,
-  });
+  if (action === "start") {
+    const report = evalLiveBatchToReport(batch);
+    return Response.json({
+      ok: true,
+      charged: false,
+      done: false,
+      batchId: batch.batchId,
+      nextIndex: 0,
+      ...report,
+    });
+  }
+
+  // Compat: start and immediately run the first query.
+  return runNextQuery(batch.batchId);
 }
