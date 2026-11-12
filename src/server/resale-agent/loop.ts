@@ -113,6 +113,7 @@ function systemPrompt(note: string, shopperContext?: Record<string, unknown> | n
     "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions.",
     "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
+    "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnelHint or 0 cars, relax soft search params and re-search.",
     "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
     "offerUsd must be ≤ the shopper budget when a budget is known.",
     `Shopper note:\n${note.trim() || "(empty)"}${ctx}`,

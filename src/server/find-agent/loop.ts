@@ -104,7 +104,7 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search. Prefer tight filters first.",
-    "When results are empty or poor, you may relax soft conditions (radius, miles, year band, secondary models) and re-search. Hard budget and must-haves stay unless the shopper's note allows otherwise.",
+    "When results are empty or poor (see funnelHint on search_listings), relax soft conditions (radius, miles, year band, body, secondary models) and re-search. Hard budget and must-haves stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters.",
     "Explain every relaxation in relaxedConditions when you finish.",
     "Finish only with picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "offerUsd must be ≤ the shopper budget when a budget is known.",

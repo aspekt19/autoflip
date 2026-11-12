@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { parseLimitArg, parseSearchListingsArgs, parseZipArg } from "./tools";
+import { TtlCache } from "@/io/cache";
+import { MemoryCounter } from "@/io/quota";
+import {
+  createFindAgentToolState,
+  executeFindAgentTool,
+  parseLimitArg,
+  parseSearchListingsArgs,
+  parseZipArg,
+} from "./tools";
 
 describe("find-agent tool arg validation", () => {
   it("rejects a bad zip", () => {
@@ -26,5 +34,36 @@ describe("find-agent tool arg validation", () => {
       expect(bad.issues.some((i) => i.field === "zip")).toBe(true);
       expect(bad.issues.some((i) => i.field === "limit")).toBe(true);
     }
+  });
+});
+
+describe("search_listings funnel (Sedan bodyStyle)", () => {
+  it("omits Sedan on the provider URL and reports funnelHint when raw is empty", async () => {
+    let requestedUrl = "";
+    const fetchImpl: typeof fetch = async (input) => {
+      requestedUrl = String(input);
+      if (requestedUrl.includes("listings")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", bodyStyle: "Sedan", zip: "43215", radiusMi: 100, limitMaxUsd: 11000 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(true);
+    expect(requestedUrl).not.toMatch(/bodyStyle=Sedan/i);
+    expect(executed.result.providerBodyStyle).toBeNull();
+    expect(executed.result.count).toBe(0);
+    expect(String(executed.result.funnelHint ?? "")).toMatch(/0|relax/i);
   });
 });

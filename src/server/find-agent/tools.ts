@@ -1,6 +1,7 @@
 /**
  * Find-agent application tools — server-side keys only; args validated at the boundary.
  */
+import { bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { autodevSearch, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
@@ -424,9 +425,13 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
 
 function filterClientSide(
   listings: readonly Listing[],
-  opts: { fuel?: string; drivetrain?: string },
+  opts: { fuel?: string; drivetrain?: string; bodyStyle?: string },
 ): Listing[] {
   let out = [...listings];
+  // Provider omits car-family bodyStyle (Sedan→empty feed). Enforce locally.
+  if (opts.bodyStyle?.trim() && !providerBodyStyleParam(opts.bodyStyle)) {
+    out = out.filter((row) => bodyStyleMatches(opts.bodyStyle, row));
+  }
   if (opts.fuel?.trim()) {
     const want = opts.fuel.trim().toLowerCase();
     out = out.filter((row) => (row.fuel ?? "").toLowerCase().includes(want));
@@ -511,6 +516,7 @@ export async function executeFindAgentTool(
       };
     }
     const query = toListingQuery(parsed.value);
+    const providerBody = providerBodyStyleParam(parsed.value.bodyStyle);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
       return {
@@ -520,23 +526,43 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
+    const rawCount = search.listings.length;
     const filtered = filterClientSide(search.listings, {
       fuel: parsed.value.fuel,
       drivetrain: parsed.value.drivetrain,
+      bodyStyle: parsed.value.bodyStyle,
     });
     rememberListings(state, filtered);
     const cars = capListingCards(filtered, Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP));
+    const funnelHint =
+      rawCount === 0
+        ? [
+            "Provider returned 0 rows for this query.",
+            providerBody
+              ? `Provider bodyStyle was ${providerBody}. Relax body/make/model or widen radius, then re-search.`
+              : parsed.value.bodyStyle
+                ? `Requested bodyStyle ${parsed.value.bodyStyle} is not sent to Auto.dev (car-family empties the feed); local match found 0 of ${rawCount}. Relax make/model/price/radius.`
+                : "Relax make/model/price/miles/radius (not profit or sell-window — those are not inventory filters).",
+          ].join(" ")
+        : filtered.length === 0 && rawCount > 0
+          ? `Provider returned ${rawCount} rows; local fuel/drivetrain/body filters removed all. Soften those client filters and re-search.`
+          : null;
     return {
       name,
       ok: true,
       result: {
         count: filtered.length,
+        providerRawCount: rawCount,
         returned: cars.length,
         cars,
         query: parsed.value,
+        providerBodyStyle: providerBody ?? null,
+        funnelHint,
         cached: search.cached,
       },
-      summary: `search_listings → ${filtered.length} hits, returning ${cars.length}`,
+      summary: funnelHint
+        ? `search_listings → 0 usable (raw=${rawCount}); ${funnelHint.slice(0, 120)}`
+        : `search_listings → ${filtered.length} hits, returning ${cars.length}`,
     };
   }
 
