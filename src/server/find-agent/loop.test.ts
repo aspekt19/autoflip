@@ -3,6 +3,7 @@ import { applyFindAgentGuardrails, validateFindAgentVerdict } from "@/domain/fin
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import type { Listing } from "@/domain/types";
+import { isServChatCompletionsUrl } from "@/server/serv/agent-chat-turn";
 import { runFindAgentLoop } from "./loop";
 
 const VIN = "JTMRWRFV0KJ123456";
@@ -112,7 +113,7 @@ describe("runFindAgentLoop", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (!url.includes("/chat/completions")) {
+      if (!isServChatCompletionsUrl(url)) {
         return new Response("{}", { status: 404 });
       }
       servCalls += 1;
@@ -223,7 +224,7 @@ describe("runFindAgentLoop", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (!url.includes("/chat/completions")) {
+      if (!isServChatCompletionsUrl(url)) {
         return new Response("{}", { status: 404 });
       }
       servCalls += 1;

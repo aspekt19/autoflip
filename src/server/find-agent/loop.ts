@@ -16,8 +16,14 @@ import {
 import type { Listing } from "@/domain/types";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
-import { BASE_MODEL, SERV_OUTPUT_TOKEN_DEFAULT, messageText, withServOutputTokenBound } from "@/server/serv";
-import { SERV_HTTP_DEADLINE_MS, servApiBase, toolCall } from "@/server/serv/run";
+import { BASE_MODEL, messageText } from "@/server/serv";
+import {
+  buildServChatTurnBody,
+  postServChatTurn,
+  type ServChatToolCallWire,
+  type ServChatTurnMessage,
+} from "@/server/serv/agent-chat-turn";
+import { servApiBase, toolCall } from "@/server/serv/run";
 import { servFinishReason } from "@/server/serv/response-failure";
 import {
   createFindAgentToolState,
@@ -85,17 +91,8 @@ export type FindAgentLoopResult =
       knownVins: string[];
     };
 
-type ChatMessage =
-  | { role: "system"; content: string }
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCallWire[] }
-  | { role: "tool"; tool_call_id: string; content: string };
-
-type ToolCallWire = {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-};
+type ChatMessage = ServChatTurnMessage;
+type ToolCallWire = ServChatToolCallWire;
 
 function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
   const edits =
@@ -188,34 +185,12 @@ async function postChat(input: {
   fetch: typeof fetch;
   body: Record<string, unknown>;
 }): Promise<{ ok: boolean; status: number; payload: unknown; latencyMs: number; error?: string }> {
-  const started = Date.now();
-  const url = `${input.baseUrl.replace(/\/$/, "")}/chat/completions`;
-  try {
-    const response = await input.fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input.body),
-      signal: AbortSignal.timeout(SERV_HTTP_DEADLINE_MS),
-    });
-    const payload: unknown = await response.json().catch(() => null);
-    return {
-      ok: response.ok,
-      status: response.status,
-      payload,
-      latencyMs: Date.now() - started,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      payload: null,
-      latencyMs: Date.now() - started,
-      error: err instanceof Error ? err.message : "SERV HTTP failed",
-    };
-  }
+  return postServChatTurn({
+    apiKey: input.apiKey,
+    baseUrl: input.baseUrl,
+    fetch: input.fetch,
+    body: input.body,
+  });
 }
 
 function chatBody(input: {
@@ -225,27 +200,13 @@ function chatBody(input: {
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
 }): Record<string, unknown> {
-  const bare: Record<string, unknown> = {
-    model: BASE_MODEL,
-    stream: false,
-    reasoning_effort: "none",
+  return buildServChatTurnBody({
     messages: input.messages,
-  };
-  if (input.tools && input.tools.length > 0) {
-    bare.tools = input.tools;
-    bare.tool_choice = input.toolChoice ?? "auto";
-  }
-  if (input.jsonSchema) {
-    bare.response_format = {
-      type: "json_schema",
-      json_schema: {
-        name: input.jsonSchema.name,
-        strict: true,
-        schema: input.jsonSchema.schema,
-      },
-    };
-  }
-  return withServOutputTokenBound("chat", bare, input.maxTokens ?? SERV_OUTPUT_TOKEN_DEFAULT);
+    tools: input.tools,
+    toolChoice: input.toolChoice,
+    jsonSchema: input.jsonSchema,
+    maxTokens: input.maxTokens,
+  });
 }
 
 async function runToolCalls(input: {

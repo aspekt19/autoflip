@@ -90,3 +90,13 @@ export {
   type ServResult,
   type ServTransportPolicy,
 } from "./run";
+export {
+  buildServChatTurnBody,
+  isServChatCompletionsUrl,
+  postServChatTurn,
+  type ServChatToolCallWire,
+  type ServChatToolDef,
+  type ServChatTurnBody,
+  type ServChatTurnMessage,
+  type ServChatTurnResult,
+} from "./agent-chat-turn";
