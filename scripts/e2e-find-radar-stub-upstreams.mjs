@@ -462,7 +462,42 @@ function servPayload(body) {
   }
 
   // Agentic Find/Resale loop schemas. E2E stubs SERV — never classic code path.
+  // With empty UI seed (Task 5), finish VINs must come from search_listings tool
+  // results — search first, then finish. Finishing immediately → invented VIN →
+  // repair forever → maxRounds runaway.
   if (schema === "find_agent_next_action" || schema === "find_agent_result") {
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const sawSearchResult = messages.some(
+      (row) =>
+        typeof row?.content === "string" && row.content.includes("Tool result for search_listings"),
+    );
+    if (!sawSearchResult) {
+      return chatCompletion(
+        "chatcmpl-EhAaFindAgentSearch01",
+        JSON.stringify({
+          action: "search",
+          make: "Toyota",
+          model: "RAV4",
+          bodyStyle: "suv",
+          priceMaxUsd: 18_000,
+          milesMax: 80_000,
+          yearMin: null,
+          yearMax: null,
+          zip: "33101",
+          radiusMi: 100,
+          fuel: null,
+          drivetrain: null,
+          sort: null,
+          limit: 12,
+          searchWhy: "STUB agent search — named RAV4 near Miami under budget.",
+          summary: null,
+          confidence: null,
+          picks: null,
+          relaxedConditions: null,
+          passReason: null,
+        }),
+      );
+    }
     const vin = STUB_RAV4_VINS[0];
     const finish = {
       action: "finish",
@@ -498,6 +533,38 @@ function servPayload(body) {
   }
 
   if (schema === "resale_agent_next_action" || schema === "resale_agent_result") {
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const sawSearchResult = messages.some(
+      (row) =>
+        typeof row?.content === "string" && row.content.includes("Tool result for search_listings"),
+    );
+    if (!sawSearchResult) {
+      return chatCompletion(
+        "chatcmpl-EhAaResaleAgentSearch01",
+        JSON.stringify({
+          action: "search",
+          make: "Toyota",
+          model: "RAV4",
+          bodyStyle: "suv",
+          priceMaxUsd: 18_000,
+          milesMax: 80_000,
+          yearMin: null,
+          yearMax: null,
+          zip: "33101",
+          radiusMi: 100,
+          fuel: null,
+          drivetrain: null,
+          sort: null,
+          limit: 12,
+          searchWhy: "STUB resale agent search — fixture only.",
+          summary: null,
+          confidence: null,
+          picks: null,
+          relaxedConditions: null,
+          passReason: null,
+        }),
+      );
+    }
     const vin = STUB_RAV4_VINS[0];
     return chatCompletion(
       "chatcmpl-EhAaResaleAgentNextAction01",
