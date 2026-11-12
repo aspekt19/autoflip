@@ -407,11 +407,27 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.questions[0]).toMatch(/still for sale/i);
   });
 
-  it("returns walk-away and top comps with adjustment + source when Autodev comps are mocked", async () => {
+  it("returns walk-away math and top comps when SERV delivers negotiate on mocked Autodev comps", async () => {
     const html = readFileSync(join(FIXTURES, "dealer-jsonld.html"), "utf8");
     const subjectVin = "4T1KZ1AK4MU060006";
+    let servCalls = 0;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("serv-mock.test")) {
+        servCalls += 1;
+        const body =
+          servCalls === 1
+            ? { verdict: "negotiate", note: "Ask is near fair value." }
+            : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair"] };
+        return new Response(
+          JSON.stringify({
+            id: `synthetic-test-comps-${servCalls}`,
+            model: BASE_MODEL,
+            choices: [{ message: { content: JSON.stringify(body) } }],
+          }),
+          { status: 200 },
+        );
+      }
       if (url.includes("api.auto.dev/listings/") && url.includes(subjectVin)) {
         return Response.json(camryComp(subjectVin, 23_990, 28_450, 2021));
       }
@@ -434,6 +450,9 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
       { kind: "paste", text: html, url: "https://dealer.example/camry", optionalZip: "33101" },
       {
         fetch: fetchImpl as unknown as typeof fetch,
+        servKey: "test-serv-key",
+        servModel: BASE_MODEL,
+        servBaseUrl: "https://serv-mock.test/v1",
         autodevKey: "test-key",
         autodev: { cache: new TtlCache(), counter: new MemoryCounter() },
         kv: new MemoryKv(),
@@ -451,9 +470,10 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(first.adjustedUsd).toBeGreaterThan(0);
     expect(first.sourceUrl).toMatch(/^https:\/\//);
     expect(result.result.summary).not.toMatch(/\.\./);
+    expect(result.result.agentVerdict.verdict).toBe("negotiate");
   });
 
-  it("auto-continues VIN dossier when listing fetch is blocked but URL contains a VIN", async () => {
+  it("honest-fails VIN-from-URL fallback when SERV cannot deliver a verdict", async () => {
     const vin = "4T1KZ1AK4MU060006";
     const publicLookup = async () => ["93.184.216.34"];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
@@ -467,10 +487,10 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
       { kind: "link", url: `https://blocked.example/cars/${vin}` },
       { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.result.kind).toBe("vin_dossier");
-    expect(result.result.vin).toBe(vin);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("serv_verdict_unavailable");
+    expect(result.creditCharged).toBe(false);
   });
 
   it("returns paste_text|enter_vin alternatives when fetch is blocked and no VIN is in the URL", async () => {
@@ -519,7 +539,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(autotrader.message).toMatch(/listing id 756212296/i);
   });
 
-  it("continues via Auto.dev when an exact VDP match exists after a walled fetch", async () => {
+  it("continues via Auto.dev after a walled fetch but honest-fails without SERV verdict", async () => {
     const vin = "1M8GDM9AXKP042788";
     const vdp = "https://www.autotrader.com/cars-for-sale/vehicle/756212296";
     const publicLookup = async () => ["93.184.216.34"];
@@ -567,11 +587,12 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
         env: { VERCEL: undefined },
       },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.result.vin).toBe(vin);
-    expect(result.result.fields?.priceUsd.value).toBe(14_500);
-    expect(result.result.provenance.some((row) => row.source === "listing_feed")).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Autodev VDP hit → SERV-less honest fail; no Autodev match → blocked wall (also uncharged).
+    expect(["serv_verdict_unavailable", "listing_fetch_blocked"]).toContain(result.error);
+    expect(result.creditCharged).toBe(false);
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).includes("retailListing.vdp"))).toBe(true);
   });
 
   it("returns clear next steps when the page is thin and has no VIN", async () => {
@@ -599,7 +620,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.message).toMatch(/No credit or free check was used/i);
   });
 
-  it("identifies cruz.com-style title/URL YMM without structured vehicle JSON-LD", async () => {
+  it("identifies cruz.com-style title/URL YMM then honest-fails without SERV", async () => {
     const html = readFileSync(join(FIXTURES, "cruz-crv-title-only.html"), "utf8");
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -617,8 +638,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
       },
       { fetch: fetchImpl as unknown as typeof fetch },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.result.title).toMatch(/2015 Honda CR-?V/i);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("serv_verdict_unavailable");
   });
 });
