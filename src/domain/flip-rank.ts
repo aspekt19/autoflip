@@ -2,7 +2,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { RepairAbility } from "./need";
 import { daysToSellEstimate, DAYS_TO_SELL_UNUSABLE_AFTER } from "./resale-days";
-import { pricedBelowSimilarLine, resaleSanityReason } from "./resale-sanity";
+import { highMileageFlipExplanation, pricedBelowSimilarLine, resaleMileageRankBias, resaleSanityReason } from "./resale-sanity";
 import { reconUsd } from "./recon";
 import { roundDollars } from "./stats";
 import type { Listing } from "./types";
@@ -34,6 +34,8 @@ export type FlipEstimate = {
   /** True when this car must not be the pick: over the window, or days unknown while a window is set. */
   sellWindowBlocked?: boolean;
   sellWindowNote?: string | null;
+  /** Plain reason a high-mileage car is a weak quick flip. Null when mileage is not in that range. */
+  highMilesNote?: string | null;
 };
 
 export type FlipRankOptions = {
@@ -94,6 +96,12 @@ export function rankFlipCandidates(pool: Listing[], now: Date, options?: FlipRan
     .map((listing) => estimateOne(listing, ordered, now, options));
   return estimates.sort((a, b) => {
     if (a.excluded !== b.excluded) return a.excluded ? 1 : -1;
+    const aMiles = a.listing.miles;
+    const bMiles = b.listing.miles;
+    if (options?.sellWithinDays != null && typeof aMiles === "number" && typeof bMiles === "number") {
+      if (resaleMileageRankBias(aMiles, bMiles)) return 1;
+      if (resaleMileageRankBias(bMiles, aMiles)) return -1;
+    }
     if (b.score !== a.score) return b.score - a.score;
     return a.vin.localeCompare(b.vin);
   });
@@ -122,6 +130,7 @@ export function flipAlertWhy(item: FlipEstimate): string {
     item.clearsTarget === false ? "This ranks lower because the estimate is under the profit target you set." : null,
     item.clearsTarget === true ? "This clears the profit target you set. The target is not a promised sale." : null,
     item.sellWindowNote,
+    item.highMilesNote,
   ]
     .filter((line): line is string => Boolean(line))
     .join(" ");
@@ -166,6 +175,7 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     sellWindowExceeded,
     sellWindowBlocked,
     sellWindowNote,
+    highMilesNote: highMileageFlipExplanation(listing.miles ?? Number.NaN, sellWithin),
   };
   const sanity = options?.enforceSanity
     ? resaleSanityReason(listing, pool, { milesMax: options?.milesMax })
@@ -237,6 +247,7 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     sellWindowExceeded,
     sellWindowBlocked,
     sellWindowNote,
+    highMilesNote: highMileageFlipExplanation(listing.miles ?? Number.NaN, sellWithin),
   };
 }
 

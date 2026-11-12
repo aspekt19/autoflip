@@ -78,7 +78,9 @@ const JARGON: Array<{ re: RegExp; label: string }> = [
   { re: /\(\s*[+-]\d+(?:\.\d+)?\s*\)/, label: "a parenthesised score delta" },
   { re: /Not scored for fairness/i, label: "Not scored for fairness" },
   { re: /treated as neutral/i, label: "treated as neutral" },
-  { re: /\bPZEV\b/, label: "PZEV" },
+  { re: /\bPZEV\b|partial zero-emission|PARTIAL ZERO-EMISSION/i, label: "PZEV" },
+  { re: /Trim names disagree/i, label: "Trim names disagree" },
+  { re: /\bTechnical details\b/, label: "Technical details" },
   { re: /Stop-sale|park-until-fixed/i, label: "Stop-sale / park-until-fixed" },
   { re: /supplied VIN/i, label: "supplied VIN" },
 ];
@@ -99,9 +101,10 @@ export function scrubBuyerText(value: string): string {
   text = text.replace(/Lemonless AI was unavailable\.?\s*/gi, "");
   text = text.replace(/\(\s*[+-]\d+(?:\.\d+)?\s*\)/g, "");
   text = text.replace(/Not scored for fairness\s*[—-]\s*/gi, "");
-  text = text.replace(/asking-price comparison is treated as neutral\s*/gi, "Asking prices were not compared ");
-  text = text.replace(/treated as neutral/gi, "not compared");
-  text = text.replace(/\bPZEV\b/g, "partial zero-emission");
+  text = text.replace(/asking-price comparison is treated as neutral\s*/gi, "");
+  text = text.replace(/treated as neutral/gi, "");
+  text = text.replace(/\bpartial\s+zero[-\s]?emission\b/gi, "");
+  text = text.replace(/\bPZEV\b/gi, "");
   text = text.replace(
     /Stop-sale\s*\/\s*park-until-fixed recall guidance is open for this year and model(?:\s*[—-]\s*not eligible as the published pick)?\.?/gi,
     "The maker says don't drive it until the recall repair is done, so this car is not the one to buy.",
@@ -322,7 +325,7 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
   );
 
   const passLike = verdict === "pass" || verdict === "skip" || (run.failureReasons ?? []).includes("no_qualifying_flip");
-  const worth = /\bworth it\b/i.test(text) && !/not worth/i.test(text);
+  const worth = /\bworth it\b/i.test(text) && !/not worth|no flip worth it/i.test(text);
   const bestFlip = passLike && /best flip/i.test(text);
   const picked = cars.find((car) => car.picked) ?? cars.find((car) => picks.includes(car.vin)) ?? null;
   const cardText = picked
@@ -545,6 +548,81 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
     ),
   );
 
+  const compared = (run.steps ?? []).some((step) => step.step === "compare_cars" && step.status === "ok");
+  const deniesComparison = /asking prices were not compared/i.test(`${text} ${visible}`);
+  checks.push(
+    check(
+      "comparison-honest",
+      !(compared && cars.length > 0 && deniesComparison),
+      deniesComparison
+        ? "The result says asking prices were not compared, but the comparison step finished."
+        : "The summary matches the comparison that actually ran.",
+    ),
+  );
+
+  const savedReplay = /saved result for these same filters|same decision cached/i.test(`${text} ${visible}`);
+  const honestReplay = /No credit used, same result as your search at /i.test(`${text} ${visible}`);
+  const claimsCharge = credits > 0 || /credit was used/i.test(visible);
+  checks.push(
+    check(
+      "charge-ledger",
+      !(savedReplay && claimsCharge) && !(honestReplay && credits > 0),
+      savedReplay && claimsCharge
+        ? "A saved replay says a credit was used, but a replay of the same search is not a new charge."
+        : "A replay does not claim a charge that did not happen.",
+    ),
+  );
+  checks.push(
+    check(
+      "stale-cache",
+      !savedReplay,
+      savedReplay
+        ? "The page is a saved result from an older search, without saying it is the same result as the earlier search."
+        : "This page is not serving a stale saved result.",
+    ),
+  );
+
+  const safetyNote = verdict != null && /\b(safe|safety|new driver|first car)\b/i.test(run.note ?? "");
+  const oldSafety = cars.filter((car) => car.year > 0 && car.year < 2012);
+  const safetyExplained = /electronic stability control|before 2012/i.test(`${text} ${visible}`);
+  const safetyProblem = safetyNote && oldSafety.length > 0 && !safetyExplained;
+  checks.push(
+    check(
+      "safety-year",
+      !safetyProblem,
+      safetyProblem
+        ? `${oldSafety[0]!.year} ${oldSafety[0]!.make} ${oldSafety[0]!.model} is listed for a safety-oriented search without saying why cars from before 2012 were ranked lower.`
+        : "A safety-oriented search explains older cars, or this is not one.",
+    ),
+  );
+
+  const stopIndex = cars.findIndex((car) => DO_NOT_DRIVE.test(`${car.reason ?? ""} ${car.summary ?? ""}`));
+  checks.push(
+    check(
+      "do-not-drive",
+      stopIndex < 0 || stopIndex === cars.length - 1,
+      stopIndex >= 0
+        ? "A car with an open do-not-drive recall is still listed above cars without that warning."
+        : "An open do-not-drive recall is ranked last and flagged, or none is shown.",
+    ),
+  );
+
+  const drivetrainLine = /Drivetrain:\s*(?:FWD|RWD|AWD|4WD)/i.test(visible);
+  const technicalLabel = html ? /<summary>\s*Technical details\s*<\/summary>/i.test(html) : false;
+  const jargonBits = [
+    drivetrainLine ? "a repeated Drivetrain line" : null,
+    technicalLabel ? "a Technical details label" : null,
+  ].filter(Boolean);
+  checks.push(
+    check(
+      "buyer-jargon",
+      jargonBits.length === 0,
+      jargonBits.length
+        ? `Buyer-facing page still has ${jargonBits.join(" and ")}.`
+        : "Buyer-facing lines do not repeat the drivetrain label or a raw Technical details heading.",
+    ),
+  );
+
   if (html && pickedCar) {
     const offerAmount = typeof pickedCar.offerUsd === "number" && pickedCar.offerUsd > 0 ? formatUsd(pickedCar.offerUsd) : null;
     const missingOffer = offerAmount != null && !visible.includes(offerAmount);
@@ -566,7 +644,10 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
   return { ok: checks.every((item) => item.pass), checks };
 }
 
+const DO_NOT_DRIVE = /don't drive it until the recall repair is done/i;
+
 function band(car: RunListing): number {
+  if (DO_NOT_DRIVE.test(`${car.reason ?? ""} ${car.summary ?? ""}`)) return 4;
   if (car.implausible) return 2;
   if ((car.accidentCount ?? 0) > 0 || (car.miles ?? 0) >= HIGH_MILES) return 1;
   return 0;
@@ -741,11 +822,17 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
         if (pick && pick.summary) pick.summary = scrubBuyerText(`${pick.summary} ${extra}`);
         buyerMessage = scrubBuyerText(`${buyerMessage ?? ""} ${extra}`);
       }
-      if (pick && !/no flip worth it here/i.test(buyerMessage ?? "")) {
+      if (pick) {
         const name = `${pick.year} ${pick.make} ${pick.model}`.trim();
-        buyerMessage = joinBuyerParts([`No flip worth it here. Closest is the ${name}.`, buyerMessage, pick.reason]);
+        const card = (pick.reason || pick.summary || "").trim();
+        const replay = (buyerMessage ?? "").match(/No credit used, same result as your search at [^.]+?\./i)?.[0] ?? null;
+        buyerMessage = joinBuyerParts([replay, `No flip worth it here. Closest is the ${name}.`, card]);
       }
     }
+  }
+
+  if (/No credit used, same result as your search at /i.test(buyerMessage ?? "")) {
+    creditsCharged = 0;
   }
 
   const tax = registrationTaxSentence(run.spec?.hard.zip?.value ?? null, listings.map((car) => car.state ?? null));

@@ -245,6 +245,19 @@ export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
 /** Absolute miles above this under condition-first draw a strong wear penalty. */
 export const BEST_DEAL_HIGH_MILES_SOFT = 120_000;
 export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
+/**
+ * FMVSS 126 required electronic stability control on new passenger cars
+ * starting with the 2012 model year. A safety-oriented search ranks older
+ * cars below that line and says why.
+ */
+export const ESC_REQUIRED_FROM_MODEL_YEAR = 2012;
+
+export function safetyOrientedRequest(note: string | null | undefined): boolean {
+  return /\b(safe|safety|new driver|first car)\b/i.test(note ?? "");
+}
+
+export const PRE_ESC_RANK_NOTE =
+  "Cars from before 2012 were ranked lower. Electronic stability control was not required on new passenger cars until the 2012 model year, so an older car often does not have it.";
 
 /** Buyer flag for cars at or above the hard mileage line. */
 export function veryHighMileageLabel(miles: number | null | undefined): string | null {
@@ -598,7 +611,13 @@ export function priceCompsUnevenAcrossListings(
 }
 
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
-  "Asking prices were not compared, because too many of these cars do not have enough similar listings in this search. The pick can still change once those prices are compared.";
+  "Not enough similar cars to compare this asking price.";
+
+/** What the buyer is told when this car was compared and ranking still held price back. */
+export function comparedButUnrankedDetail(sampleSize: number, model: string): string {
+  const noun = sampleSize === 1 ? "listing" : "listings";
+  return `Compared with ${sampleSize} similar ${model} ${noun}. Price did not change the ranking, because other cars in this list do not have enough similar listings to compare the same way.`;
+}
 
 type BestDealNeed = Pick<
   StructuredNeed,
@@ -670,10 +689,31 @@ function scoreOne(
 
   // Price vs adjusted similar listings — the same fair value as the card badge.
   const market = marketPriceContext(row, ctx.marketPool);
-  if (ctx.priceFairnessNeutral) {
+  if (ctx.priceFairnessNeutral && row.priceUsd != null && market) {
     unknowns.push(
-      "Asking-price comparison held neutral — uneven same-model similar listings across shortlist peers",
+      "This car's asking price was compared. Price did not change the ranking, because other cars in this list could not be compared the same way.",
     );
+    const { med, sampleSize, source, scopeLabel, methodNote, methodNoteTechnical, subject } = market;
+    const scopeLabelTyped = scopeLabel === "adjusted-similar" ? scopeLabel : "adjusted-similar";
+    const machineMethod =
+      methodNoteTechnical && methodNoteTechnical.trim() ? ` [method: ${methodNoteTechnical}]` : "";
+    factors.push({
+      id: "price_vs_model_asks",
+      label: "Asking price vs same model in this search",
+      points: 0,
+      detail: `${formatMarketAskDetail({
+        askUsd: row.priceUsd,
+        fairValueUsd: med,
+        sampleSize,
+        scopeLabel: scopeLabelTyped,
+        thinBelow: BEST_DEAL_THIN_MODEL_SAMPLE,
+        methodNote,
+        subject: subject ?? { make: row.make, model: row.model, trim: row.trim ?? null },
+      })} ${comparedButUnrankedDetail(sampleSize, row.model)}`,
+      source: `${source}${machineMethod}`,
+    });
+  } else if (ctx.priceFairnessNeutral) {
+    unknowns.push("Not enough similar cars to compare this asking price.");
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
@@ -1273,6 +1313,9 @@ function scoreOne(
   const odoExclude = implausibleOdometer(row.year, row.miles, ctx.nowYear);
   if (odoExclude && row.miles != null) unknowns.push(implausibleOdometerReason(row.year, row.miles));
   const excludedFromPick = identityExclude || stopExclude || priceExclude || odoExclude;
+  if (safetyOrientedRequest(ctx.need.note) && row.year > 0 && row.year < ESC_REQUIRED_FROM_MODEL_YEAR) {
+    unknowns.push(PRE_ESC_RANK_NOTE);
+  }
   const excludedReason = identityExclude
     ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
     : stopExclude
@@ -1630,8 +1673,14 @@ function rankAll(
     note: need.note,
     mustHaves: need.mustHaves ?? [],
   });
+  const safetyFirst = safetyOrientedRequest(need.note);
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
+    if (safetyFirst) {
+      const aOld = a.year > 0 && a.year < ESC_REQUIRED_FROM_MODEL_YEAR;
+      const bOld = b.year > 0 && b.year < ESC_REQUIRED_FROM_MODEL_YEAR;
+      if (aOld !== bOld) return aOld ? 1 : -1;
+    }
     // A reported accident never ranks above a lower-mileage car with no reported accident.
     const aAcc = reportedAccidentCount(a);
     const bAcc = reportedAccidentCount(b);
@@ -1806,8 +1855,11 @@ export function selectBestDealOnEvidence(input: {
   const fairnessNote = plainFairnessHeldOutNote(fairnessHeldOut);
   if (fairnessNote) stillUnknown.push(fairnessNote);
   if (priceFairnessNeutral) {
+    const compared = leader ? marketPriceContext(leader, marketPool) : null;
     stillUnknown.push(
-      "Asking prices were not compared, because too many of these cars do not have enough similar listings in this search.",
+      compared
+        ? `The leading car was compared with ${compared.sampleSize} similar ${leader?.model ?? "car"} listings. Price did not change the ranking, because other cars in this list do not have enough similar listings to compare the same way.`
+        : "Asking prices were not compared. There were not enough similar listings for these cars.",
     );
   } else if (priceProvisional) {
     stillUnknown.push(
@@ -1935,6 +1987,10 @@ export function selectBestDealOnEvidence(input: {
     ...choice.reasons,
     note,
     priceProvisional ? "Asking-price comparison remains provisional." : null,
+    safetyOrientedRequest(input.need.note) &&
+    rankedAll.some((car) => car.year > 0 && car.year < ESC_REQUIRED_FROM_MODEL_YEAR)
+      ? PRE_ESC_RANK_NOTE
+      : null,
   ]
     .filter(Boolean)
     .join(" ")

@@ -39,7 +39,16 @@ export type GoldenCaseId =
   | "L22"
   | "L23"
   | "L24"
-  | "L25";
+  | "L25"
+  | "L26"
+  | "L27"
+  | "L28"
+  | "L29"
+  | "L30"
+  | "L31"
+  | "L32"
+  | "L33"
+  | "L34";
 
 export type CaseTurn =
   | { note: string }
@@ -70,7 +79,7 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
   /** Distinct make/model pairs the inventory URLs must include. */
@@ -87,12 +96,18 @@ export type CaseExpect = {
   flagVeryHighMiles?: boolean;
   /** The stub returns a valid decide answer and the stored run must keep a verdict. */
   servVerdict?: boolean;
+  /** Safety-oriented searches must not pick a car older than this. */
+  pickYearMin?: number;
+  /** The confirm spec must keep this body from the note. */
+  bodyStyle?: string;
+  /** Resale pick must be under this mileage. */
+  pickMilesMax?: number;
 };
 
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -520,6 +535,92 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "Used SUV under $20,000 near 10001" }],
     expect: { budgetUsd: 20000, priceCeilUsd: 21000, queriesRequired: true, servVerdict: true },
+  },
+  {
+    id: "L26",
+    kind: "personal",
+    scripted: "live-safety",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "Safe first car for a new driver in Chicago, max $12k, up to 120k miles" }],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+      pickYearMin: 2012,
+    },
+  },
+  {
+    id: "L27",
+    kind: "flip",
+    location: { zip: "75201", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "sell within 30 days" }],
+    expect: { budgetUsd: 8000, priceCeilUsd: 8400, sellWithinDays: 30, pickMilesMax: 120_000, queriesRequired: true },
+  },
+  {
+    id: "L28",
+    kind: "personal",
+    scripted: "live-suv",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "AWD SUV in Denver under $18k, must have AWD" }],
+    expect: { budgetUsd: 18000, priceCeilUsd: 18900, drivetrain: "awd_4wd", bodyStyle: "SUV", queriesRequired: true },
+  },
+  {
+    id: "L29",
+    kind: "personal",
+    scripted: "live-c",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used car under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L30",
+    kind: "personal",
+    scripted: "live-c",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Honda Civic under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L31",
+    kind: "flip",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "same filters again" }],
+    expect: { budgetUsd: 9000, priceCeilUsd: 9450, queriesRequired: true },
+  },
+  {
+    id: "L32",
+    kind: "personal",
+    scripted: "live-suv",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "SUV under $20,000" }],
+    expect: { budgetUsd: 20000, priceCeilUsd: 21000, queriesRequired: true },
+  },
+  {
+    id: "L33",
+    kind: "personal",
+    scripted: "live-c",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Toyota Camry under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L34",
+    kind: "personal",
+    scripted: "live-c",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used car under $12,000" }],
+    expect: { budgetUsd: 12000, priceCeilUsd: 12600, queriesRequired: true },
   },
 ];
 

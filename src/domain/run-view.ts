@@ -188,7 +188,6 @@ export function runReportModel(view: RunView): RunReportModel {
             car.summary,
             car.reason,
             car.offerLabel,
-            car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null,
             mileageFlag,
           ]) || null,
       };
@@ -256,7 +255,7 @@ export function renderRunPermalinkHtml(view: RunView): string {
     const facts = [
       car.priceUsd == null ? "Price not listed" : money(car.priceUsd),
       car.miles == null ? null : `${car.miles.toLocaleString("en-US")} miles`,
-      car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null,
+      car.drivetrain ? car.drivetrain : car.drivetrainUnknown ? "Drivetrain not listed" : null,
       car.place,
     ].filter(Boolean);
     if (facts.length) parts.push(`<p>${esc(facts.join(" · "))}</p>`);
@@ -267,7 +266,7 @@ export function renderRunPermalinkHtml(view: RunView): string {
   if (model.viewerIsOwner) {
     parts.push(`<form data-owner-action="add-detail"><button type="submit">Add a detail</button></form>`);
   }
-  parts.push(`<details class="technical-details"><summary>Technical details</summary>`);
+  parts.push(`<details class="technical-details"><summary>Reference codes</summary>`);
   for (const id of model.technicalIds) parts.push(`<p class="response-id">${esc(id)}</p>`);
   parts.push("</details>");
   parts.push("</article>");

@@ -395,6 +395,47 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
       push(out, `${specCase.id}.copy`, "A run with no verdict is titled as a best choice.");
     }
   }
+  if (expect.pickYearMin && run.pickVin) {
+    const picked = run.listings.find((car) => car.vin === run.pickVin);
+    if (!picked || picked.year < expect.pickYearMin) {
+      push(out, `${specCase.id}.safety`, `Pick year is ${picked?.year ?? "missing"}; a safety-oriented search should prefer ${expect.pickYearMin} or newer.`);
+    }
+  }
+  if (specCase.id === "L26") {
+    const blob = `${run.buyer.message ?? ""} ${run.storedRun?.permalinkHtml ?? ""}`;
+    if (!/2012|electronic stability control/i.test(blob)) {
+      push(out, "L26.safety", "A safe first-car search does not explain why cars from before 2012 were ranked lower.");
+    }
+  }
+  if (expect.pickMilesMax != null && run.pickVin) {
+    const picked = run.listings.find((car) => car.vin === run.pickVin);
+    if (!picked || (picked.miles ?? 0) > expect.pickMilesMax) {
+      push(out, `${specCase.id}.miles`, `Pick has ${picked?.miles ?? "unknown"} miles. A short resale window should not lead with a much higher-mileage car.`);
+    }
+  }
+  if (specCase.id === "L27") {
+    const blob = `${run.buyer.message ?? ""} ${run.listings.map((car) => car.vin).join(" ")}`;
+    if (!/hard to flip|150,733/.test(blob) && (run.listings.find((car) => car.vin === run.pickVin)?.miles ?? 0) > 120_000) {
+      push(out, "L27.miles", "The 30-day flip still leads with a high-mileage car and does not say why that is hard to flip.");
+    }
+  }
+  if (expect.bodyStyle) {
+    const bodies = run.specs.at(-1)?.hard.bodyStyles?.value ?? [];
+    if (!bodies.includes(expect.bodyStyle)) {
+      push(out, `${specCase.id}.body`, `Confirm spec body is ${bodies.join(", ") || "not set"}; the note says ${expect.bodyStyle}.`);
+    }
+  }
+  if (specCase.id === "L29") {
+    const blob = `${run.buyer.message ?? ""}`;
+    if (/asking prices were not compared/i.test(blob) && /similar/i.test(blob)) {
+      push(out, "L29.compare", "The summary says prices were not compared and also describes a comparison.");
+    }
+  }
+  if (specCase.id === "L34" && run.storedRun) {
+    if (/Technical details|Drivetrain:/i.test(run.storedRun.permalinkHtml)) {
+      push(out, "L34.jargon", "The permalink still uses a Technical details label or a repeated Drivetrain line.");
+    }
+  }
   if (specCase.id === "L23" && run.storedRun) {
     if (!/Illinois/i.test(run.storedRun.permalinkHtml)) {
       push(out, "L23.tax", "A Hammond, IN car in a Chicago search does not say sales tax assumes Illinois.");

@@ -576,12 +576,9 @@ export function trimSourceDisagreement(input: {
   const listingTitleTrim = trimPhraseFromListingUrl(input.listingUrl, input, input.listingTitle);
   if (!listingTitleTrim) return null;
   if (trimsMatch(displayed, listingTitleTrim) !== false) return null;
-  const title = `${input.year} ${input.make} ${input.model}`;
   const decoded = (input.decodedTrim ?? "").replace(/\s+/g, " ").trim();
   const sentences = [
-    `Trim names disagree on this ${title}.`,
-    `Listing data on this card says ${displayed}.`,
-    `The dealer listing link title says ${listingTitleTrim}.`,
+    "The listing title and its VIN record name different trims; ask the seller.",
   ];
   if (decoded && trimsMatch(decoded, displayed) === true) {
     sentences.push(`Government vehicle specs also say ${decoded}.`);
@@ -593,7 +590,7 @@ export function trimSourceDisagreement(input: {
     listingTitleTrim,
     decodedTrim: decoded || null,
     note: sentences.join(" ").replace(/\.{2,}/g, "."),
-    sellerQuestion: `Ask the seller to confirm the trim on the ${title} — the dealer listing link says ${listingTitleTrim}, and the listing data on this card says ${displayed}.`,
+    sellerQuestion: "The listing title and its VIN record name different trims; ask the seller.",
   };
 }
 

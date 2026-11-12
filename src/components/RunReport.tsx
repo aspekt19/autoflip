@@ -84,12 +84,14 @@ export function RunReport({ run }: { run: RunView }) {
           ) : null}
         </section>
       ))}
-      <p className="hint">
-        <a href={model.permalink}>Open this search</a>
-      </p>
-      {model.viewerIsOwner ? <RunClarificationForm runId={run.id} /> : null}
+      <div className="run-report-footer">
+        <p className="hint">
+          <a href={model.permalink}>Open this search</a>
+        </p>
+        {model.viewerIsOwner ? <RunClarificationForm runId={run.id} /> : null}
+      </div>
       <details className="technical-details">
-        <summary>Technical details</summary>
+        <summary>Reference codes</summary>
         {model.technicalIds.length === 0 ? <p className="hint">No response id was recorded.</p> : null}
         {model.technicalIds.map((id) => (
           <p key={id} className="response-id">

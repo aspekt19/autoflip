@@ -132,7 +132,7 @@ export async function POST(request: Request) {
   const pick = result.bestDeal?.pick;
   const pickVin = pick && typeof pick.vin === "string" ? pick.vin : null;
   const proposedVerdict = result.pickAgentVerdict?.verdict ?? null;
-  const shown = listingsFromBestDeal(result.bestDeal, proposedVerdict);
+  const shown = listingsFromBestDeal(result.bestDeal, proposedVerdict, result.offerPool);
   const settledRunId = await syncRunSafely(kv, {
     runId,
     ownerId: id,

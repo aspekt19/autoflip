@@ -12,7 +12,7 @@ import {
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import { awdLimitFromText, intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import { awdLimitFromText, bodyFromIntake, intakeFromNote, type NoteBodyStyle } from "./note-intake";
 import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
@@ -619,7 +619,7 @@ export function planToStructuredNeed(
     fuelEconomyPriority,
     awdPreference,
     reliabilityPriority,
-    bodyStyle: noteBodyFromPlan(plan.bodyStyles),
+    bodyStyle: noteBodyFromPlan(plan.bodyStyles) ?? bodyFromIntake(note),
     locationPhrase: plan.location.phrase,
     make: makesFromNamed[0] ?? null,
     preferredMakes: makesFromNamed,
