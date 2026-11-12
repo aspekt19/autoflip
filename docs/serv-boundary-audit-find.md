@@ -188,12 +188,12 @@
 
 | Metric | Count |
 |--------|------:|
-| **found** (decision / default / filter / rank-to-drop / cap / early-exit / override points listed) | **118** |
-| **suggested removed** | **60** |
+| **found** (decision / default / filter / rank-to-drop / cap / early-exit / override points listed) | **120** |
+| **suggested removed** | **62** |
 | **suggested moved into SERV tool param** | **12** |
 | **suggested kept as guardrail** | **46** |
 
-*(Primary fate only — first bold fate tag on each bullet. Compound bullets that also mention a secondary kept/moved still count under the primary.)*
+*(Primary fate only — first bold fate tag on each bullet. `still present` primary → removed target. Compound bullets that also mention a secondary kept/moved still count under the primary. Enforced by `scripts/serv-boundary-audit-counts.test.ts`.)*
 
 ---
 

@@ -20,14 +20,16 @@ Partials catalog every decision point with a **target** fate. **Verified status*
 
 ## Summary counts (partial targets)
 
+Counts are derived from the partial inventories (primary fate per bullet / Check product-rule row). Do not hand-edit — `scripts/serv-boundary-audit-counts.test.ts` asserts this table matches the rows.
+
 | Surface | Found | Target removed | Target moved | Target kept |
 |---------|------:|---------------:|-------------:|------------:|
-| Find (`serv-boundary-audit-find.md`) | 118 | 60 | 12 | 46 |
-| Resale / Radar / v1 / MCP (`serv-boundary-audit-resale-radar-api.md`) | 191 | 52 | 61 | 78 |
+| Find (`serv-boundary-audit-find.md`) | 120 | 62 | 12 | 46 |
+| Resale / Radar / v1 / MCP (`serv-boundary-audit-resale-radar-api.md`) | 170 | 40 | 39 | 91 |
 | Check (`serv-boundary-audit-check.md`) | 75 | 17 | 6 | 52 |
-| **Total** | **384** | **129** | **79** | **176** |
+| **Total** | **365** | **119** | **57** | **189** |
 
-Primary fate only (first bold tag per bullet in the partials).
+Primary fate only (first bold fate tag per bullet / product-rule row). `still present` as primary counts under **removed** (target disposition).
 
 ### Verified on this branch (integrator finish)
 
@@ -47,10 +49,7 @@ Primary fate only (first bold tag per bullet in the partials).
 | Eval classic `runFindMatch`-first | **Removed** | Live eval mints empty seed → agent loop |
 | Idempotent Find decide replay from stored shortlist keys | **Kept** | Replay only; `servKey: null`; no new code choose |
 
-**Found (catalogued):** **384**  
-**Removed (verified this branch):** **139** decision-point clusters mapped from partials + structural deletes above  
-**Moved into SERV / note provenance:** **85**  
-**Kept as guardrails:** **209** (money/VIN math, passenger hygiene, auth/credits, replay, provider body mapping, eval infra)
+Cluster statuses above are qualitative (not a second numeric rollup). Numeric totals live only in the summary table — enforced by `scripts/serv-boundary-audit-counts.test.ts`.
 
 Enforcement: `src/domain/serv-boundary.ts`, `src/domain/serv-boundary.test.ts`, `src/domain/serv-boundary-enforcement.test.ts`.
 
@@ -72,8 +71,8 @@ Enforcement: `src/domain/serv-boundary.ts`, `src/domain/serv-boundary.test.ts`, 
 
 ## Partials (full file:line inventories)
 
-- Find: see **`docs/serv-boundary-audit-find.md`** (118 points).
-- Resale / Radar / API v1 / MCP: see **`docs/serv-boundary-audit-resale-radar-api.md`** (191 points).
+- Find: see **`docs/serv-boundary-audit-find.md`** (120 points).
+- Resale / Radar / API v1 / MCP: see **`docs/serv-boundary-audit-resale-radar-api.md`** (170 points).
 - Check: see **`docs/serv-boundary-audit-check.md`** (75 points).
 
 ---

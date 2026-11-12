@@ -170,7 +170,7 @@ These paths create or reshape the published Check `verdict` / `verdictLabel` / b
 | **moved into SERV** (primary fate) | **6** |
 | **kept as guardrail** (primary fate) | **52** |
 
-Primary fate = first bold fate tag after `fate:` on each bullet; product-rule table rows counted once each (all three **kept**). Dual-tagged bullets use the first proposed structural fate.
+Primary fate = first bold fate tag after `fate:` on each bullet; product-rule table rows counted once each (all three **kept**). Dual-tagged bullets use the first proposed structural fate. `still present` primary → removed. Enforced by `scripts/serv-boundary-audit-counts.test.ts`.
 
 ### Highest-leverage Check gaps vs target architecture
 

@@ -304,10 +304,12 @@
 
 | Fate | Count |
 |------|------:|
-| **removed** | 52 |
-| **moved into SERV tool param** | 61 |
-| **kept as guardrail** | 78 |
-| **Total decision points listed** | **191** |
+| **removed** | 40 |
+| **moved into SERV tool param** | 39 |
+| **kept as guardrail** | 91 |
+| **Total decision points listed** | **170** |
+
+*(Primary fate only — first bold fate tag per bullet. `still present` primary → removed. Enforced by `scripts/serv-boundary-audit-counts.test.ts`.)*
 
 ### Hotspots (highest concentration of `removed` / `moved`)
 
