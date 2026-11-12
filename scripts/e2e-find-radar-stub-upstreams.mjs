@@ -461,6 +461,70 @@ function servPayload(body) {
     );
   }
 
+  // Agentic Find/Resale loop schemas. E2E stubs SERV — never classic code path.
+  if (schema === "find_agent_next_action" || schema === "find_agent_result") {
+    const vin = STUB_RAV4_VINS[0];
+    const finish = {
+      action: "finish",
+      make: null,
+      model: null,
+      bodyStyle: null,
+      priceMaxUsd: null,
+      milesMax: null,
+      yearMin: null,
+      yearMax: null,
+      zip: null,
+      radiusMi: null,
+      fuel: null,
+      drivetrain: null,
+      sort: null,
+      limit: null,
+      searchWhy: null,
+      summary: "STUB agent finish — fixture only. Negotiate on the listed RAV4.",
+      confidence: "medium",
+      picks: [
+        {
+          vin,
+          label: "2021 Toyota RAV4",
+          action: "negotiate",
+          offerUsd: 14_500,
+          why: "STUB agent pick — asking near similar listings.",
+        },
+      ],
+      relaxedConditions: [],
+      passReason: null,
+    };
+    return chatCompletion("chatcmpl-EhAaFindAgentNextAction01", JSON.stringify(finish));
+  }
+
+  if (schema === "resale_agent_next_action" || schema === "resale_agent_result") {
+    const vin = STUB_RAV4_VINS[0];
+    return chatCompletion(
+      "chatcmpl-EhAaResaleAgentNextAction01",
+      JSON.stringify({
+        action: "finish",
+        make: null,
+        model: null,
+        bodyStyle: null,
+        priceMaxUsd: null,
+        milesMax: null,
+        yearMin: null,
+        yearMax: null,
+        zip: null,
+        radiusMi: null,
+        fuel: null,
+        drivetrain: null,
+        sort: null,
+        limit: null,
+        searchWhy: null,
+        summary: "STUB resale agent finish — fixture only.",
+        confidence: "medium",
+        picks: [{ vin, action: "negotiate", offerUsd: 14_500, why: "STUB resale pick." }],
+        relaxedConditions: [],
+      }),
+    );
+  }
+
   if (schema === "find_pick") {
     // pickKey must be clamped to allowlisted finalists by code; empty → code fallback.
     // Return a note that only repeats stub listing facts (no invented dollars).

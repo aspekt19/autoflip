@@ -7,8 +7,6 @@ import type { StructuredNeed } from "./need";
 import { listingWithinNeed } from "./need";
 import {
   buildSearchSpec,
-  enforceHard,
-  hardDropSentence,
   type HardDrop,
   type SearchSpec,
   type ServPlanHint,
@@ -144,117 +142,19 @@ const RADIUS_WIDEN_STEPS_MI = [100, 150, 250] as const;
  */
 export function filterInventoryWithWiden(
   listings: readonly Listing[],
-  need: StructuredNeed,
-  opts?: { servPlan?: ServPlanHint },
+  _need: StructuredNeed,
+  _opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
-  // Radius hard only when need.distanceMiles is set. Intake no longer invents the
-  // 100mi default into that field, so a finite value means shopper/note set it.
-  const formEdits =
-    need.distanceMiles != null
-      ? { radiusMi: { value: need.distanceMiles, dirty: true as const } }
-      : {};
-  const spec = buildSearchSpec({
-    note: need.note ?? "",
-    mode: need.mode,
-    formEdits,
-    servPlan: {
-      ...opts?.servPlan,
-      priceMaxUsd:
-        need.budgetKnown && need.budgetUsd != null ? need.budgetUsd : opts?.servPlan?.priceMaxUsd,
-      yearMin: need.yearMin ?? opts?.servPlan?.yearMin,
-      yearMax: need.yearMax ?? opts?.servPlan?.yearMax,
-      milesMax: need.milesMax ?? opts?.servPlan?.milesMax,
-      location: {
-        ...opts?.servPlan?.location,
-        zip: need.zip ?? opts?.servPlan?.location?.zip,
-      },
-    },
-  });
-  const first = enforceHard(spec, listings);
-  const firstKept = first.kept.filter((item) => listingWithinNeed(item, need));
-  const firstDrops: InventoryFilterDrop[] = [
-    ...first.dropped,
-    ...first.kept
-      .filter((item) => !listingWithinNeed(item, need))
-      .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
-  ];
-
-  if (firstKept.length > 0 || listings.length === 0) {
-    return {
-      listings: firstKept,
-      dropped: firstDrops,
-      steps: [],
-      explanation: firstKept.length === 0 && listings.length > 0 ? hardDropSentence(first.dropped) : null,
-    };
-  }
-
-  const steps: WidenStep[] = [];
-  const soft = softFiltersAppliedAsHard(need, spec);
-  let workingNeed = need;
-  let workingSpec = spec;
-  let kept = firstKept;
-  let dropped = firstDrops;
-  const excludeLabel = dominantDropLabel(firstDrops) ?? softFilterLabel(soft);
-
-  if (soft.length > 0) {
-    workingSpec = dropSoftFromSpec(spec, soft);
-    workingNeed = needAfterSoftDrop(need, soft);
-    const second = enforceHard(workingSpec, listings);
-    kept = second.kept.filter((item) => listingWithinNeed(item, workingNeed));
-    dropped = [
-      ...second.dropped,
-      ...second.kept
-        .filter((item) => !listingWithinNeed(item, workingNeed))
-        .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
-    ];
-    steps.push({
-      kind: "drop_soft",
-      filters: soft,
-      label: softFilterLabel(soft),
-    });
-  }
-
-  if (kept.length === 0 && need.distanceMiles != null) {
-    const fromMiles = need.distanceMiles;
-    for (const next of RADIUS_WIDEN_STEPS_MI) {
-      if (next <= fromMiles) continue;
-      const widened: SearchSpec = {
-        ...workingSpec,
-        hard: {
-          ...workingSpec.hard,
-          radiusMi: { value: next, source: "form" },
-        },
-      };
-      const third = enforceHard(widened, listings);
-      kept = third.kept.filter((item) => listingWithinNeed(item, workingNeed));
-      dropped = [
-        ...third.dropped,
-        ...third.kept
-          .filter((item) => !listingWithinNeed(item, workingNeed))
-          .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
-      ];
-      steps.push({
-        kind: "widen_distance",
-        fromMiles,
-        label: `within ${fromMiles} miles → tried ${next} miles`,
-      });
-      if (kept.length > 0) break;
-    }
-  }
-
-  const explanation =
-    steps.length > 0
-      ? widenExplanation({
-          excludeLabel,
-          steps,
-          recovered: kept.length,
-          hadInventory: listings.length,
-        })
-      : kept.length === 0
-        ? hardDropSentence(dropped)
-        : null;
-
-  return { listings: kept, dropped, steps, explanation };
+  // Pre-SERV enforceHard / widen product filters are deleted. SERV owns search /
+  // re-search / relax via search_listings. Return inventory unchanged.
+  void _need;
+  void _opts;
+  return {
+    listings: [...listings],
+    dropped: [],
+    steps: [],
+    explanation: null,
+  };
 }
 
 export function widenExplanation(input: {

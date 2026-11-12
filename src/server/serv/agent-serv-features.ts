@@ -40,7 +40,7 @@ export type AgentServFeatureJournal = {
   shadowOutcome: string | null;
   contentFilter: "default_on";
   promptCache: "default";
-  reasoningEffort: "none" | "low" | "medium" | "high";
+  reasoningEffort: "low" | "medium" | "high";
   featureRejections: AgentServFeatureRejection[];
 };
 
