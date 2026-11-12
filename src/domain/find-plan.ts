@@ -15,12 +15,11 @@ import {
 } from "./need";
 import {
   awdLimitFromText,
-  bodyFromIntake,
   budgetFromText,
   intakeFromNote,
-  seatsMinFromNote,
   type NoteBodyStyle,
 } from "./note-intake";
+import type { ServPlanHint } from "./search-spec";
 import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
@@ -394,7 +393,7 @@ export function validateFindPlan(
   if (milesMaxRaw != null && milesMax == null) dropped.push("milesMax");
   if (seatsMinRaw != null && seatsMin == null) dropped.push("seatsMin");
 
-  let drivetrain = readQuotedPref(
+  const drivetrain = readQuotedPref(
     raw.drivetrain,
     DRIVE_SET,
     "any" as FindPlanDrivetrainValue,
@@ -402,20 +401,6 @@ export function validateFindPlan(
     dropped,
     "drivetrain",
   );
-  const notedDrive = awdLimitFromText(note);
-  if (notedDrive === "hard") {
-    drivetrain = {
-      value: "awd_4wd",
-      strength: "required",
-      quote: drivetrain.quote ?? verbatimQuote("AWD", note) ?? verbatimQuote("awd", note),
-    };
-  } else if (notedDrive === "soft") {
-    drivetrain = {
-      value: "awd_4wd",
-      strength: "preferred",
-      quote: drivetrain.quote,
-    };
-  }
   const fuel = readQuotedPref(raw.fuel, FUEL_SET, "any" as FindPlanFuelValue, note, dropped, "fuel");
 
   const locationRaw =
@@ -584,7 +569,43 @@ function useCaseFromPlan(plan: FindPlan, mode: "personal" | "flip"): UseCase {
   return "unspecified";
 }
 
-/** Map a validated FindPlan into StructuredNeed (no regex overlay). */
+/** Map validated FindPlan → ServPlanHint for buildSearchSpec (SERV owns hard vs soft). */
+export function findPlanToServHint(plan: FindPlan): ServPlanHint {
+  const bodies = plan.bodyStyles
+    .map((style) => (style === "any" ? null : BODY_TO_NOTE[style] ?? null))
+    .filter((item): item is NoteBodyStyle => Boolean(item));
+  const models = plan.namedModels.length
+    ? plan.namedModels
+    : plan.directions.flatMap((dir) => dir.models).slice(0, 6);
+  return {
+    priceMaxUsd: plan.budget.maxUsd,
+    priceQuote: plan.budget.quote,
+    yearMin: plan.yearMin,
+    yearMax: plan.yearMax,
+    yearQuote: null,
+    milesMax: plan.milesMax,
+    milesQuote: null,
+    drivetrain: {
+      value: plan.drivetrain.value,
+      strength: plan.drivetrain.strength,
+      quote: plan.drivetrain.quote,
+    },
+    fuel: {
+      value: plan.fuel.value,
+      strength: plan.fuel.strength,
+      quote: plan.fuel.quote,
+    },
+    bodyStyles: bodies,
+    seatsMin: plan.seatsMin,
+    seatsStrength: plan.seatsMin != null ? "preferred" : "none",
+    models,
+    excludeMakes: plan.excludedMakes,
+    location: { zip: plan.location.zip, phrase: plan.location.phrase },
+    priorities: plan.priorities.map((item) => ({ id: item.id, quote: item.quote })),
+  };
+}
+
+/** Map a validated FindPlan into StructuredNeed. Trust plan fields — no note regex re-overlay. */
 export function planToStructuredNeed(
   plan: FindPlan,
   mode: "personal" | "flip",
@@ -603,18 +624,16 @@ export function planToStructuredNeed(
     models.push(item);
   }
   const makesFromNamed = [...new Set(models.map((item) => item.make))];
-  const noteAwd = awdLimitFromText(note);
   const awdPreference =
-    noteAwd != null ||
-    (plan.drivetrain.value === "awd_4wd" &&
-      (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required"));
+    plan.drivetrain.value === "awd_4wd" &&
+    (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required");
   const reliabilityPriority = plan.priorities.some((p) => p.id === "reliability");
   const fuelEconomyPriority =
     plan.priorities.some((p) => p.id === "fuel_cost") ||
     ((plan.fuel.value === "hybrid" || plan.fuel.value === "ev") && plan.fuel.strength !== "none");
   const priorityLabels = plan.priorities.map((p) => p.id);
   const mustHaves: string[] = [];
-  if ((plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") || noteAwd === "hard") {
+  if (plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") {
     mustHaves.push("AWD");
   }
   if (plan.fuel.strength === "required" && plan.fuel.value !== "any") mustHaves.push(plan.fuel.value);
@@ -632,7 +651,7 @@ export function planToStructuredNeed(
     distanceMiles: null,
     milesMax: plan.milesMax,
     milesCapResolved: plan.milesMax != null,
-    seatsMin: plan.seatsMin ?? seatsMinFromNote(note),
+    seatsMin: plan.seatsMin,
     // Budget year bands rank newer cars higher; they are not a hard yearMin the buyer never set.
     yearMin: plan.yearMin,
     yearMax: plan.yearMax,
@@ -641,7 +660,7 @@ export function planToStructuredNeed(
     fuelEconomyPriority,
     awdPreference,
     reliabilityPriority,
-    bodyStyle: noteBodyFromPlan(plan.bodyStyles) ?? bodyFromIntake(note),
+    bodyStyle: noteBodyFromPlan(plan.bodyStyles),
     locationPhrase: plan.location.phrase,
     make: makesFromNamed[0] ?? null,
     preferredMakes: makesFromNamed,

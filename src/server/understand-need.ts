@@ -9,11 +9,13 @@ import {
 } from "@/domain/need";
 import {
   fallbackFindPlan,
+  findPlanToServHint,
   planToDirections,
   planToStructuredNeed,
   validateFindPlan,
   type FindPlan,
 } from "@/domain/find-plan";
+import { buildSearchSpec, type SearchSpec } from "@/domain/search-spec";
 import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
 import { intakeFromNote } from "@/domain/note-intake";
@@ -46,6 +48,8 @@ export type UnderstandResult =
       need: StructuredNeed;
       /** Validated C1 plan (SERV or offline fallback). */
       findPlan: FindPlan;
+      /** SearchSpec built with SERV hint — hard/soft owned by the plan. */
+      searchSpec: SearchSpec;
       /** Search directions from the plan (never empty for a valid note). */
       directions: SearchDirection[];
       followUps: FollowUp[];
@@ -356,11 +360,30 @@ export async function understandNeed(
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
 
+  const formEditsForSpec = {
+    priceMaxUsd:
+      checked.need.budgetKnown && checked.need.budgetUsd != null
+        ? { value: checked.need.budgetUsd, dirty: true as const }
+        : undefined,
+    yearMin: checked.need.yearMin != null ? { value: checked.need.yearMin, dirty: true as const } : undefined,
+    yearMax: checked.need.yearMax != null ? { value: checked.need.yearMax, dirty: true as const } : undefined,
+    milesMax: checked.need.milesMax != null ? { value: checked.need.milesMax, dirty: true as const } : undefined,
+    zip: checked.need.zip ? { value: checked.need.zip, dirty: true as const } : undefined,
+    radiusMi: { value: checked.need.distanceMiles, dirty: true as const },
+  };
+  const searchSpec = buildSearchSpec({
+    note: checked.need.note ?? screened.text,
+    mode,
+    formEdits: formEditsForSpec,
+    servPlan: findPlanToServHint(findPlan),
+  });
+
   return {
     ok: true,
     source,
     need: checked.need,
     findPlan,
+    searchSpec,
     directions: planToDirections(findPlan),
     followUps: followUps(checked.need),
     guard,

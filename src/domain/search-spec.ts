@@ -42,6 +42,10 @@ export type SearchSpec = {
     models: Soft<{ make: string; model: string }[]>;
     priorities: Soft<string[]>;
     sellWithinDays?: Soft<number>;
+    drivetrain?: Soft<"awd_4wd">;
+    fuel?: Soft<string>;
+    seatsMin?: Soft<number>;
+    bodyStyles?: Soft<string[]>;
   };
   /** Derived inventory queries. Never empty: a budget-only query has no make or model. */
   queries: SearchQuery[];
@@ -62,14 +66,38 @@ export type SearchFormEdits = {
   sellWithinDays?: FormEdit<number | null>;
 };
 
+export type ServStrength = "required" | "preferred" | "none";
+
+/**
+ * SERV find_plan fields used by buildSearchSpec.
+ * Strength owns hard vs soft. Code only adds money/safety guardrails and feed mapping.
+ */
 export type ServPlanHint = {
   priceMaxUsd?: number | null;
   priceQuote?: string | null;
   yearMin?: number | null;
   yearMax?: number | null;
   yearQuote?: string | null;
-  models?: { make: string; model: string }[];
+  milesMax?: number | null;
+  milesQuote?: string | null;
+  drivetrain?: {
+    value: "awd_4wd" | "fwd" | "rwd" | "any";
+    strength: ServStrength;
+    quote?: string | null;
+  };
+  fuel?: {
+    value: "gas" | "hybrid" | "ev" | "diesel" | "any";
+    strength: ServStrength;
+    quote?: string | null;
+  };
+  /** Feed-facing body labels (SUV, Sedan, …). Empty / any → omit hard body. */
   bodyStyles?: string[];
+  seatsMin?: number | null;
+  seatsStrength?: ServStrength;
+  models?: { make: string; model: string }[];
+  excludeMakes?: string[];
+  location?: { zip?: string | null; phrase?: string | null };
+  priorities?: Array<{ id: string; quote?: string }>;
 };
 
 function dirtyNumber(edit: FormEdit<number | null> | undefined): number | null {
@@ -108,22 +136,32 @@ function excludedMakesFromNote(note: string): string[] {
   return [...found];
 }
 
+function servBodies(serv: ServPlanHint | undefined): string[] {
+  return (serv?.bodyStyles ?? [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => item.toLowerCase() !== "any");
+}
+
+/**
+ * dirty form > SERV hard > note literal only when SERV missed the field.
+ * Money/safety: price always enforceable; titleClean stays note-only.
+ */
 function hardPrice(note: string, form: SearchFormEdits, serv: ServPlanHint | undefined): Hard<number> | undefined {
   const dirty = dirtyNumber(form.priceMaxUsd);
   if (dirty != null && dirty >= 1000) return { value: dirty, source: "form" };
+  if (serv?.priceMaxUsd != null && serv.priceMaxUsd >= 1000) {
+    const quote = quoteInNote(serv.priceQuote, note) ?? undefined;
+    return { value: Math.round(serv.priceMaxUsd), source: "serv", ...(quote ? { quote } : {}) };
+  }
   const fromNote = budgetFromText(note);
   if (fromNote != null) return { value: fromNote, source: "note" };
-  const quote = quoteInNote(serv?.priceQuote, note);
-  if (quote && serv?.priceMaxUsd != null && serv.priceMaxUsd >= 1000) {
-    return { value: Math.round(serv.priceMaxUsd), source: "serv", quote };
-  }
   return undefined;
 }
 
 /**
- * One builder. A dirty form field beats the note. A note literal beats SERV.
- * SERV may only set a hard number when it quotes the shopper's words.
- * A number in neither the note nor a dirty field is left out.
+ * One builder. Precedence: dirty form > SERV required/hard > note only when SERV missed the field.
+ * SERV preferred lands in soft only. Money/safety (price, titleClean, form radius) stay in code.
  */
 export function buildSearchSpec(input: {
   note: string;
@@ -140,44 +178,52 @@ export function buildSearchSpec(input: {
   const exclusive = newerThanExclusive(note, now);
   const intake = intakeFromNote(note, now);
   const zipNote = zipFromNote(note, budgetFromText(note));
+  const hasServ = serv != null;
 
   const yearMinDirty = dirtyNumber(form.yearMin);
   const yearMaxDirty = dirtyNumber(form.yearMax);
+  const yearQuote = quoteInNote(serv?.yearQuote, note) ?? undefined;
   const yearMin =
     yearMinDirty != null
       ? { value: yearMinDirty, source: "form" as const }
-      : exclusive != null
-        ? { value: exclusive, source: "note" as const }
-        : years.yearMin != null
-          ? { value: years.yearMin, source: "note" as const }
-          : serv?.yearMin != null && quoteInNote(serv.yearQuote, note)
-            ? { value: Math.round(serv.yearMin), source: "serv" as const, quote: quoteInNote(serv.yearQuote, note) ?? undefined }
+      : serv?.yearMin != null
+        ? { value: Math.round(serv.yearMin), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
+        : exclusive != null
+          ? { value: exclusive, source: "note" as const }
+          : years.yearMin != null
+            ? { value: years.yearMin, source: "note" as const }
             : undefined;
   const yearMax =
     yearMaxDirty != null
       ? { value: yearMaxDirty, source: "form" as const }
-      : years.yearMax != null
-        ? { value: years.yearMax, source: "note" as const }
-        : serv?.yearMax != null && quoteInNote(serv.yearQuote, note)
-          ? { value: Math.round(serv.yearMax), source: "serv" as const, quote: quoteInNote(serv.yearQuote, note) ?? undefined }
+      : serv?.yearMax != null
+        ? { value: Math.round(serv.yearMax), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
+        : years.yearMax != null
+          ? { value: years.yearMax, source: "note" as const }
           : undefined;
 
   const milesDirty = dirtyNumber(form.milesMax);
   const milesNote = milesFromText(note);
+  const milesQuote = quoteInNote(serv?.milesQuote, note) ?? undefined;
   const milesMax =
     milesDirty != null
       ? { value: milesDirty, source: "form" as const }
-      : milesNote != null
-        ? { value: milesNote, source: "note" as const }
-        : undefined;
+      : serv?.milesMax != null
+        ? { value: Math.round(serv.milesMax), source: "serv" as const, ...(milesQuote ? { quote: milesQuote } : {}) }
+        : milesNote != null
+          ? { value: milesNote, source: "note" as const }
+          : undefined;
 
   const zipDirty = dirtyString(form.zip);
+  const servZip = serv?.location?.zip?.trim() ?? "";
   const zip =
     zipDirty && /^\d{5}$/.test(zipDirty)
       ? { value: zipDirty, source: "form" as const }
-      : zipNote
-        ? { value: zipNote, source: "note" as const }
-        : undefined;
+      : /^\d{5}$/.test(servZip)
+        ? { value: servZip, source: "serv" as const }
+        : zipNote
+          ? { value: zipNote, source: "note" as const }
+          : undefined;
 
   let radiusMi: Hard<number | null> | undefined;
   if (form.radiusMi?.dirty) {
@@ -185,31 +231,62 @@ export function buildSearchSpec(input: {
   }
 
   const bodyDirty = form.bodyStyles?.dirty ? form.bodyStyles.value?.filter(Boolean) ?? [] : null;
-  const bodyNote = bodyFromIntake(note);
+  const servBody = servBodies(serv);
+  const bodyNote = hasServ && serv?.bodyStyles != null ? null : bodyFromIntake(note);
   const bodyStyles =
     bodyDirty && bodyDirty.length
       ? { value: bodyDirty, source: "form" as const }
-      : bodyNote
-        ? { value: [bodyNote], source: "note" as const }
-        : undefined;
+      : hasServ && serv?.bodyStyles != null
+        ? servBody.length
+          ? { value: servBody, source: "serv" as const }
+          : undefined
+        : bodyNote
+          ? { value: [bodyNote], source: "note" as const }
+          : undefined;
 
   const excludeDirty = form.excludeMakes?.dirty ? form.excludeMakes.value?.filter(Boolean) ?? [] : null;
+  const excludeServ = (serv?.excludeMakes ?? []).map((item) => item.trim()).filter(Boolean);
   const excludeNote = excludedMakesFromNote(note);
   const excludeMakes =
     excludeDirty && excludeDirty.length
       ? { value: excludeDirty, source: "form" as const }
-      : excludeNote.length
-        ? { value: excludeNote, source: "note" as const }
-        : undefined;
+      : hasServ && serv?.excludeMakes != null
+        ? excludeServ.length
+          ? { value: excludeServ, source: "serv" as const }
+          : undefined
+        : excludeNote.length
+          ? { value: excludeNote, source: "note" as const }
+          : undefined;
 
   const driveDirty = form.drivetrain?.dirty ? form.drivetrain.value : undefined;
-  const awdHard = awdLimitFromText(note) === "hard";
-  const drivetrain =
-    driveDirty === "awd_4wd"
-      ? { value: "awd_4wd" as const, source: "form" as const }
-      : awdHard
-        ? { value: "awd_4wd" as const, source: "note" as const }
-        : undefined;
+  let drivetrain: Hard<"awd_4wd"> | undefined;
+  let softDrivetrain: Soft<"awd_4wd"> | undefined;
+  if (driveDirty === "awd_4wd") {
+    drivetrain = { value: "awd_4wd", source: "form" };
+  } else if (serv?.drivetrain?.strength != null) {
+    // SERV owns hard vs soft — do not call awdLimitFromText.
+    if (serv.drivetrain.strength === "required" && serv.drivetrain.value === "awd_4wd") {
+      const quote = quoteInNote(serv.drivetrain.quote, note) ?? undefined;
+      drivetrain = { value: "awd_4wd", source: "serv", ...(quote ? { quote } : {}) };
+    } else if (serv.drivetrain.strength === "preferred" && serv.drivetrain.value === "awd_4wd") {
+      softDrivetrain = { value: "awd_4wd", source: "serv", weight: "prefer" };
+    }
+  } else if (awdLimitFromText(note) === "hard") {
+    drivetrain = { value: "awd_4wd", source: "note" };
+  } else if (awdLimitFromText(note) === "soft") {
+    softDrivetrain = { value: "awd_4wd", source: "note", weight: "prefer" };
+  }
+
+  let softFuel: Soft<string> | undefined;
+  if (serv?.fuel && serv.fuel.value !== "any" && serv.fuel.strength !== "none") {
+    softFuel = { value: serv.fuel.value, source: "serv", weight: "prefer" };
+  }
+
+  const seatsStrength = serv?.seatsStrength ?? (serv?.seatsMin != null ? "preferred" : "none");
+  let softSeats: Soft<number> | undefined;
+  if (serv?.seatsMin != null && seatsStrength !== "none") {
+    softSeats = { value: Math.round(serv.seatsMin), source: "serv", weight: "prefer" };
+  }
 
   const history = historyFromText(note);
   const titleClean =
@@ -249,15 +326,29 @@ export function buildSearchSpec(input: {
       : sellFromNote != null && sellFromNote >= 1 && sellFromNote <= 365
         ? { value: sellFromNote, source: "note" as const, weight: "prefer" as const }
         : undefined;
+
+  const priorityIds =
+    hasServ && serv.priorities != null
+      ? serv.priorities.map((item) => item.id).filter(Boolean)
+      : intake.priorities ?? [];
+  const prioritySource: Prov = hasServ && serv.priorities != null ? "serv" : "note";
+
   const specWithoutIds = {
     v: 1 as const,
     mode: input.mode ?? "personal",
     note,
     hard,
     soft: {
-      models: { value: servModels, source: servModels.length ? ("serv" as const) : ("default" as const), weight: "prefer" as const },
-      priorities: { value: intake.priorities ?? [], source: "note" as const, weight: "prefer" as const },
+      models: {
+        value: servModels,
+        source: servModels.length ? ("serv" as const) : ("default" as const),
+        weight: "prefer" as const,
+      },
+      priorities: { value: priorityIds, source: prioritySource, weight: "prefer" as const },
       ...(sellWithinDays ? { sellWithinDays } : {}),
+      ...(softDrivetrain ? { drivetrain: softDrivetrain } : {}),
+      ...(softFuel ? { fuel: softFuel } : {}),
+      ...(softSeats ? { seatsMin: softSeats } : {}),
     },
     queries,
   };

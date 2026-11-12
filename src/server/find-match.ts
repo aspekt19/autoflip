@@ -29,8 +29,9 @@ import { implausibleOdometer } from "@/domain/find-best-deal";
 import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
+import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
 import { filterInventoryWithWiden } from "@/domain/inventory-widen";
-import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
+import { buildSearchSpec, enforceHard, hardDropSentence, type ServPlanHint } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -252,7 +253,11 @@ async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fet
   return out;
 }
 
-function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: Listing[]; note: string | null } {
+function applyHardGate(
+  collected: Listing[],
+  need: StructuredNeed,
+  servPlan?: ServPlanHint,
+): { listings: Listing[]; note: string | null } {
   const cars = need.mode === "flip" ? collected : collected.filter((row) => isPassengerOrLightTruck(row));
   const hiddenOther = collected.length - cars.length;
   const spec = buildSearchSpec({
@@ -266,6 +271,7 @@ function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: 
       milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true } : undefined,
       radiusMi: { value: need.distanceMiles, dirty: true },
     },
+    servPlan,
   });
   const gated = enforceHard(spec, cars);
   const otherNote =
@@ -333,6 +339,9 @@ export async function runFindMatch(
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
     /** When set (e.g. Resale multi-direction plan), skip proposeDirections collapse. */
     directions?: SearchDirection[];
+    /** C1 find_plan — owns hard vs soft SearchSpec when present. */
+    findPlan?: FindPlan | null;
+    servPlan?: ServPlanHint | null;
   } | null,
   deps: FindMatchDeps,
 ): Promise<FindMatchResult> {
@@ -353,6 +362,11 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
+  const servPlanHint: ServPlanHint | undefined = body?.servPlan
+    ? body.servPlan
+    : body?.findPlan
+      ? findPlanToServHint(body.findPlan)
+      : undefined;
   let directions = broadenOpenDirections(
     need.note,
     broadenStarterDirections(
@@ -765,13 +779,13 @@ export async function runFindMatch(
     const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
     let narrowed: Listing[];
     if (need.mode === "flip") {
-      const gated = applyHardGate(prepared, need);
+      const gated = applyHardGate(prepared, need, servPlanHint);
       if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
       narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
     } else {
       const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
       const hiddenOther = prepared.length - cars.length;
-      const widen = filterInventoryWithWiden(cars, filterNeed);
+      const widen = filterInventoryWithWiden(cars, filterNeed, { servPlan: servPlanHint });
       const otherNote =
         hiddenOther > 0
           ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`

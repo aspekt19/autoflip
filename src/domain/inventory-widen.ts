@@ -2,8 +2,6 @@
  * When hard gates / soft-as-filter preferences empty a live inventory, relax in order:
  * soft preferences first, then seller distance stepwise (not Nationwide). Always name what excluded cars.
  */
-import { hybridLimitFromText } from "./open-search";
-import { awdLimitFromText } from "./note-intake";
 import type { StructuredNeed } from "./need";
 import { listingWithinNeed } from "./need";
 import {
@@ -12,6 +10,7 @@ import {
   hardDropSentence,
   type HardDrop,
   type SearchSpec,
+  type ServPlanHint,
 } from "./search-spec";
 import type { Listing } from "./types";
 
@@ -33,27 +32,44 @@ export type InventoryWidenResult = {
   explanation: string | null;
 };
 
-/** Soft preferences that were applied as inventory filters for this need. */
-export function softFiltersAppliedAsHard(need: Pick<StructuredNeed, "note" | "openToOtherMakes" | "preferredMakes" | "bodyStyle" | "mustHaves">): SoftFilterKind[] {
-  const note = need.note ?? "";
+/**
+ * Soft preferences that were applied as inventory filters.
+ * Prefer SearchSpec.soft (SERV strengths) over fresh note regex.
+ */
+export function softFiltersAppliedAsHard(
+  need: Pick<StructuredNeed, "note" | "openToOtherMakes" | "preferredMakes" | "bodyStyle" | "mustHaves">,
+  spec?: SearchSpec,
+): SoftFilterKind[] {
   const out: SoftFilterKind[] = [];
-  if (awdLimitFromText(note) === "soft") out.push("awd_soft");
-  if (hybridLimitFromText(note) === "soft") out.push("fuel_hybrid_soft");
+  if (spec) {
+    if (spec.soft.drivetrain?.value === "awd_4wd") out.push("awd_soft");
+    if (spec.soft.fuel?.value) out.push("fuel_hybrid_soft");
+    if (spec.soft.bodyStyles?.value?.length) out.push("body_soft");
+    const makes = need.preferredMakes ?? [];
+    if (makes.length > 0 && need.openToOtherMakes === false) out.push("preferred_make_soft");
+    return out;
+  }
+  // Legacy path without a SearchSpec — keep preferred-make lock detection only.
   const makes = need.preferredMakes ?? [];
-  if (makes.length > 0 && need.openToOtherMakes === false && !/\bonly\b|\bmust be\b|\bnothing (?:but|except)\b/i.test(note)) {
-    out.push("preferred_make_soft");
-  }
-  if (need.bodyStyle && /\b(?:preferably|ideally|prefer|would be (?:great|nice)|nice if)\b/i.test(note)) {
-    out.push("body_soft");
-  }
+  if (makes.length > 0 && need.openToOtherMakes === false) out.push("preferred_make_soft");
   return out;
 }
 
 function dropSoftFromSpec(spec: SearchSpec, soft: SoftFilterKind[]): SearchSpec {
   const hard = { ...spec.hard };
-  if (soft.includes("awd_soft")) delete hard.drivetrain;
-  if (soft.includes("body_soft")) delete hard.bodyStyles;
-  return { ...spec, hard };
+  const softFields = { ...spec.soft };
+  if (soft.includes("awd_soft")) {
+    delete hard.drivetrain;
+    delete softFields.drivetrain;
+  }
+  if (soft.includes("body_soft")) {
+    delete hard.bodyStyles;
+    delete softFields.bodyStyles;
+  }
+  if (soft.includes("fuel_hybrid_soft")) {
+    delete softFields.fuel;
+  }
+  return { ...spec, hard, soft: softFields };
 }
 
 function needAfterSoftDrop(
@@ -128,6 +144,7 @@ const RADIUS_WIDEN_STEPS_MI = [100, 150, 250] as const;
 export function filterInventoryWithWiden(
   listings: readonly Listing[],
   need: StructuredNeed,
+  opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
   const formEdits = {
     priceMaxUsd:
@@ -137,7 +154,12 @@ export function filterInventoryWithWiden(
     milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true as const } : undefined,
     radiusMi: { value: need.distanceMiles, dirty: true as const },
   };
-  const spec = buildSearchSpec({ note: need.note ?? "", mode: need.mode, formEdits });
+  const spec = buildSearchSpec({
+    note: need.note ?? "",
+    mode: need.mode,
+    formEdits,
+    servPlan: opts?.servPlan,
+  });
   const first = enforceHard(spec, listings);
   const firstKept = first.kept.filter((item) => listingWithinNeed(item, need));
   const firstDrops: InventoryFilterDrop[] = [
@@ -157,7 +179,7 @@ export function filterInventoryWithWiden(
   }
 
   const steps: WidenStep[] = [];
-  const soft = softFiltersAppliedAsHard(need);
+  const soft = softFiltersAppliedAsHard(need, spec);
   let workingNeed = need;
   let workingSpec = spec;
   let kept = firstKept;

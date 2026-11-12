@@ -1091,7 +1091,8 @@ function AssistantFlow({
           need,
           searchIdempotencyKey,
           runId,
-          // C1 plan directions — skip proposeDirections collapse when present.
+          // C1 plan — owns SearchSpec hard/soft; directions skip proposeDirections collapse.
+          ...(findPlan ? { findPlan } : {}),
           ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
