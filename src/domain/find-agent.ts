@@ -330,6 +330,7 @@ export function applyFindAgentGuardrails(
 export type FindSubmitPicksListingFact = {
   vin: string;
   priceUsd: number | null;
+  miles?: number | null;
 };
 
 /**

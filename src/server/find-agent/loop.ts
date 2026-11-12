@@ -8,6 +8,7 @@ import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
+import { fingerprintsFromSearchJournal } from "@/domain/search-listings-feedback";
 import {
   assertNoNonUserSetConstraints,
   buildUserIntentFromFlatForm,
@@ -306,9 +307,11 @@ function restoreFindStateFromCheckpoint(
   const state = createFindAgentToolState(seedListings);
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
+  const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
+  state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {
     state,
-    journal: checkpoint.journal as unknown as FindAgentJournalEntry[],
+    journal,
     toolRounds: checkpoint.toolRounds,
     roundsCompleted: checkpoint.roundsCompleted,
     responsesInput: checkpoint.responsesInput,
@@ -380,9 +383,10 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search. Prefer tight filters first.",
-    "When results are empty or poor, read search_listings.funnel + relaxHints: relax the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard budget and must-haves stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters.",
-    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions.",
+    "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard keys (budget/zip) stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters. Code never auto-relaxes — you decide.",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, do not repeat the same filters; change approach.",
     "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
+    "A pass/nothing-fits must include passReason that states what you tried and why nothing fit — never pass silently after identical zero-result searches.",
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
@@ -603,10 +607,12 @@ async function postResponses(input: {
   });
 }
 
-function listingFactsFromState(state: FindAgentToolState): Map<string, { vin: string; priceUsd: number | null }> {
-  const out = new Map<string, { vin: string; priceUsd: number | null }>();
+function listingFactsFromState(
+  state: FindAgentToolState,
+): Map<string, { vin: string; priceUsd: number | null; miles: number | null }> {
+  const out = new Map<string, { vin: string; priceUsd: number | null; miles: number | null }>();
   for (const [vin, listing] of state.listingsByVin) {
-    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null });
+    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null, miles: listing.miles ?? null });
   }
   return out;
 }

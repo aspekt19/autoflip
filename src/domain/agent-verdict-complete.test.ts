@@ -47,6 +47,24 @@ describe("scoringVerdictComplete", () => {
     });
     expect(result).toEqual({ complete: true, kind: "nothing_fits" });
   });
+
+  it("rejects nothing-fits after only identical zero-result searches", () => {
+    const result = scoringVerdictComplete({
+      verdict: {
+        picks: [],
+        nothingFitsReason: "Nothing in range.",
+      },
+      searches: [
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+      ],
+    });
+    expect(result.complete).toBe(false);
+    if (!result.complete) {
+      expect(result.issues.some((i) => /Identical zero-result/i.test(i))).toBe(true);
+    }
+  });
 });
 
 describe("relaxedConditions text", () => {

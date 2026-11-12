@@ -351,6 +351,7 @@ export function applyResaleAgentGuardrails(
 export type ResaleSubmitPicksListingFact = {
   vin: string;
   priceUsd: number | null;
+  miles?: number | null;
 };
 
 /**

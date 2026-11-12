@@ -64,9 +64,13 @@ function printCaseLine(result: LiveEvalCaseResult): void {
       : "—";
   const agent = `mode=${result.agentMode ?? "—"} rounds=${result.toolRounds ?? 0} verdictReached=${result.verdictReached ?? false}`;
   const chosen = result.chosenListingCount ?? (result.pick?.vin ? 1 : 0);
+  const ask =
+    result.pick?.priceUsd != null || result.pick?.miles != null
+      ? ` ask=${result.pick.priceUsd ?? "—"} mi=${result.pick.miles ?? "—"}`
+      : "";
   if (result.ok) {
     console.log(
-      `[ok] ${result.id} [${product}] cars=${result.carsFound} chosen=${chosen} pick=${pick} ${agent} ${result.elapsedMs}ms`,
+      `[ok] ${result.id} [${product}] cars=${result.carsFound} chosen=${chosen} pick=${pick}${ask} ${agent} ${result.elapsedMs}ms`,
     );
   } else {
     const fail = result.failure;
@@ -76,6 +80,9 @@ function printCaseLine(result: LiveEvalCaseResult): void {
     );
   }
   console.log(`  relaxed: ${relaxed}`);
+  if (result.passReason?.trim()) {
+    console.log(`  passReason: ${result.passReason.slice(0, 200)}${result.passReason.length > 200 ? "…" : ""}`);
+  }
   console.log(`  note: ${result.note.slice(0, 140)}${result.note.length > 140 ? "…" : ""}`);
 }
 

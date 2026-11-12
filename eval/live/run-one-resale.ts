@@ -4,9 +4,15 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { joinChosenListing } from "@/domain/join-chosen-listing";
+import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
-import { runResaleAgentLoop, summarizeResaleAgentJournal } from "@/server/resale-agent/loop";
+import {
+  runResaleAgentLoop,
+  searchesFromResaleJournal,
+  summarizeResaleAgentJournal,
+} from "@/server/resale-agent/loop";
 import { createGoldenFetch } from "../../test/golden/transport";
 import { liveEvalJournalMeta } from "./journal-meta";
 import { ESTIMATED_USD_PER_QUERY, type RunOneDeps } from "./run-one";
@@ -161,35 +167,41 @@ export async function runOneResaleQuery(
 
   const actionable = agent.verdict.picks.find((p) => p.action !== "pass") ?? null;
   const top = actionable ?? null;
-  const listing = top ? agent.listingsByVin.get(top.vin.toUpperCase()) : null;
-  const label = listing
-    ? [listing.year, listing.make, listing.model].filter(Boolean).join(" ") || null
-    : null;
+  const joined = top ? joinChosenListing(top.vin, agent.listingsByVin) : null;
   const chosenVin = top?.vin ?? null;
+  const passReason = !chosenVin ? agent.verdict.summary?.trim() || null : null;
   const nothingFits =
     !chosenVin &&
     agent.verdictReached &&
     agent.toolRounds > 0 &&
     agent.relaxedConditions.length > 0 &&
-    Boolean(agent.verdict.summary?.trim());
+    Boolean(passReason);
   const scoringOk = Boolean(chosenVin) || nothingFits;
+  const carsFound = Math.max(
+    carsFoundFromSearchJournal(searchesFromResaleJournal(agent.journal)),
+    agent.knownVins.length,
+  );
   return {
     ...base,
     ok: scoringOk,
     searchSpec: null,
-    carsFound: agent.knownVins.length,
+    carsFound,
     pick: top
       ? {
           vin: top.vin,
-          label,
+          label: joined?.label ?? null,
           verdict: top.action,
           confidence: agent.verdict.confidence,
+          priceUsd: joined?.priceUsd ?? null,
+          miles: joined?.miles ?? null,
         }
       : {
           vin: null,
           label: null,
           verdict: "pass",
           confidence: agent.verdict.confidence,
+          priceUsd: null,
+          miles: null,
         },
     failure: scoringOk
       ? null
@@ -206,6 +218,7 @@ export async function runOneResaleQuery(
     toolRounds: agent.toolRounds,
     verdictReached: Boolean(chosenVin) || nothingFits,
     relaxedConditions: agent.relaxedConditions,
+    passReason,
     journalServCalls: journal.servCalls,
     journalToolCalls: journal.toolCalls,
     featuresActive: meta.featuresActive,

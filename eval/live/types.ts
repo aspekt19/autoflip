@@ -52,6 +52,10 @@ export type LiveEvalPick = {
   label: string | null;
   verdict: string | null;
   confidence: string | null;
+  /** Asking price from verified listing join (not SERV prose). */
+  priceUsd?: number | null;
+  /** Odometer from verified listing join (not SERV prose). */
+  miles?: number | null;
 };
 
 export type LiveEvalRelaxedCondition = {
@@ -77,6 +81,8 @@ export type LiveEvalCaseResult = {
   toolRounds?: number;
   verdictReached?: boolean;
   relaxedConditions?: LiveEvalRelaxedCondition[];
+  /** SERV written reason for pass/nothing-fits (Find passReason / Resale summary). */
+  passReason?: string | null;
   journalServCalls?: number;
   journalToolCalls?: number;
   /** Documented SERV features active on the winning path (multipath / Prompt Guard / Shadow). */

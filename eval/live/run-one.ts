@@ -4,6 +4,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { joinChosenListing } from "@/domain/join-chosen-listing";
 import type { SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
@@ -193,7 +194,6 @@ export async function runOneQuery(
   const searchSpec = summarizeSpec(understood.searchSpec, understood.findPlan.summary || null);
 
   // No classic runFindMatch seed. SERV agent loop owns search via search_listings.
-  const carsFound = 0;
   let context = mintFindSearchContextRecord({
     userId: deps.userId,
     need: understood.need,
@@ -238,7 +238,7 @@ export async function runOneQuery(
       ...base,
       ok: false,
       searchSpec,
-      carsFound,
+      carsFound: 0,
       pick: null,
       failure: {
         step: "decide",
@@ -259,19 +259,28 @@ export async function runOneQuery(
     decided.bestDeal?.pick?.key ??
     decided.pickAgentVerdict?.pick?.key ??
     null;
+  const offerByVin = new Map(
+    (decided.offerPool ?? []).map((row) => [row.vin.toUpperCase(), row]),
+  );
+  const joined = joinChosenListing(
+    typeof pickVin === "string" ? pickVin : null,
+    offerByVin,
+  );
+  const best = decided.bestDeal?.pick ?? null;
   const label =
+    joined?.label ??
     decided.pickAgentVerdict?.pick?.label ??
-    pickLabel(
-      decided.bestDeal?.pick?.year,
-      decided.bestDeal?.pick?.make,
-      decided.bestDeal?.pick?.model,
-    );
+    pickLabel(best?.year, best?.make, best?.model);
   const confidence =
     decided.pickAgentVerdict?.confidence != null
       ? String(decided.pickAgentVerdict.confidence)
       : decided.bestDeal?.confidence != null
         ? String(decided.bestDeal.confidence)
         : null;
+
+  const agentLoop = decided.agentLoop ?? null;
+  // Count from agent journal search results — never hardcode 0 when funnel kept rows.
+  const carsFound = agentLoop?.carsFound ?? decided.offerPool?.length ?? 0;
 
   if (decideFailed) {
     return settle({
@@ -284,6 +293,8 @@ export async function runOneQuery(
         label,
         verdict: null,
         confidence: null,
+        priceUsd: joined?.priceUsd ?? best?.priceUsd ?? null,
+        miles: joined?.miles ?? best?.miles ?? null,
       },
       failure: {
         step: "decide",
@@ -293,16 +304,18 @@ export async function runOneQuery(
       },
       proofRecords: proofs,
       elapsedMs: 0,
+      passReason: agentLoop?.passReason ?? null,
     });
   }
 
-  const agentLoop = decided.agentLoop ?? null;
   const elapsed = Date.now() - started;
   const chosenVin = typeof pickVin === "string" && pickVin.trim() ? pickVin : null;
+  const passReason = agentLoop?.passReason ?? null;
   const nothingFits =
     !chosenVin &&
     Boolean(agentLoop?.verdictReached) &&
     (verdict === "pass" || verdict == null) &&
+    Boolean(passReason?.trim()) &&
     (agentLoop?.relaxedConditions?.length ?? 0) > 0 &&
     (agentLoop?.toolRounds ?? 0) > 0;
   const verdictReached = Boolean(chosenVin) || nothingFits;
@@ -317,6 +330,8 @@ export async function runOneQuery(
       label,
       verdict: typeof verdict === "string" ? verdict : null,
       confidence,
+      priceUsd: joined?.priceUsd ?? best?.priceUsd ?? null,
+      miles: joined?.miles ?? best?.miles ?? null,
     },
     failure: scoringOk
       ? null
@@ -333,6 +348,7 @@ export async function runOneQuery(
     toolRounds: agentLoop?.toolRounds ?? 0,
     verdictReached,
     relaxedConditions: agentLoop?.relaxedConditions ?? [],
+    passReason,
     journalServCalls: agentLoop?.journalServCalls ?? 0,
     journalToolCalls: agentLoop?.journalToolCalls ?? 0,
     featuresActive: agentLoop?.featuresActive ?? [],

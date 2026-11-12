@@ -3,6 +3,7 @@
  */
 import { emptyAgentVerdict, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
+import { joinChosenListing } from "@/domain/join-chosen-listing";
 import type { FindAgentLoopResult } from "./loop";
 import type { Listing } from "@/domain/types";
 
@@ -120,6 +121,7 @@ export function mapFindAgentLoopToDecide(input: {
   };
 
   const top = input.agent.verdict.picks[0];
+  const joined = top ? joinChosenListing(top.vin, listingsByVin) : null;
   const actionMap = {
     buy: "buy",
     negotiate: "negotiate",
@@ -127,7 +129,12 @@ export function mapFindAgentLoopToDecide(input: {
     pass: "pass",
   } as const;
   const agentVerdict = emptyAgentVerdict({
-    pick: top ? { key: top.vin.toUpperCase(), label: top.label } : null,
+    // Label/price/miles from verified listing join — never SERV prose alone.
+    pick: joined
+      ? { key: joined.vin, label: joined.label }
+      : top
+        ? { key: top.vin.toUpperCase(), label: top.label }
+        : null,
     verdict: top
       ? actionMap[top.action]
       : input.agent.verdict.passReason
