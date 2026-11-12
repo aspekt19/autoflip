@@ -23,7 +23,10 @@ import {
   validateNeed,
   type StructuredNeed,
 } from "@/domain/need";
+import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
+import { awdLimitFromText } from "@/domain/note-intake";
 import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
+import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
@@ -103,6 +106,7 @@ export type FindMatchListing = Listing & {
   flipNote: string | null;
   clearsTarget: boolean | null;
   priceView: FindListingPriceView;
+  drivetrainUnverified?: boolean;
 };
 
 export type FindMatchGroup = {
@@ -210,7 +214,32 @@ function budgetOnlyDirection(need: StructuredNeed): SearchDirection {
   };
 }
 
+/** Hard all-wheel drive: confirm a blank drivetrain from the VIN decode, or mark it unverified. */
+async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fetchImpl?: typeof fetch): Promise<Listing[]> {
+  if (need.mode === "flip" || awdLimitFromText(need.note ?? "") !== "hard") return listings;
+  const out: Listing[] = [];
+  let decoded = 0;
+  for (const listing of listings) {
+    if (listing.drivetrain?.trim()) {
+      out.push(listing);
+      continue;
+    }
+    if (!fetchImpl || decoded >= 8 || listing.vin.length !== 17) {
+      out.push({ ...listing, drivetrainUnverified: true });
+      continue;
+    }
+    decoded += 1;
+    const row = await decodeVin(listing.vin, { fetch: fetchImpl }).catch(() => null);
+    const drive = row?.driveType?.trim();
+    if (drive) out.push({ ...listing, drivetrain: drive });
+    else out.push({ ...listing, drivetrainUnverified: true });
+  }
+  return out;
+}
+
 function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: Listing[]; note: string | null } {
+  const cars = need.mode === "flip" ? collected : collected.filter((row) => isPassengerOrLightTruck(row));
+  const hiddenOther = collected.length - cars.length;
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,
@@ -223,8 +252,14 @@ function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: 
       radiusMi: { value: need.distanceMiles, dirty: true },
     },
   });
-  const gated = enforceHard(spec, collected);
-  if (need.mode !== "flip") return { listings: gated.kept, note: hardDropSentence(gated.dropped) };
+  const gated = enforceHard(spec, cars);
+  const otherNote =
+    hiddenOther > 0
+      ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
+      : null;
+  if (need.mode !== "flip") {
+    return { listings: gated.kept, note: [hardDropSentence(gated.dropped), otherNote].filter(Boolean).join(" ") || null };
+  }
   // Flip ranking needs the wider asking-price set as comps. Price-only misses stay
   // in that pool; the ranker excludes anomalies and does not treat a gap as profit.
   const blocked = new Set(gated.dropped.filter((row) => row.rule !== "price").map((row) => row.vin));
@@ -630,7 +665,8 @@ export async function runFindMatch(
     const byVin = new Map(ranked.map((item) => [item.vin, item]));
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
-    const gated = applyHardGate(collected, need);
+    const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
+    const gated = applyHardGate(prepared, need);
     if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
     const narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
     const personalScores =
@@ -770,142 +806,8 @@ export async function runFindMatch(
 
   let visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
 
-  // Audit fallback: when every planned model returns 0 cars, one broader query —
-  // body style only (or any), years ±2, nationwide — before declaring empty.
-  // Bound by the same deadline/inventory cap so a hanging provider cannot outlive the stage.
-  // Skip when the planned wave already burned the stage budget (timeouts ≠ confirmed empty).
-  const plannedWaveTimedOut =
-    dispatches.length > 0 && dispatches.every((row) => row.timedOut || !row.result);
-  const broadenBudgetMs = Math.max(
-    0,
-    Math.min(
-      8_000,
-      deps.deadline ? Math.max(0, deps.deadline.remainingMs() - 1_000) : 8_000,
-    ),
-  );
-  if (
-    visible === 0 &&
-    providerQueriesUsed > 0 &&
-    !plannedWaveTimedOut &&
-    !deps.deadline?.expired() &&
-    broadenBudgetMs >= 1_000
-  ) {
-    const bodyStyle =
-      directions.find((d) => d.bodyStyle)?.bodyStyle ?? need.bodyStyle ?? undefined;
-    const yearPad = 2;
-    const confirmedFloor = body?.refine?.yearMin ?? need.yearMin ?? null;
-    const yMin =
-      confirmedFloor != null
-        ? confirmedFloor
-        : Math.max(1990, Math.min(...directions.map((d) => d.yearMin)) - yearPad);
-    const yMax = Math.max(...directions.map((d) => d.yearMax), confirmedFloor ?? 0) + yearPad;
-    const broadenDir: SearchDirection = {
-      id: "broaden_body",
-      segment: bodyStyle ? `Broader ${bodyStyle} search` : "Broader nationwide search",
-      why: "Widened after the planned models returned no cars.",
-      guidance: "editorial",
-      yearMin: yMin,
-      yearMax: yMax,
-      yearBecause: "Widened year band after empty planned search.",
-      models: [],
-      search: { make: "", model: "" },
-      bodyStyle,
-    };
-    const broadenAbort = new AbortController();
-    const broadenTimer = setTimeout(() => broadenAbort.abort(), broadenBudgetMs);
-    const broadenDeps: FindMatchDeps = {
-      ...deps,
-      autodev: deps.autodev
-        ? {
-            ...deps.autodev,
-            signal: broadenAbort.signal,
-            timeoutMs: Math.min(deps.autodev.timeoutMs ?? broadenBudgetMs, broadenBudgetMs),
-          }
-        : deps.autodev,
-    };
-    try {
-      const broadenResult = await runAssemble(
-        {
-          make: "",
-          model: "",
-          bodyStyle,
-          zip: undefined,
-          yearMin: yMin,
-          yearMax: yMax,
-          distanceMiles: null,
-          mode: need.mode,
-          milesMax: need.milesMax ?? undefined,
-          priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
-          skipRadarGuard: true,
-        },
-        broadenDeps,
-      );
-      providerQueriesUsed += 1;
-      if (broadenResult.ok && broadenResult.listings.length > 0) {
-        const nationNeed = { ...need, distanceMiles: null, zip: null };
-        const gated = applyHardGate(broadenResult.listings, nationNeed);
-        const narrowed = gated.listings.filter((row) => listingWithinNeed(row, nationNeed));
-        const scores = need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
-        const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
-          .map((item) => {
-            const priceView = item.priceView ?? assessFindListingPrice(item);
-            return {
-              ...item,
-              priceView,
-              badge: priceView.usableForBudget
-                ? priceBadge(item, narrowed)
-                : priceBadge({ ...item, priceUsd: null }, narrowed),
-              flipNote: null as string | null,
-              clearsTarget: null as boolean | null,
-            };
-          })
-          .sort((a, b) => {
-            const aKey = (a.vin || "").trim().toUpperCase();
-            const bKey = (b.vin || "").trim().toUpperCase();
-            const scoreDelta = (scores.get(bKey) ?? 0) - (scores.get(aKey) ?? 0);
-            if (scoreDelta !== 0) return scoreDelta;
-            return (a.priceUsd ?? Number.POSITIVE_INFINITY) - (b.priceUsd ?? Number.POSITIVE_INFINITY);
-          });
-        const listings = diversifyListingsByModel(rankedReady, 8, {
-          preferAwd: needPrefersAwd(need),
-        });
-        if (listings.length > 0) {
-          for (const item of rankedReady) {
-            const vin = (item.vin || "").trim().toUpperCase();
-            if (vin && compsPoolVins.has(vin)) continue;
-            if (vin) compsPoolVins.add(vin);
-            compsPoolAcc.push(item);
-          }
-          groups.push({
-            direction: broadenDir,
-            listings,
-            plannedModels: [{ make: "", model: "" }],
-            searchedModels: [{ make: "", model: "" }],
-            failedModels: [],
-            skippedModels: [],
-            coverage: "Broader nationwide body-style search after planned models returned none.",
-            coverageLevel: "low",
-            note: "No cars matched the first plan. Showing a broader nationwide search by body style and budget.",
-            providerWarning: null,
-            queryOutcomes: [
-              {
-                make: "",
-                model: bodyStyle ?? "",
-                outcome: "ok",
-                message: null,
-              },
-            ],
-          });
-          visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
-        }
-      }
-    } catch {
-      // Broaden is best-effort — keep the empty planned result.
-    } finally {
-      clearTimeout(broadenTimer);
-      if (!broadenAbort.signal.aborted) broadenAbort.abort();
-    }
-  }
+  // A zero-result search stays inside the shopper's radius. A wider search is offered
+  // in the empty message and is never run silently. Non-cars are filtered above.
 
   // One comparable pool across badge + pick/score: use full provider returns for this
   // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.

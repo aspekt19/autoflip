@@ -1,5 +1,6 @@
 import type { PreferredModel, StructuredNeed } from "./need";
 import { budgetIsApproximateFromNote, yearBandForBudget } from "./need";
+import { orderedYearBounds } from "./year-span";
 
 export type CandidateModel = { make: string; model: string };
 
@@ -77,10 +78,14 @@ export function proposeDirections(
     approximateFromNote: budgetIsApproximateFromNote(need.note),
   });
   // Prefer Confirm refine, then clarified need year bounds, then budget editorial band.
-  const yearMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
-  const yearMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;
+  const rawMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
+  const rawMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;
   const buyerSetMin = refine?.yearMin != null || need.yearMin != null;
   const buyerSetMax = refine?.yearMax != null || need.yearMax != null;
+  const openMax = now.getUTCFullYear() + 1;
+  const ordered = orderedYearBounds(rawMin, rawMax, buyerSetMax, openMax);
+  const yearMin = ordered.yearMin;
+  const yearMax = ordered.yearMax;
   // Never claim a budget-band yearMax (e.g. 2022) came from the buyer's clarification.
   const yearBecause =
     buyerSetMin && buyerSetMax

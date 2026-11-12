@@ -142,6 +142,8 @@ export type PurchaseReadinessInput = {
   trimMismatchNote?: string | null;
   identityMismatchNote?: string | null;
   recallCampaignCount?: number | null;
+  /** Shopper's max. Compared with the out-the-door estimate when that number is shown. */
+  budgetUsd?: number | null;
 };
 
 function sameName(a: string, b: string): boolean {
@@ -592,6 +594,12 @@ function pointsNote(count: number): string | null {
 export function buildPurchaseReadiness(input: PurchaseReadinessInput): PurchaseReadiness {
   const asking = usableAsking(input.car);
   const otd = buildOtd(input, asking);
+  if (input.budgetUsd != null && otd.floorUsd != null && otd.floorUsd > input.budgetUsd) {
+    otd.lines = [
+      `This out-the-door estimate is over your ${formatUsd(input.budgetUsd)} budget. The figure above is not the asking price.`,
+      ...otd.lines,
+    ];
+  }
   const offer = buildOffer(input.car, input.pool, asking);
   const talkingPoints = buildPoints(input, asking, offer);
   return {

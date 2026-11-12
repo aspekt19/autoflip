@@ -68,6 +68,8 @@ export async function understandNeed(
     budgetScope?: StructuredNeed["budgetScope"];
     zip?: string | null;
     distanceMiles?: number | null;
+    /** True only when the shopper chose a radius, including Nationwide. A fresh note's null must not wipe a city radius. */
+    radiusDirty?: boolean;
     repairAbility?: StructuredNeed["repairAbility"];
     useCase?: StructuredNeed["useCase"];
     targetProfitUsd?: number | null;
@@ -286,7 +288,10 @@ export async function understandNeed(
   }
   // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
   if (formZip) need = { ...need, zip: formZip };
-  if (body.distanceMiles !== undefined) need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  // null without radiusDirty means "no form radius yet", not "search nationwide".
+  if (body.radiusDirty === true || (body.distanceMiles != null && Number.isFinite(body.distanceMiles))) {
+    need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  }
   // Answered ZIP clears the blocking question for Confirm.
   if (formZip && findPlan.location.needsZip) {
     findPlan = {

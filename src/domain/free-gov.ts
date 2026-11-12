@@ -10,6 +10,7 @@ import { TtlCache } from "@/io/cache";
 import {
   complaintsFor,
   decodeVin,
+  recallLookupUrl,
   recallsFor,
   type GovDeps,
 } from "@/io/gov";
@@ -239,12 +240,7 @@ export function createLiveFreeGovPort(opts?: {
 }
 
 async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): Promise<FreeGovEvidencePacket> {
-  const params = new URLSearchParams({
-    make: listing.make,
-    model: listing.model,
-    modelYear: String(listing.year),
-  });
-  const url = `https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`;
+  const url = recallLookupUrl(listing.make, listing.model, listing.year);
   const scope =
     "nhtsa_recalls+complaints_by_make_model_year — campaigns/allegations for the vehicle configuration; NOT VIN-specific unrepaired/open status; NOT title/NMVTIS; zero campaigns ≠ VIN clear";
   const [recalls, complaints] = await Promise.all([

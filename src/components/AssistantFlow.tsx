@@ -12,7 +12,8 @@ import {
   type NoteMarks,
 } from "@/domain/find-intake-stage";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { awdLimitFromText, intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
 import Link from "next/link";
@@ -30,7 +31,7 @@ import type { FindPlan } from "@/domain/find-plan";
 import { CoverageLine } from "./CoverageNote";
 import { RunMirror } from "./RunMirror";
 import { DecisionNote } from "./DecisionNote";
-import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
+import { decideAfFlowRestore, freshVisitRestorePolicy, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
   resolveSelectedListingHandoff,
@@ -143,6 +144,7 @@ type ListingCard = {
   bodyStyle?: string | null;
   style?: string | null;
   overBudget?: boolean;
+  drivetrainUnverified?: boolean;
   badge?: PriceBadge;
   flipNote?: string | null;
   clearsTarget?: boolean | null;
@@ -317,6 +319,7 @@ function AssistantFlow({
   /** Owner-bound search context from /api/match — required for next-check / decide. */
   const [searchContextToken, setSearchContextToken] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const [resumeOffer, setResumeOffer] = useState<string | null>(null);
   const [servNextCheckEnabled, setServNextCheckEnabled] = useState(false);
   /** PR B: one-shot decide path instead of next-check loop. */
   const [decidePathEnabled, setDecidePathEnabled] = useState(false);
@@ -439,8 +442,13 @@ function AssistantFlow({
           budgetKnown: opts?.freshNote || !budgetFormDirty ? false : budgetKnown,
           budgetDirty: opts?.freshNote ? false : budgetFormDirty,
           zip: zipForNeed,
-          // Always send the user-selected radius (null = Nationwide). Never drop it silently.
-          distanceMiles: distanceForNeed,
+          // A fresh note omits radius so a city in the note can set one. Nationwide is an explicit choice.
+          ...(opts?.freshNote
+            ? {}
+            : {
+                distanceMiles: distanceForNeed,
+                radiusDirty: true,
+              }),
           repairAbility: opts?.freshNote ? undefined : need?.repairAbility,
           useCase: opts?.freshNote ? undefined : need?.useCase,
           targetProfitUsd: opts?.freshNote ? undefined : need?.targetProfitUsd,
@@ -552,11 +560,12 @@ function AssistantFlow({
     }
   }
 
-  useEffect(() => {
-    if (variant !== "find" || initialNote?.trim()) return;
+  const resumePayload = useRef<string | null>(null);
+
+  function resumeSavedFind() {
+    const raw = resumePayload.current;
+    if (!raw) return;
     try {
-      const raw = sessionStorage.getItem("af-flow");
-      if (!raw) return;
       const saved = JSON.parse(raw) as {
         v?: number;
         need?: StructuredNeed;
@@ -578,7 +587,6 @@ function AssistantFlow({
         marketPool?: unknown;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
-
       const decision = decideAfFlowRestore(saved);
       const groups = saved.groups ?? [];
       if (decision.action === "drop_results") {
@@ -651,6 +659,21 @@ function AssistantFlow({
           });
         }
       }
+    } catch {
+      /* ignore a bad saved draft */
+    }
+    setResumeOffer(null);
+  }
+
+  useEffect(() => {
+    if (variant !== "find" || initialNote?.trim()) return;
+    try {
+      const raw = sessionStorage.getItem("af-flow");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { need?: unknown; stage?: string };
+      if (!saved.need || !saved.stage || saved.stage === "need") return;
+      resumePayload.current = raw;
+      setResumeOffer(freshVisitRestorePolicy().resumeLabel);
     } catch {
       /* ignore a bad saved draft */
     }
@@ -838,7 +861,7 @@ function AssistantFlow({
    * PR B: one-shot decide via owner-bound searchContextToken.
    * Free-gov + triage + decide + challenge; never auto-continues.
    */
-  async function applyLiveFindDecide(opts?: { token?: string; auto?: boolean }) {
+  async function applyLiveFindDecide(opts?: { token?: string; auto?: boolean; runId?: string | null }) {
     if (variant !== "find") return;
     const token = opts?.token ?? searchContextToken;
     if (!token) {
@@ -852,7 +875,7 @@ function AssistantFlow({
       findNextCheckPendingLabel({
         pending: true,
         auto: Boolean(opts?.auto),
-        progressLine: "SERV is thinking — reviewing public records and picking the best match…",
+        progressLine: "Reviewing public records and choosing the best match…",
       }),
     );
     setFindLoopOpen(true);
@@ -864,7 +887,7 @@ function AssistantFlow({
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchContextToken: token, runId }),
+        body: JSON.stringify({ searchContextToken: token, runId: opts?.runId ?? runId }),
       });
       const body = (await response.json()) as {
         ok?: boolean;
@@ -996,6 +1019,7 @@ function AssistantFlow({
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     let autoDecidePath = false;
+    let matchedRunId: string | null = null;
     try {
       const specFingerprint = JSON.stringify({
         text,
@@ -1202,11 +1226,15 @@ function AssistantFlow({
         /* ignore */
       }
       // PR B: decide path takes one /api/find/decide call. Legacy: next-check loop.
-      const autoDecide = shouldAutoStartFindDecide({
-        decidePathEnabled: Boolean(body.decidePathEnabled),
-        searchContextToken: nextToken,
-        alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
-      });
+      const hasCars = nextGroups.some((group) => group.listings.length > 0);
+      matchedRunId = typeof body.runId === "string" ? body.runId : null;
+      const autoDecide = hasCars
+        ? shouldAutoStartFindDecide({
+            decidePathEnabled: Boolean(body.decidePathEnabled),
+            searchContextToken: nextToken,
+            alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
+          })
+        : null;
       if (autoDecide) {
         autoNextCheckTokenRef.current = autoDecide;
         autoNextToken = autoDecide;
@@ -1239,9 +1267,9 @@ function AssistantFlow({
     }
     if (autoNextToken) {
       if (autoDecidePath) {
-        void applyLiveFindDecide({ token: autoNextToken, auto: true });
+        void applyLiveFindDecide({ token: autoNextToken, auto: true, runId: matchedRunId });
       } else {
-        void applyLiveFindDecide({ token: autoNextToken, auto: true });
+        void applyLiveFindDecide({ token: autoNextToken, auto: true, runId: matchedRunId });
       }
     }
   }
@@ -1583,6 +1611,20 @@ function AssistantFlow({
         </ol>
       ) : null}
 
+      {path === "choose" && stage === "need" && resumeOffer ? (
+        <p className="hint">
+          <button
+            className="quiet"
+            type="button"
+            onClick={() => {
+              resumeSavedFind();
+            }}
+          >
+            {resumeOffer}
+          </button>
+        </p>
+      ) : null}
+
       {path === "choose" && stage === "need" ? (
         <form
           onSubmit={(event) => {
@@ -1640,7 +1682,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={text.trim().length < 8 || pending === "need"}>
-              {pending === "need" ? "SERV is thinking…" : "Continue"}
+              {pending === "need" ? "Working…" : "Continue"}
             </button>
           </div>
           {text.trim().length < 8 ? <p className="hint">Write a short note first, at least a few words.</p> : null}
@@ -1704,7 +1746,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={pending === "need"}>
-              {pending === "need" ? "SERV is thinking…" : "Continue"}
+              {pending === "need" ? "Working…" : "Continue"}
             </button>
           </div>
         </form>
@@ -1808,7 +1850,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={pending === "need"}>
-              {pending === "need" ? "SERV is thinking…" : "Continue"}
+              {pending === "need" ? "Working…" : "Continue"}
             </button>
           </div>
         </form>
@@ -2195,6 +2237,7 @@ function AssistantFlow({
                       identityMismatchNote:
                         row.excludedFromPick && row.excludedReason ? row.excludedReason : null,
                       recallCampaignCount: recallCampaignCountForCar(row, recallReceipts),
+                      budgetUsd: need.budgetKnown ? need.budgetUsd : null,
                     }),
                   );
                 }
@@ -2571,7 +2614,7 @@ function AssistantFlow({
                 {group.skippedModels?.length
                   ? ` Skipped (provider budget): ${group.skippedModels.map((item) => `${item.make} ${item.model}`).join(", ")} — not checked.`
                   : ""}{" "}
-                Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
+                {yearSpanSentence(group.direction.yearMin, group.direction.yearMax)} {group.direction.yearBecause}
               </p>
               {group.listings.length > 0
                 ? (() => {
@@ -2693,7 +2736,10 @@ function AssistantFlow({
                         <p className="hint">{formatFindFuelEvidenceShort(fuelRow.fuelEvidence)}</p>
                       );
                     })()}
-                    {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
+                    {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}
+                    {car.drivetrainUnverified ? (
+                      <p className="budget-flag">All-wheel drive was not verified for this car.</p>
+                    ) : null}
                     {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
@@ -2765,7 +2811,7 @@ function AssistantFlow({
                   <>
                     {inBudget.length > 0 ? (
                       <>
-                        <h4 className="hint">Within budget</h4>
+                        <h4 className="hint">Asking price within your limit</h4>
                         <div className="listing-grid">{inBudget.map(renderCard)}</div>
                       </>
                     ) : null}

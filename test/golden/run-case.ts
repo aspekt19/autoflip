@@ -21,6 +21,7 @@ import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search
 import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
 import type { GoldenCase, CaseTurn } from "./cases";
+import { scriptedGoldenFetch } from "./fixtures";
 import { resaleFixtureFetch } from "./resale-fixture-fetch";
 import { permalinkHtml, storeGoldenRun } from "./materialize-run";
 import { createGoldenFetch, listingSearchUrls, recordingsRoot, type GoldenMode, type TransportAttempt } from "./transport";
@@ -196,7 +197,7 @@ function shownFromMatch(result: FindMatchResult): ShownListing[] {
       miles: car.miles,
       distanceMiles: car.distanceMiles ?? null,
       drivetrain: car.drivetrain,
-      drivetrainUnknownFlagged: false,
+      drivetrainUnknownFlagged: car.drivetrainUnverified === true,
       accidentCount: car.accidentCount,
       accidentUnknownFlagged: false,
       seats: null,
@@ -254,6 +255,7 @@ async function runPersonal(
   transportPending: boolean,
   unseen: boolean,
   attempts: TransportAttempt[],
+  skipDecide = false,
 ): Promise<Omit<GoldenRun, "final" | "elapsedMs">> {
   const session = new ClientSession("personal");
   const specs: ObservedSpec[] = [];
@@ -306,7 +308,7 @@ async function runPersonal(
   let message: string | null = matched.ok ? matched.body.message : (!matched.ok ? String(matched.body.message ?? "") : null);
   let nextStep: string | null = matched.ok ? matched.body.nextStep : null;
   const decideStarted = Date.now();
-  if (matched.ok && session.need) {
+  if (!skipDecide && matched.ok && session.need && listings.length > 0) {
     const best = selectBestDealOnEvidence({
       need: session.need,
       listings: listings.map((car) => ({
@@ -492,6 +494,7 @@ async function runFlip(
 
 export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spend?: Spend, root?: string): Promise<GoldenRun> {
   const started = Date.now();
+  const scriptedUrls: string[] = [];
   const transport = await createGoldenFetch({
     mode: mode === "live" ? "live" : mode,
     caseId: specCase.id,
@@ -501,10 +504,22 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
     liveFetch: mode === "replay" ? undefined : fetch,
   });
   const unseen = () => transport.attempts.some((row) => row.unseen);
+  const fetchImpl = specCase.scripted ? scriptedGoldenFetch(specCase.scripted, scriptedUrls) : transport.fetch;
   const body =
     specCase.kind === "flip"
-      ? await runFlip(specCase, transport.fetch, transport.pending, false, transport.attempts)
-      : await runPersonal(specCase, transport.fetch, transport.pending, false, transport.attempts);
+      ? await runFlip(specCase, fetchImpl, transport.pending && !specCase.scripted, false, transport.attempts)
+      : await runPersonal(
+          specCase,
+          fetchImpl,
+          transport.pending && !specCase.scripted,
+          false,
+          transport.attempts,
+          Boolean(specCase.scripted),
+        );
+  if (specCase.scripted) {
+    body.listingUrls = scriptedUrls.filter((url) => url.includes("/listings"));
+    body.recordingsPending = false;
+  }
   const done = { ...body, unseenRequest: unseen() };
   const stored = await storeGoldenRun(done);
   const elapsedMs = Date.now() - started;

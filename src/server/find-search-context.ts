@@ -85,6 +85,8 @@ export type FindSearchContextRecord = {
   triageRevisitUsed?: boolean;
   /** PR B: decide path active — UI calls /api/find/decide instead of next-check. */
   decidePathEnabled?: boolean;
+  /** The Run permalink for this search. Decide finalizes this id, not a new one. */
+  runId?: string | null;
   iat: number;
   exp: number;
 };
@@ -291,6 +293,7 @@ export async function updateFindSearchContext(
     triageShortlistKeys?: string[];
     triageRevisitUsed?: boolean;
     decidePathEnabled?: boolean;
+    runId?: string | null;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -328,6 +331,7 @@ export async function updateFindSearchContext(
       patch.decidePathEnabled !== undefined
         ? patch.decidePathEnabled
         : (record.decidePathEnabled ?? false),
+    runId: patch.runId !== undefined ? patch.runId : (record.runId ?? null),
   };
   await storeFindSearchContext(kv, next);
   return next;

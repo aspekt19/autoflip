@@ -231,9 +231,24 @@ export function fuelEconomyFromText(text: string): boolean {
   );
 }
 
-/** Soft AWD/4WD preference. Mention alone is enough — never a hard must-filter. */
+const AWD_WORD = String.raw`(?:awd|4wd|4x4|all[\s-]?wheel|four[\s-]?wheel)`;
+
+/** True when the note mentions AWD/4WD at all (hard or soft). */
 export function awdPreferenceFromText(text: string): boolean {
-  return /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(text);
+  return new RegExp(String.raw`\b${AWD_WORD}\b`, "i").test(text);
+}
+
+/**
+ * Explicit "with AWD / 4WD / all-wheel drive" is a hard limit.
+ * "Preferably" or "ideally" next to that phrase is ranking only.
+ */
+export function awdLimitFromText(text: string): "hard" | "soft" | null {
+  if (!awdPreferenceFromText(text)) return null;
+  const soft = new RegExp(
+    String.raw`\b(?:prefer(?:ably)?|ideally|if possible|nice to have|would like)\b[^.]{0,48}\b${AWD_WORD}\b|\b${AWD_WORD}\b[^.]{0,32}\b(?:if possible|preferably|ideally)\b`,
+    "i",
+  );
+  return soft.test(text) ? "soft" : "hard";
 }
 
 /**
@@ -325,11 +340,14 @@ export function yearsFromNote(text: string, now = new Date()): { yearMin: number
   return { yearMin: null, yearMax: null };
 }
 
-/** Odometer cap. A price like “under 15k” is not mileage unless the note says miles. */
+/**
+ * Odometer cap. Mileage only when the text says miles, mi, or odometer.
+ * A single "max Nk" next to a budget ("cheap", "budget", "$") is a price, not miles.
+ */
 export function milesCapFromNote(text: string): number | null {
   const patterns = [
-    /(?:up to|under|less than|no more than|max(?:imum)?|at most)\s+([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\s*(miles|mi)\b/i,
-    /\b(?:max(?:imum)?|no more than|at most)\s+([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)\b/i,
+    /(?:up to|under|less than|no more than|max(?:imum)?|at most)\s+([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\s*(?:miles|mi)\b/i,
+    /\bodometer\b[^.]{0,24}?(?:under|max(?:imum)?|at most|of|below)?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\b/i,
     /\b([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\s*(?:miles|mi)\s*(?:or less|or under|max|maximum|cap)\b/i,
   ];
   for (const pattern of patterns) {
@@ -449,13 +467,15 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const bodyStyle = bodyFromIntake(text);
   const years = yearsFromNote(text, now);
   const milesMax = milesCapFromNote(text);
+  const awdLimit = awdLimitFromText(text);
   const zip = zipFromNote(text, budgetUsd);
   const locationPhrase = locationPhraseFromText(text);
   const radius = radiusFromNote(text);
-  // AWD stays out of mustHaves — soft preference only (ranking / Confirm), never a hard filter.
+  // Hard "with AWD" is a must. "Preferably AWD" stays a ranking preference only.
   const mustHaves = [
     transmission === "automatic" ? "automatic" : null,
     transmission === "manual" ? "manual" : null,
+    awdLimit === "hard" ? "AWD" : null,
     ...historyMusts(historyPreference),
     bodyStyle,
   ].filter((item): item is string => Boolean(item));

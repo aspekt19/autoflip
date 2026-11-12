@@ -45,6 +45,7 @@ export async function POST(request: Request) {
             : body.distanceMiles === "nationwide"
               ? null
               : undefined,
+      radiusDirty: body.radiusDirty === true || body.distanceMiles === "nationwide",
       repairAbility: isRepair(body.repairAbility) ? body.repairAbility : undefined,
       useCase: isUse(body.useCase) ? body.useCase : undefined,
       targetProfitUsd: typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined,

@@ -42,7 +42,7 @@ export function whyThisCar(input: {
     facts.push(
       input.overBudget
         ? `$${input.priceUsd.toLocaleString("en-US")} (Slightly over budget vs $${input.budgetUsd.toLocaleString("en-US")})`
-        : `$${input.priceUsd.toLocaleString("en-US")} (within $${input.budgetUsd.toLocaleString("en-US")})`,
+        : `$${input.priceUsd.toLocaleString("en-US")} asking price (within your $${input.budgetUsd.toLocaleString("en-US")} asking-price limit)`,
     );
   } else if (input.priceUsd != null) {
     facts.push(`$${input.priceUsd.toLocaleString("en-US")}`);

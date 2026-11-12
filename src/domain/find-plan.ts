@@ -12,7 +12,8 @@ import {
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import { intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import { awdLimitFromText, intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
   autoDevModel,
@@ -556,16 +557,20 @@ export function planToStructuredNeed(
     models.push(item);
   }
   const makesFromNamed = [...new Set(models.map((item) => item.make))];
+  const noteAwd = awdLimitFromText(note);
   const awdPreference =
-    plan.drivetrain.value === "awd_4wd" &&
-    (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required");
+    noteAwd != null ||
+    (plan.drivetrain.value === "awd_4wd" &&
+      (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required"));
   const reliabilityPriority = plan.priorities.some((p) => p.id === "reliability");
   const fuelEconomyPriority =
     plan.priorities.some((p) => p.id === "fuel_cost") ||
     ((plan.fuel.value === "hybrid" || plan.fuel.value === "ev") && plan.fuel.strength !== "none");
   const priorityLabels = plan.priorities.map((p) => p.id);
   const mustHaves: string[] = [];
-  if (plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") mustHaves.push("AWD");
+  if ((plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") || noteAwd === "hard") {
+    mustHaves.push("AWD");
+  }
   if (plan.fuel.strength === "required" && plan.fuel.value !== "any") mustHaves.push(plan.fuel.value);
 
   return {
@@ -603,10 +608,11 @@ export function planToDirections(plan: FindPlan, now = new Date()): SearchDirect
   // Never invent a budget year ceiling (AUDIT R5) — only years the buyer/form gave.
   const openMin = 1990;
   const openMax = now.getUTCFullYear() + 1;
-  const yearMin = plan.yearMin ?? openMin;
-  const yearMax = plan.yearMax ?? openMax;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
+  const ordered = orderedYearBounds(plan.yearMin ?? openMin, plan.yearMax ?? openMax, buyerSetMax, openMax);
+  const yearMin = ordered.yearMin;
+  const yearMax = ordered.yearMax;
   const yearBecause =
     buyerSetMin || buyerSetMax
       ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
@@ -709,12 +715,17 @@ export function fallbackFindPlan(
   }
   const seedModels = namedModels.length ? namedModels : makeOnlyModels;
 
+  const awdLimit = awdLimitFromText(note);
   const awd =
-    baseline.awdPreference === true
+    awdLimit != null
       ? ({
           value: "awd_4wd",
-          strength: "preferred",
-          quote: verbatimQuote("Preferably AWD", note) ?? verbatimQuote("preferably AWD", note),
+          strength: awdLimit === "hard" ? "required" : "preferred",
+          quote:
+            verbatimQuote("with AWD", note) ??
+            verbatimQuote("Preferably AWD", note) ??
+            verbatimQuote("preferably AWD", note) ??
+            verbatimQuote("AWD", note),
         } satisfies FindPlanQuotedPref<FindPlanDrivetrainValue>)
       : ({ value: "any", strength: "none", quote: null } satisfies FindPlanQuotedPref<FindPlanDrivetrainValue>);
 

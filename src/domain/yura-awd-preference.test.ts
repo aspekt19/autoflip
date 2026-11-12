@@ -46,7 +46,7 @@ describe("Yura Preferably AWD + reliability (REPORT_356a P0 #4)", () => {
 
     const awdGap = softPrefGapsFromText(YURA_NOTE).find((g) => g.id === "awd");
     expect(awdGap?.mentioned).toMatch(/Preferably AWD/i);
-    expect(awdGap?.honesty).toMatch(/soft preference|does not drop/i);
+    expect(awdGap?.honesty).toMatch(/Preferably all-wheel drive|ranks higher/i);
   });
 
   it("does not invent condition-first from bare reliable / reliable for road trips", () => {

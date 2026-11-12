@@ -28,6 +28,8 @@ export type Listing = {
   fuel: string | null;
   engine: string | null;
   drivetrain: string | null;
+  /** Hard all-wheel drive was requested and this listing did not publish a drivetrain we could confirm. */
+  drivetrainUnverified?: boolean;
   bodyStyle: string | null;
   /** Dealer body description when it differs from bodyStyle, such as "Sedan" next to "Car". */
   style?: string | null;

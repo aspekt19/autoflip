@@ -4,7 +4,19 @@
  * "+" in the spec is a later turn (form confirm or another note).
  */
 
-export type GoldenCaseId = "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" | "G9" | "G10";
+export type GoldenCaseId =
+  | "G1"
+  | "G2"
+  | "G3"
+  | "G4"
+  | "G5"
+  | "G6"
+  | "G7"
+  | "G8"
+  | "G9"
+  | "G10"
+  | "L1"
+  | "L2";
 
 export type CaseTurn =
   | { note: string }
@@ -34,11 +46,16 @@ export type CaseExpect = {
   sellWithinDays?: number;
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
+  /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
+  scripted?: "live-a" | "live-b";
+  noMilesMax?: boolean;
+  noVerdictWhenEmpty?: boolean;
 };
 
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
+  scripted?: "live-a" | "live-b";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -148,6 +165,45 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "Nationwide" }],
     expect: { budgetUsd: 5000, priceCeilUsd: 5250, radiusMi: null, zip: null, queriesRequired: true },
+  },
+  {
+    id: "L1",
+    kind: "personal",
+    scripted: "live-a",
+    location: "from-note",
+    search: "final",
+    turns: [
+      { note: "First car for my daughter, safe and cheap to run, max 12k, near Chicago, newer than 2019" },
+      { confirm: { zip: "60601", distanceMiles: 50 } },
+    ],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      yearMin: 2020,
+      zip: "60601",
+      radiusMi: 50,
+      noMilesMax: true,
+      noVerdictWhenEmpty: true,
+      queriesRequired: true,
+    },
+  },
+  {
+    id: "L2",
+    kind: "personal",
+    scripted: "live-b",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "Used compact SUV with AWD under $25,000 near Denver, 2018 or newer, under 80k miles" }],
+    expect: {
+      budgetUsd: 25000,
+      priceCeilUsd: 26250,
+      yearMin: 2018,
+      milesMax: 80000,
+      zip: "80202",
+      radiusMi: 100,
+      drivetrain: "awd_4wd",
+      queriesRequired: true,
+    },
   },
 ];
 

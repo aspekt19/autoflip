@@ -193,7 +193,7 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.freeGovReceipts).toEqual([]);
-    expect(result.loop.detail).toMatch(/No public lookup receipts/i);
+    expect(result.loop.detail).toMatch(/No public record checks were recorded/i);
     expect(result.loop.detail).not.toMatch(/^Public checks, triage, decide, and challenge finished/i);
     expect(result.freeGovCoverage?.anyUnchecked).toBe(true);
   });
