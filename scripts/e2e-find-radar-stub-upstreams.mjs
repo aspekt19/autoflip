@@ -285,6 +285,31 @@ export function selfTestStubListings() {
   assertStub(miami.data.length === 4, `33130 within 100 miles should keep the Miami RAV4s, got ${miami.data.length}`);
 }
 
+/** Empty UI seed requires search_listings before finish — lock the stub order. */
+export function selfTestStubAgentSearchThenFinish() {
+  const schemaBody = (messages) => ({
+    messages,
+    response_format: { type: "json_schema", json_schema: { name: "find_agent_next_action" } },
+  });
+  const first = JSON.parse(servPayload(schemaBody([{ role: "user", content: "{}" }])).choices[0].message.content);
+  assertStub(first.action === "search", `expected search before tool result, got ${first.action}`);
+  const second = JSON.parse(
+    servPayload(
+      schemaBody([
+        {
+          role: "user",
+          content: `Tool result for search_listings:\n${JSON.stringify({ ok: true, listings: [{ vin: STUB_RAV4_VINS[0] }] })}\nContinue with action search or finish.`,
+        },
+      ]),
+    ).choices[0].message.content,
+  );
+  assertStub(second.action === "finish", `expected finish after search_listings, got ${second.action}`);
+  assertStub(
+    second.picks?.[0]?.vin === STUB_RAV4_VINS[0],
+    `finish VIN must be a stub RAV4, got ${second.picks?.[0]?.vin}`,
+  );
+}
+
 function schemaName(body) {
   return body?.response_format?.json_schema?.name ?? null;
 }
@@ -719,6 +744,7 @@ const server = http.createServer(async (req, res) => {
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly && process.argv.includes("--self-test")) {
   selfTestStubListings();
+  selfTestStubAgentSearchThenFinish();
   console.log("stub self-test ok");
 } else if (invokedDirectly) {
   server.listen(PORT, "127.0.0.1", () => {
