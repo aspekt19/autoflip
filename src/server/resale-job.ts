@@ -798,21 +798,22 @@ export async function advanceResaleJob(
     return { ok: false, status: 400, body: { error: "invalid_input", message: "jobId is required." } };
   }
 
-  let job = await readResaleJob(deps.kv, jobId);
-  if (!job || job.exp * 1000 < Date.now()) {
+  const existingJob = await readResaleJob(deps.kv, jobId);
+  if (!existingJob || existingJob.exp * 1000 < Date.now()) {
     return {
       ok: false,
       status: 404,
       body: { error: "job_not_found", message: "That resale job expired or was not found. Start a new search." },
     };
   }
-  if (job.ownerId !== deps.ownerId) {
+  if (existingJob.ownerId !== deps.ownerId) {
     return {
       ok: false,
       status: 403,
       body: { error: "forbidden", message: "This resale job belongs to another account." },
     };
   }
+  let job: ResaleJobRecord = existingJob;
 
   let balance = await creditBalance(deps.kv, deps.ownerId);
 
@@ -910,7 +911,6 @@ export async function advanceResaleJob(
             error: "agent_loop_required",
             message:
               "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
-            nextStep: null,
           },
           updatedAt: new Date().toISOString(),
         };
@@ -1042,7 +1042,6 @@ export async function advanceResaleJob(
           error: {
             error: "agent_loop_failed",
             message: failMessage,
-            nextStep: null,
           },
           updatedAt: new Date().toISOString(),
       };
@@ -1354,7 +1353,7 @@ export async function advanceResaleJob(
         reason,
         message: `The resale step did not finish (${reason}). No credit was used. Retry the same step.`,
         jobId,
-        step: job.stepCompleted,
+        step: job?.stepCompleted ?? null,
         charged: false,
         balance,
       },

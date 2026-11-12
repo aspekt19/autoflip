@@ -17,7 +17,7 @@ import { understandNeed } from "@/server/understand-need";
 import { createGoldenFetch } from "../../test/golden/transport";
 import type { GeneratedQuery, LiveEvalCaseResult, SearchSpecSummary } from "./types";
 
-/** Rough spend model: find_plan + find_triage + find_decide + find_challenge. */
+/** Rough spend model: understand + agent loop (search_listings + settle). */
 export const SERV_CALLS_PER_QUERY = 4;
 /** Conservative USD per SERV call for the eval hard cap (not a bill). */
 export const USD_PER_SERV_CALL = 0.03;
@@ -203,3 +203,159 @@ export async function runOneQuery(
   });
   context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
 
+  // Stepped agentic decide: re-enter until settled or hard failure (Hobby 300s per hop).
+  let decided = await runFindDecideOrchestrator(
+    { searchContextToken: context.token },
+    {
+      kv: deps.kv,
+      userId: deps.userId,
+      servKey: keys.servKey,
+      autodevKey: keys.autodevKey,
+      servModel: deps.servModel,
+      servBaseUrl: deps.servBaseUrl,
+      fetchImpl,
+      env: process.env,
+    },
+  );
+  for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
+    decided = await runFindDecideOrchestrator(
+      { searchContextToken: context.token },
+      {
+        kv: deps.kv,
+        userId: deps.userId,
+        servKey: keys.servKey,
+        autodevKey: keys.autodevKey,
+        servModel: deps.servModel,
+        servBaseUrl: deps.servBaseUrl,
+        fetchImpl,
+        env: process.env,
+      },
+    );
+  }
+
+  if (!decided.ok) {
+    return settle({
+      ...base,
+      ok: false,
+      searchSpec,
+      carsFound,
+      pick: null,
+      failure: {
+        step: "decide",
+        error: decided.error,
+        message: decided.message,
+      },
+      proofRecords: [...(understood.proofRecords ?? [])],
+      elapsedMs: 0,
+    });
+  }
+
+  const proofs = [...(understood.proofRecords ?? []), ...(decided.pickProofRecords ?? [])];
+  const decideProof = decided.pickProofRecords?.find((row) => row.purpose === "find_decide");
+  const decideFailed = decideProof != null && decideProof.status !== "ok";
+  const verdict = decided.pickAgentVerdict?.verdict ?? null;
+  const pickVin =
+    decided.bestDeal?.pick?.vin ??
+    decided.bestDeal?.pick?.key ??
+    decided.pickAgentVerdict?.pick?.key ??
+    null;
+  const label =
+    decided.pickAgentVerdict?.pick?.label ??
+    pickLabel(
+      decided.bestDeal?.pick?.year,
+      decided.bestDeal?.pick?.make,
+      decided.bestDeal?.pick?.model,
+    );
+  const confidence =
+    decided.pickAgentVerdict?.confidence != null
+      ? String(decided.pickAgentVerdict.confidence)
+      : decided.bestDeal?.confidence != null
+        ? String(decided.bestDeal.confidence)
+        : null;
+
+  if (decideFailed) {
+    return settle({
+      ...base,
+      ok: false,
+      searchSpec,
+      carsFound,
+      pick: {
+        vin: typeof pickVin === "string" ? pickVin : null,
+        label,
+        verdict: null,
+        confidence: null,
+      },
+      failure: {
+        step: "decide",
+        error: "decide_validation_failed",
+        message: decideProof?.reason ?? "find_decide failed validation",
+        responseId: decideProof?.servResponseId ?? null,
+      },
+      proofRecords: proofs,
+      elapsedMs: 0,
+    });
+  }
+
+  const agentLoop = decided.agentLoop ?? null;
+  const elapsed = Date.now() - started;
+  const chosenVin = typeof pickVin === "string" && pickVin.trim() ? pickVin : null;
+  const nothingFits =
+    !chosenVin &&
+    Boolean(agentLoop?.verdictReached) &&
+    (verdict === "pass" || verdict == null) &&
+    (agentLoop?.relaxedConditions?.length ?? 0) > 0 &&
+    (agentLoop?.toolRounds ?? 0) > 0;
+  const verdictReached = Boolean(chosenVin) || nothingFits;
+  const scoringOk = verdictReached;
+  return settle({
+    ...base,
+    ok: scoringOk,
+    searchSpec,
+    carsFound,
+    pick: {
+      vin: chosenVin,
+      label,
+      verdict: typeof verdict === "string" ? verdict : null,
+      confidence,
+    },
+    failure: scoringOk
+      ? null
+      : {
+          step: "decide",
+          error: "incomplete_verdict",
+          message:
+            "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
+        },
+    proofRecords: proofs,
+    elapsedMs: elapsed,
+    durationMs: elapsed,
+    agentMode: agentLoop?.agentMode ?? null,
+    toolRounds: agentLoop?.toolRounds ?? 0,
+    verdictReached,
+    relaxedConditions: agentLoop?.relaxedConditions ?? [],
+    journalServCalls: agentLoop?.journalServCalls ?? 0,
+    journalToolCalls: agentLoop?.journalToolCalls ?? 0,
+    featuresActive: agentLoop?.featuresActive ?? [],
+    featureRejections: agentLoop?.featureRejections ?? [],
+    chosenListingCount: chosenVin ? 1 : 0,
+    servResponseIds:
+      agentLoop?.servResponseIds ??
+      proofs
+        .map((row) =>
+          row && typeof row === "object" && "servResponseId" in row
+            ? (row as { servResponseId?: string | null }).servResponseId
+            : null,
+        )
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+  });
+}
+
+function writeProvenance(
+  fixtureRoot: string,
+  caseId: string,
+  payload: Record<string, unknown>,
+): void {
+  const dir = path.join(fixtureRoot, caseId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "provenance.json"), `${JSON.stringify(payload, null, 2)}\n`);
+}
