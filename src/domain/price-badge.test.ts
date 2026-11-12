@@ -118,7 +118,7 @@ describe("flip questions", () => {
       budgetKnown: false,
       budgetUsd: null,
     });
-    expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
+    expect(questions.map((item) => item.id)).toEqual(["cash"]);
     expect(questions.some((item) => item.id === "use")).toBe(false);
   });
 

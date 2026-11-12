@@ -54,11 +54,15 @@ const VERDICT_COPY: Record<VerdictId, string> = {
   needs_inspection: "Get it inspected first",
 };
 
+/** Shown when cars came back but the decision itself did not finish. */
+export const NO_DECISION_COPY =
+  "Our AI could not finish the decision, so there is no verdict and no charge. The cars below are listed, not recommended.";
+
 const FAILURE_COPY: Record<FailureReasonId, string> = {
   no_cars: "No cars matched this search, so there is no verdict and nothing was charged.",
   could_not_plan: "We could not plan this search, so there is no verdict and no credit was used.",
   search_failed: "The listing search did not finish.",
-  decision_failed: "The decision did not finish.",
+  decision_failed: NO_DECISION_COPY,
   second_check_incomplete: "The second check did not finish.",
   not_enough_evidence: "There is not enough information for a verdict.",
   no_qualifying_flip: "Skip. No car is estimated to sell within the window you set, or none was priced below similar listings after costs.",
@@ -125,7 +129,7 @@ const JOURNAL_COPY: Record<JournalStepId, { title: string; ok: string; failed: s
   choose_car: {
     title: "Choose a car",
     ok: "We chose a car from the ones that matched.",
-    failed: "We could not choose a car.",
+    failed: "The decision did not finish, so there is no verdict and no charge.",
     skipped: "No car was chosen.",
     running: "We are choosing a car.",
   },

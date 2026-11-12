@@ -11,7 +11,7 @@ import {
   emptyResaleJournal,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
-import { sellWindowBlockedCount, topFlipCandidates } from "@/domain/flip-rank";
+import { rankFlipCandidates, sellWindowBlockedCount, topFlipCandidates } from "@/domain/flip-rank";
 import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
 import { buildResaleCandidatePnls, type ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
@@ -335,7 +335,14 @@ export async function runResaleSearch(
     enforceSanity: true as const,
   };
   const windowBlocked = sellWindowBlockedCount(poolListings, new Date(), rankOptions);
-  const ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, rankOptions);
+  let ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, rankOptions);
+  // A 30-day window must not turn a full inventory into "no cars matched".
+  // Cars outside the window stay listed and are not the recommended flip.
+  if (ranked.length === 0 && poolListings.length > 0) {
+    ranked = rankFlipCandidates(poolListings, new Date(), rankOptions)
+      .filter((item) => !item.excluded)
+      .slice(0, RESALE_SHORTLIST_LIMIT);
+  }
 
   const pnls = buildResaleCandidatePnls(ranked, {
     repairAbility: input.repairAbility,

@@ -2,7 +2,7 @@
  * One validator for a stored Run — the same object GET /api/run/[id] returns.
  * A hard failure must not be published as a normal result.
  */
-import { failureCopy, JOURNAL_STEP_IDS, type FailureReasonId, type JournalStepId } from "./buyer-copy-table";
+import { failureCopy, JOURNAL_STEP_IDS, NO_DECISION_COPY, type FailureReasonId, type JournalStepId } from "./buyer-copy-table";
 import { collapseRepeatedSentences, findRepeatedSentenceInHtml, joinBuyerParts, visibleHtmlText } from "./buyer-text";
 import { formatNumber, formatUsd } from "./format";
 import { implausibleOdometer, implausibleOdometerReason } from "./find-best-deal";
@@ -189,8 +189,15 @@ function isKnownFailure(id: string): id is FailureReasonId {
   );
 }
 
+/**
+ * Hard checks block a published verdict: a limit was broken, a charge has no
+ * verdict, or an implausible car was picked. Soft checks stay visible to the
+ * checker and do not throw away a decision the model already made.
+ */
+const HARD_CHECK_IDS = new Set(["record", "no-verdict-charge", "hard-limits", "implausible"]);
+
 function check(id: string, pass: boolean, message: string): InvariantCheck {
-  return { id, hard: true, pass, message };
+  return { id, hard: HARD_CHECK_IDS.has(id), pass, message };
 }
 
 function fits(car: Car, limits: ReturnType<typeof limitsOf>): boolean {
@@ -269,7 +276,7 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
   const picks = Array.isArray(run.picks) ? run.picks : [];
   const limits = limitsOf(run);
   const text = buyerBlob(run);
-  const noVerdictCopy = /no credit was used|nothing was charged|not charged/i.test(text);
+  const noVerdictCopy = /no credit was used|nothing was charged|not charged|no charge/i.test(text);
 
   checks.push(
     check(
@@ -589,6 +596,8 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
   if (run.phase === "running" || run.phase === "draft") return run;
   const limits = limitsOf({ limits: publishedLimits(run) });
   let listings = run.listings.map((car) => ({ ...car }));
+  const hiddenOdd = listings.filter((car) => implausibleOdometer(car.year, car.miles)).length;
+  listings = listings.filter((car) => !implausibleOdometer(car.year, car.miles));
   listings = listings.filter((car) => {
     if (limits.priceMax != null && car.priceUsd != null && car.priceUsd > limits.priceMax * PRICE_SLACK) return false;
     if (limits.milesMax != null && car.miles != null && car.miles > limits.milesMax) return false;
@@ -689,13 +698,27 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
     creditsCharged = 0;
     confidence = null;
     confidenceReason = null;
-    listings = listings.map((car) => ({ ...car, offerUsd: null, offerLabel: null }));
-    if (!failureReasons.length) failureReasons = ["not_enough_evidence"];
-    const honest = failureReasons.map((id) => failureCopy(id)).join(" ");
-    if (!/no credit was used|nothing was charged/i.test(honest)) {
-      buyerMessage = "No credit was used.";
+    listings = listings.map((car) => ({
+      ...car,
+      offerUsd: null,
+      offerLabel: null,
+      picked: false,
+      reason: car.reason && !/best choice/i.test(car.reason) ? car.reason : null,
+    }));
+    const decisionMissed = failureReasons.includes("decision_failed") || run.steps.some((step) => step.step === "choose_car" && step.status === "failed");
+    if (decisionMissed && listings.length > 0) {
+      failureReasons = failureReasons.filter((id) => id === "decision_failed" || id === "second_check_incomplete");
+      if (!failureReasons.includes("decision_failed")) failureReasons = ["decision_failed", ...failureReasons];
+      buyerMessage = NO_DECISION_COPY;
     } else {
-      buyerMessage = null;
+      if (!failureReasons.length) failureReasons = ["not_enough_evidence"];
+      const honest = failureReasons.map((id) => failureCopy(id)).join(" ");
+      const oddNote = hiddenOdd > 0 ? `${hiddenOdd} listing${hiddenOdd === 1 ? " was" : "s were"} hidden because the mileage does not look believable.` : "";
+      if (!/no credit was used|nothing was charged|no charge/i.test(honest)) {
+        buyerMessage = joinBuyerParts(["No credit was used.", oddNote]);
+      } else {
+        buyerMessage = oddNote || null;
+      }
     }
   } else {
     if (!confidence) confidence = "Low";
@@ -752,16 +775,7 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
     buyerMessage: settled.buyerMessage,
     kind: settled.kind,
   });
-  const publishBlockers = new Set([
-    "no-verdict-charge",
-    "confidence-one",
-    "verdict-label",
-    "hard-limits",
-    "rank-clean",
-    "implausible",
-    "same-story",
-    "plain-language",
-  ]);
+  const publishBlockers = HARD_CHECK_IDS;
   const blocking = report.checks.some((item) => !item.pass && publishBlockers.has(item.id));
   if (!blocking || !verdict) return settled;
   return {

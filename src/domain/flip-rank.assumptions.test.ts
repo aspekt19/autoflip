@@ -47,7 +47,7 @@ describe("flip-rank assumption honesty (Stage2A)", () => {
     for (const item of ranked) {
       expect(item.assumption).toBeTruthy();
       expect(item.assumption).toMatch(/Title\/fee assumption/i);
-      expect(item.assumption).toMatch(/Reconditioning assumption/i);
+      expect(item.assumption).toMatch(/Repair estimate/i);
       expect(item.assumption).toMatch(/asking-price|not closed sales/i);
       expect(item.costUsd).toBeGreaterThanOrEqual(ASSUMPTIONS.flipTitleFeeUsd + ASSUMPTIONS.flipReconBaseUsd);
     }

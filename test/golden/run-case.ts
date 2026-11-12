@@ -540,7 +540,7 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
           transport.pending && !specCase.scripted,
           false,
           transport.attempts,
-          Boolean(specCase.scripted),
+          Boolean(specCase.scripted) && specCase.expect.servVerdict !== true,
         );
   if (specCase.scripted) {
     body.listingUrls = scriptedUrls.filter((url) => url.includes("/listings"));

@@ -378,6 +378,23 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
       push(out, `${specCase.id}.miles`, "Very high mileage cars are not flagged.");
     }
   }
+  if (expect.servVerdict && run.storedRun) {
+    if (!run.storedRun.verdict) {
+      push(out, `${specCase.id}.verdict`, "A valid decision answer did not produce a stored verdict.");
+    }
+    const publicSteps = (run.storedRun.publicRun as { steps?: { step?: string; status?: string; responseId?: string | null }[] } | undefined)?.steps;
+    const choose = publicSteps?.find((step) => step.step === "choose_car");
+    if (!choose || choose.status !== "ok" || !choose.responseId) {
+      push(
+        out,
+        `${specCase.id}.decide`,
+        `choose_car is ${choose?.status ?? "missing"} with response ${choose?.responseId ?? "none"}.`,
+      );
+    }
+    if (/code fallback|SERV did not decide|Best choice/i.test(run.storedRun.permalinkHtml) && !run.storedRun.verdict) {
+      push(out, `${specCase.id}.copy`, "A run with no verdict is titled as a best choice.");
+    }
+  }
   if (specCase.id === "L23" && run.storedRun) {
     if (!/Illinois/i.test(run.storedRun.permalinkHtml)) {
       push(out, "L23.tax", "A Hammond, IN car in a Chicago search does not say sales tax assumes Illinois.");

@@ -14,6 +14,7 @@ import { readRun } from "@/io/run-store";
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
 import { buildDecisionProofRecord, VERDICT_RUBRIC_ID } from "@/domain/decision-proof-record";
+import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 
 export const dynamic = "force-dynamic";
 /**
@@ -100,6 +101,8 @@ export async function POST(request: Request) {
       servKey: deps.servKey,
       servModel: deps.servModel,
       servBaseUrl: deps.servBaseUrl,
+      budgetMs: FIND_DECIDE_ROUTE_MS,
+      startedAtMs: Date.now(),
     },
   );
 

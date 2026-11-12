@@ -467,12 +467,10 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     }
   }
 
+  const [savedRunId, setSavedRunId] = useState<string | null>(null);
   useEffect(() => {
     const saved = window.sessionStorage.getItem("lemonless-resale-run");
-    if (saved) {
-      setRunId(saved);
-      setFollowRun(true);
-    }
+    if (saved) setSavedRunId(saved);
   }, []);
 
   useEffect(() => {
@@ -490,8 +488,33 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           <ResaleSearchResultView result={result} runId={runId} />
         </div>
       ) : null}
+      {savedRunId && !runId && !result ? (
+        <p className="hint">
+          You have a recent resale search.{" "}
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              setRunId(savedRunId);
+              setFollowRun(true);
+            }}
+          >
+            Resume
+          </button>{" "}
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              window.sessionStorage.removeItem("lemonless-resale-run");
+              setSavedRunId(null);
+            }}
+          >
+            New search
+          </button>
+        </p>
+      ) : null}
       <p className="hint">
-        Budget is the only required field. Everything else is optional. Results always include a verdict (buy /
+        Budget is the only required field. Profit target and repair skill are optional. Results always include a verdict (buy /
         negotiate / pass / needs inspection) with High / Medium / Low confidence — never a dead end. Figures are
         estimates from asking prices — not sold prices, and not a profit guarantee.
       </p>
@@ -633,12 +656,12 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
                 value={targetProfit}
                 onChange={(e) => setTargetProfit(e.target.value)}
                 inputMode="decimal"
-                placeholder="Leave blank — no default target"
+                placeholder="Optional. Leave blank for no target."
               />
             </div>
           </div>
           <fieldset className="field">
-            <legend>Willingness to invest in repairs</legend>
+            <legend>Repair skill (optional)</legend>
             <div className="pills" role="radiogroup" aria-label="Repair ability">
               {(
                 [
@@ -1126,7 +1149,7 @@ function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
             value={targetProfit}
             onChange={(e) => setTargetProfit(e.target.value)}
             inputMode="decimal"
-            placeholder="e.g. 1,500"
+            placeholder="Optional. Leave blank for no target."
           />
         </div>
       </div>
@@ -1151,7 +1174,7 @@ function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
         />
       </div>
       <fieldset className="field">
-        <legend>Repair ability (affects recon estimate only)</legend>
+        <legend>Repair skill (optional, for the estimate only)</legend>
         <div className="pills" role="radiogroup" aria-label="Repair ability for estimate">
           {(
             [

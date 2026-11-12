@@ -858,6 +858,10 @@ function AssistantFlow({
         );
       }
       if (body.source) setSource(body.source);
+      if (!current.bodyStyle) {
+        const body = intakeFromNote(text).bodyStyle;
+        if (body) current = { ...current, bodyStyle: body };
+      }
       if (followUps(current).length > 0) {
         setNeed(current);
         setQuestions(followUps(current));
@@ -1779,7 +1783,7 @@ function AssistantFlow({
             void answerFollowUps();
           }}
         >
-          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : FOLLOW_HINT}</p>
+          <p className="hint">{need?.mode === "flip" ? "These answers are optional. A repair estimate and a profit target are not required, and they are not a quote." : FOLLOW_HINT}</p>
           {questions.map((question) => (
             <div className="field" key={question.id}>
               <label htmlFor={question.id}>{question.prompt}</label>

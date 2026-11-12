@@ -25,6 +25,8 @@ import {
 } from "@/domain/need";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import { awdLimitFromText } from "@/domain/note-intake";
+import { implausibleOdometer } from "@/domain/find-best-deal";
+import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
@@ -482,13 +484,10 @@ export async function runFindMatch(
   }
 
   let dispatches: DispatchRow[] = [];
-  const inventoryCapMs = Math.max(
-    1_000,
-    Math.min(
-      deps.inventoryStageCapMs ?? 60_000,
-      deps.deadline ? Math.max(1_000, deps.deadline.remainingMs()) : 60_000,
-    ),
-  );
+  const stageCap = deps.inventoryStageCapMs ?? FIND_INVENTORY_STAGE_MS;
+  const remaining = deps.deadline ? deps.deadline.remainingMs() : stageCap;
+  const inventoryCapMs = Math.max(1, Math.min(stageCap, remaining));
+  const queryWaitMs = Math.min(FIND_INVENTORY_QUERY_MS, inventoryCapMs);
   // PR A: search all planned models in parallel within the inventory stage budget.
   const useParallel = deps.parallelProviderQueries !== false && planned.length > 0;
   if (useParallel) {
@@ -502,9 +501,9 @@ export async function runFindMatch(
         ? {
             ...deps.autodev,
             signal: stageAbort.signal,
-            // Wait out the inventory stage. A 12s cap was aborting the earlier model
-            // queries in a first-car wave and leaving only the fast SUV responses.
-            timeoutMs: deps.autodev.timeoutMs ?? inventoryCapMs,
+            // Each query has its own wait. The stage cap only stops stragglers
+            // so a slow model cannot use the whole route.
+            timeoutMs: deps.autodev.timeoutMs ?? queryWaitMs,
           }
         : deps.autodev,
     };
@@ -807,7 +806,17 @@ export async function runFindMatch(
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
     // Soft AWD preference reorders within each model bucket so FWD cannot bury AWD.
-    const listings = diversifyListingsByModel(rankedReady, 8, {
+    const believable = rankedReady.filter((item) => !implausibleOdometer(item.year, item.miles));
+    const hiddenOdd = rankedReady.length - believable.length;
+    if (hiddenOdd > 0) {
+      directionNote = [
+        directionNote,
+        `${hiddenOdd} listing${hiddenOdd === 1 ? " was" : "s were"} hidden because the mileage does not look believable.`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
+    const listings = diversifyListingsByModel(believable, 8, {
       preferAwd: needPrefersAwd(need),
     });
     for (const item of listings) {

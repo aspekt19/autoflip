@@ -58,6 +58,8 @@ export type RunStepView = {
   status: StepStatus;
   responseId: string | null;
   elapsedMs: number | null;
+  /** Plain reason this step failed. Empty when the step finished. */
+  failureDetail?: string | null;
 };
 
 export type RunView = {
@@ -161,7 +163,10 @@ export function runReportModel(view: RunView): RunReportModel {
     phaseLine: phaseCopy(view.phase),
     verdictLine,
     confidenceLine: view.confidence && !confidenceRepeatsMessage ? confidenceText : null,
-    failureLines: view.failureReasons.map((id) => failureCopy(id)).filter((line) => !journalSentences.has(line)),
+    failureLines: view.failureReasons
+      .map((id) => failureCopy(id))
+      .filter((line) => !journalSentences.has(line))
+      .filter((line) => !messageText.toLowerCase().includes(line.toLowerCase())),
     chargeLine,
     buyerMessage: view.buyerMessage,
     note: view.note,
@@ -213,7 +218,12 @@ export function renderRunPermalinkHtml(view: RunView): string {
   if (view.buyerMessage) parts.push(`<p>${esc(view.buyerMessage)}</p>`);
   if (model.confidenceLine) parts.push(`<p>${esc(model.confidenceLine)}</p>`);
   for (const line of model.failureLines) parts.push(`<p>${esc(line)}</p>`);
-  parts.push(`<p>${esc(model.chargeLine)}</p>`);
+  const chargeAlreadySaid = Boolean(
+    view.buyerMessage &&
+      /no credit was used|nothing was charged|no charge/i.test(view.buyerMessage) &&
+      /no credit was used/i.test(model.chargeLine),
+  );
+  if (!chargeAlreadySaid) parts.push(`<p>${esc(model.chargeLine)}</p>`);
   if (model.note) parts.push(`<p>${esc(model.note)}</p>`);
   if (model.clarifications.length) {
     parts.push("<ul>");

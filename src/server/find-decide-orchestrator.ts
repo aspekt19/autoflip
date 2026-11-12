@@ -3,6 +3,7 @@
  * Replaces the next-check hop loop for the decide path.
  */
 import { alignPublishedConfidence } from "@/domain/find-best-deal";
+import { decideBudgetMs, FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
   executeAllFindFreeGovParallel,
   freeGovToolCoverage,
@@ -66,8 +67,14 @@ export async function runFindDecideOrchestrator(
     shopperNote?: string | null;
     /** Inject parallel free-gov for offline tests. */
     runFreeGov?: typeof executeAllFindFreeGovParallel;
+    /** Route clock. The decision call waits for whatever is left after the second-check reserve. */
+    budgetMs?: number;
+    startedAtMs?: number;
   },
 ): Promise<FindDecideOrchestratorResult> {
+  const startedAtMs = deps.startedAtMs ?? Date.now();
+  const endsAtMs = startedAtMs + (deps.budgetMs ?? FIND_DECIDE_ROUTE_MS);
+  const remainingMs = () => Math.max(0, endsAtMs - Date.now());
   const loaded = await loadFindSearchContext(deps.kv, {
     userId: deps.userId,
     token: input.searchContextToken,
@@ -184,7 +191,8 @@ export async function runFindDecideOrchestrator(
     triageRevisitUsed: revisitUsed,
   });
 
-  // 3) C3 + C4
+  // 3) C3 + C4. Leave the second check its own reserve, and give the decision the rest.
+  const decideMs = decideBudgetMs(remainingMs());
   const decide = await runFindDecideServ({
     need: record.need,
     bestDeal: triage.bestDeal,
@@ -196,6 +204,8 @@ export async function runFindDecideOrchestrator(
     model: deps.servModel,
     fetchImpl: deps.fetchImpl,
     transportPolicy: deps.transportPolicy,
+    timeoutMs: decideMs,
+    remainingMs: remainingMs(),
   });
 
   record = await updateFindSearchContext(deps.kv, record, {

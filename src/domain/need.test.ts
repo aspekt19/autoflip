@@ -28,7 +28,7 @@ describe("need extraction validation", () => {
     expect(need.budgetUsd).toBe(18000);
     expect(need.budgetKnown).toBe(true);
     const questions = followUps({ ...need, zip: "33101", useCase: "unspecified", mode: "flip", repairAbility: "unknown", targetProfitUsd: null, budgetKnown: false, budgetUsd: null });
-    expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
+    expect(questions.map((item) => item.id)).toEqual(["cash"]);
   });
 });
 
