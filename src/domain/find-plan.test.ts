@@ -396,11 +396,15 @@ describe("fallbackFindPlan", () => {
     }
   });
 
-  it("does not invent yearMax the buyer did not give", () => {
+  it("does not invent yearMin/yearMax from the note — form overrides only", () => {
     const plan = fallbackFindPlan(YURA, "personal");
-    // Offline fallback may read yearMin from the note; Yura said "2020 or newer" (min only).
-    expect(plan.yearMin).toBe(2020);
+    expect(plan.yearMin).toBeNull();
     expect(plan.yearMax).toBeNull();
+    expect(plan.budget.maxUsd).toBeNull();
+    const withForm = fallbackFindPlan(YURA, "personal", { yearMin: 2020, budgetUsd: 20_000 });
+    expect(withForm.yearMin).toBe(2020);
+    expect(withForm.yearMax).toBeNull();
+    expect(withForm.budget.maxUsd).toBe(20_000);
   });
 });
 
