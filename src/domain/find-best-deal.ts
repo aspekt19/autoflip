@@ -33,7 +33,6 @@ import { checkedMmyKeysForCheck, freeGovToolCoverage, plainPublicCheckProgress }
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
-import { awdLimitFromText } from "./note-intake";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
@@ -1143,17 +1142,14 @@ function scoreOne(
     }
   }
 
-  // Hard all-wheel drive is a limit (those cars are dropped earlier). A preference only ranks.
+  // Soft AWD preference ranking only — never invent a hard AWD filter from note regex.
   {
-    const driveLimit = awdLimitFromText(ctx.need.note ?? "");
-    const wantsAwd =
-      driveLimit != null ||
-      needPrefersAwd({
-        awdPreference: ctx.need.awdPreference,
-        note: ctx.need.note,
-        mustHaves: ctx.need.mustHaves ?? [],
-      });
-    if (wantsAwd && driveLimit !== "hard") {
+    const wantsAwd = needPrefersAwd({
+      awdPreference: ctx.need.awdPreference,
+      note: ctx.need.note,
+      mustHaves: ctx.need.mustHaves ?? [],
+    });
+    if (wantsAwd) {
       const awd = isAwdDrivetrain(row.drivetrain);
       const points = awd ? WEIGHTS.awd : 0;
       score += points;
@@ -1166,19 +1162,6 @@ function scoreOne(
           : row.drivetrain?.trim()
             ? `Drivetrain is ${row.drivetrain.trim()}. All-wheel drive ranks higher. This is not a hard limit.`
             : "Drivetrain is not on the listing. It stays in the list because all-wheel drive is only a preference.",
-        source: "Your note and the listing drivetrain, or a VIN decode when we have one",
-      });
-    } else if (driveLimit === "hard") {
-      const awd = isAwdDrivetrain(row.drivetrain);
-      const points = awd ? 0 : -WEIGHTS.price;
-      score += points;
-      factors.push({
-        id: "awd_preference",
-        label: "All-wheel drive required",
-        points: round1(points),
-        detail: awd
-          ? "All-wheel drive is required, and this listing has it."
-          : "All-wheel drive is required. This car is not confirmed all-wheel drive, so it should not be a pick.",
         source: "Your note and the listing drivetrain, or a VIN decode when we have one",
       });
     }

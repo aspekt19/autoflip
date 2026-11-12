@@ -111,6 +111,12 @@ export type ResaleAgentJournalToolCall = {
   ok: boolean;
   resultCount?: number;
   funnel?: Array<{ step: string; count: number }>;
+  /** Provider HTTP status when search_listings failed upstream (0 = network/timeout). */
+  providerStatus?: number;
+  /** Upstream cause: http_error | timeout | network | aborted | … */
+  providerCause?: string;
+  /** Attempts including retries before the final provider outcome. */
+  providerAttempts?: number;
 };
 
 export type ResaleAgentJournalEntry = ResaleAgentJournalServCall | ResaleAgentJournalToolCall;
@@ -166,13 +172,27 @@ function journalResaleSearchEntry(
       : typeof resultRecord?.count === "number"
         ? resultRecord.count
         : undefined;
+  const providerStatus =
+    typeof resultRecord?.status === "number" ? resultRecord.status : undefined;
+  const providerCause =
+    typeof resultRecord?.cause === "string" ? resultRecord.cause : undefined;
+  const providerAttempts =
+    typeof resultRecord?.attempts === "number" ? resultRecord.attempts : undefined;
   return {
     kind: "tool",
     name: executed.name,
     args,
     summary: executed.summary,
     ok: executed.ok,
-    ...(executed.name === "search_listings" ? { resultCount, funnel } : {}),
+    ...(executed.name === "search_listings"
+      ? {
+          resultCount,
+          funnel,
+          ...(providerStatus != null ? { providerStatus } : {}),
+          ...(providerCause ? { providerCause } : {}),
+          ...(providerAttempts != null ? { providerAttempts } : {}),
+        }
+      : {}),
   };
 }
 

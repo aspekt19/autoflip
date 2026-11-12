@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { proposeDirections } from "./directions";
-import { budgetFromText, explicitNeedFromText, followUps, parseNeedJson, useCaseFromText, validateNeed } from "./need";
+import { explicitNeedFromText, followUps, parseNeedJson, useCaseFromText, validateNeed } from "./need";
 import { isVinOnlyLookup, vinDetailGaps } from "./vin-report";
 
 const VIN = "4T1KZ1AK4MU060006";
@@ -21,7 +21,6 @@ describe("need extraction validation", () => {
   });
 
   it("does not invent a budget or a use that was not written", () => {
-    expect(budgetFromText("a reliable car for errands")).toBeNull();
     expect(useCaseFromText("a reliable car for errands")).toBe("unspecified");
     const need = explicitNeedFromText("Need a reliable family car under $18,000", "personal");
     expect(need.useCase).toBe("family");

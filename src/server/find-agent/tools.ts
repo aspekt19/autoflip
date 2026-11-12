@@ -761,6 +761,20 @@ export async function executeFindAgentTool(
     const providerUrl = listingsSearchUrl(query);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
+      if (search.error === "upstream") {
+        return {
+          name,
+          ok: false,
+          result: {
+            error: search.error,
+            message: search.message,
+            status: search.status,
+            cause: search.cause,
+            attempts: search.attempts,
+          },
+          summary: `search_listings failed: ${search.message} (status=${search.status} cause=${search.cause} attempts=${search.attempts})`,
+        };
+      }
       return {
         name,
         ok: false,

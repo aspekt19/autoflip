@@ -4,7 +4,7 @@ import { parseCountInput, parseUsdInput } from "@/domain/budget";
 import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
-import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
+import { budgetWorkingCopy } from "@/domain/need";
 import {
   findStageAfterNote,
   needFromFindEntry,
@@ -13,7 +13,6 @@ import {
 } from "@/domain/find-intake-stage";
 import { previewFindFromNote } from "@/domain/find-preview";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { awdLimitFromText, intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
 import { towingCapacityCaveat } from "@/domain/open-search";
 import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
@@ -141,6 +140,15 @@ import {
   YearFloorField,
   FromNote,
 } from "./FindIntakeFields";
+
+/** UI-only near-me copy. Not a search constraint. */
+function isNearMePhrase(phrase: string | null | undefined): boolean {
+  return /\bnear\s+me\b/i.test(phrase ?? "");
+}
+
+/** UI draft suggestion only — never stamped as a hard radius constraint. */
+const SUGGESTED_RADIUS_MI = 100;
+
 
 type ListingCard = {
   vin: string;
@@ -511,17 +519,16 @@ function AssistantFlow({
         return;
       }
       if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
-      const notedBody = intakeFromNote(text).bodyStyle;
-      const finalNeed = !body.need.bodyStyle && notedBody ? { ...body.need, bodyStyle: notedBody } : body.need;
+      // SERV/form own bodyStyle — never overlay from note regex.
+      const finalNeed = body.need;
       if (body.findPlan) setFindPlan(body.findPlan);
       if (Array.isArray(body.directions) && body.directions.length > 0) {
         setPlanDirections(body.directions);
       }
-      // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
-      const intake = intakeFromNote(text);
+      // SERV/form own ZIP/phrase — never treat city-resolved ZIP as “from your note”.
       const loc = resolveLocationZip({
-        zip: intake.zip ?? finalNeed.zip,
-        locationPhrase: finalNeed.locationPhrase ?? intake.locationPhrase,
+        zip: finalNeed.zip,
+        locationPhrase: finalNeed.locationPhrase,
         distanceMiles: finalNeed.distanceMiles,
       });
       // Prefer a successful city→ZIP resolve over a blank finalNeed.zip.
@@ -544,7 +551,7 @@ function AssistantFlow({
             : withCityZip.zip
               ? {
                   zip: withCityZip.zip,
-                  from: intake.zip && withCityZip.zip === intake.zip ? ("note_zip" as const) : null,
+                  from: null,
                   needed: false,
                   cityLabel: withCityZip.locationPhrase ?? null,
                 }
@@ -573,7 +580,7 @@ function AssistantFlow({
       );
       setRadiusIsDefault(suggestDefaultRadius);
       setZipDraft(withCityZip.zip ?? "");
-      const suggestedRadius = suggestDefaultRadius ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
+      const suggestedRadius = suggestDefaultRadius ? SUGGESTED_RADIUS_MI : null;
       setDistanceDraft(withCityZip.distanceMiles ?? suggestedRadius);
       setConstraintBag((prev) => {
         let next = opts?.freshNote ? {} : { ...prev };
@@ -944,10 +951,7 @@ function AssistantFlow({
         );
       }
       if (body.source) setSource(body.source);
-      if (!current.bodyStyle) {
-        const body = intakeFromNote(text).bodyStyle;
-        if (body) current = { ...current, bodyStyle: body };
-      }
+      // Body style comes from SERV/form only — never note regex overlay.
       if (followUps(current).length > 0) {
         setNeed(current);
         setQuestions(followUps(current));
@@ -1414,7 +1418,7 @@ function AssistantFlow({
       setWatchGeoDraft({
         direction,
         zip: zip || zipDraft || "",
-        distanceMiles: distanceMiles ?? NOTE_DEFAULT_RADIUS_WHEN_ZIP,
+        distanceMiles: distanceMiles ?? SUGGESTED_RADIUS_MI,
       });
       return;
     }
@@ -1856,11 +1860,11 @@ function AssistantFlow({
               Not sure yet
             </label>
           </div>
-          {!budgetKnown && budgetFromText(text) != null ? (
+          {!budgetKnown && need?.budgetUsd != null ? (
             <p className="hint">
               {budgetWorkingCopy({
                 budgetKnown: true,
-                budgetUsd: budgetFromText(text),
+                budgetUsd: need.budgetUsd,
                 note: text,
               })}
             </p>
@@ -2122,7 +2126,7 @@ function AssistantFlow({
           />
           {radiusIsDefault ? (
             <p className="hint" role="note">
-              Suggested seller distance {NOTE_DEFAULT_RADIUS_WHEN_ZIP} mi for{" "}
+              Suggested seller distance {SUGGESTED_RADIUS_MI} mi for{" "}
               {need.locationPhrase ?? "your city"} — set a radius to constrain geography. Untouched
               suggestion is not a search constraint.
             </p>
@@ -2170,7 +2174,9 @@ function AssistantFlow({
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
           {towingCapacityCaveat(need.note) ? <p className="hint">{towingCapacityCaveat(need.note)}</p> : null}
-          {awdLimitFromText(need.note) === "hard" ? (
+          {(need.mustHaves ?? []).some((item) =>
+            /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
+          ) ? (
             <p className="hint">
               All-wheel drive is required. Front-wheel drive is left out. If the listing does not say, we check the VIN and leave the car out when we still cannot tell.
             </p>
@@ -2950,7 +2956,11 @@ function AssistantFlow({
                       <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
                     ) : null}
                     {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
-                    {car.drivetrain || (need && awdLimitFromText(need.note) === "hard") ? (
+                    {car.drivetrain ||
+                    (need &&
+                      (need.mustHaves ?? []).some((item) =>
+                        /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
+                      )) ? (
                       <p>Drivetrain: {car.drivetrain?.trim() || "not listed"}</p>
                     ) : null}
                     {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}

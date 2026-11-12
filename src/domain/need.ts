@@ -1,11 +1,6 @@
 import { parseUsdInput } from "./budget";
 import { bodyStyleMatches } from "./body-style";
 import {
-  awdLimitFromText,
-  bodyFromIntake,
-  budgetFromText,
-  intakeFromNote,
-  milesCapFromNote,
   NOTE_BODY_STYLES,
   type HistoryPref,
   type NoteBodyStyle,
@@ -13,8 +8,6 @@ import {
 } from "./note-intake";
 import { extractServJson } from "./serv-json";
 import { FALLBACK_MODELS, MAINSTREAM_MAKES } from "./vehicle-names";
-
-export { budgetFromText };
 
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
 export type UseCase = (typeof USE_CASES)[number];
@@ -514,49 +507,22 @@ export function repairFromText(text: string): RepairAbility {
   return "unknown";
 }
 
+/**
+ * Offline need shell from raw note text.
+ * Does **not** regex-parse budget / years / miles / ZIP / body / AWD — SERV owns that.
+ * Form overlays and SERV find_plan fill structured fields.
+ */
 export function explicitNeedFromText(text: string, mode: "personal" | "flip"): StructuredNeed {
   const note = text.trim().slice(0, 500);
-  const intake = intakeFromNote(note);
-  const preferredMakes = makesFromText(note);
-  const preferredModels = preferredModelsFromText(note);
-  const openToOtherMakes = preferOpenToOtherMakes(note, preferredMakes);
-  const milesMax = intake.milesMax;
   return {
     ...emptyNeed(mode),
-    useCase: useCaseFromText(text),
     note,
-    budgetUsd: intake.budgetUsd,
-    budgetKnown: intake.budgetUsd !== null,
-    repairAbility: mode === "flip" ? repairFromText(text) : "unknown",
-    milesMax,
-    milesCapResolved: milesMax != null,
-    seatsMin: intake.seatsMin,
-    yearMin: intake.yearMin,
-    yearMax: intake.yearMax,
-    yearBandResolved: intake.yearMin != null || intake.yearMax != null,
-    zip: intake.zip,
-    distanceMiles: intake.distanceMiles,
-    transmission: intake.transmission,
-    fuelEconomyPriority: intake.fuelEconomyPriority,
-    awdPreference: intake.awdPreference,
-    reliabilityPriority: intake.reliabilityPriority,
-    historyPreference: intake.historyPreference,
-    bodyStyle: intake.bodyStyle,
-    locationPhrase: intake.locationPhrase,
-    conditionPriority: intake.historyPreference ? "inspection_first" : "unspecified",
-    mustHaves: intake.mustHaves,
-    priorities: intake.priorities,
-    make: preferredMakes[0] ?? null,
-    preferredMakes,
-    preferredModels,
-    preferredModelsSource: preferredModels.length ? "user_note" : "none",
-    openToOtherMakes,
   };
 }
 
-/** Mileage the shopper actually capped. "Low mileage" with no number is not a cap. "under 15k" is a price, not miles. */
-export function milesFromText(text: string): number | null {
-  return milesCapFromNote(text);
+/** @deprecated Note mileage parsers are deleted — always null. Kept for call-site migration. */
+export function milesFromText(_text: string): number | null {
+  return null;
 }
 
 export function makeFromText(text: string): string | null {
@@ -732,7 +698,8 @@ export function listingWithinNeed(
     if (!makes.some((make) => make.trim().toLowerCase() === listingMake)) return false;
   }
   if (need.milesMax != null && (listing.miles == null || listing.miles > need.milesMax)) return false;
-  const body = need.bodyStyle ?? bodyFromIntake(need.note ?? "") ?? bodyFromNote(need.note ?? "");
+  // Body filter only when SERV/form set need.bodyStyle — never re-parse the note.
+  const body = need.bodyStyle ?? null;
   if (body && !bodyStyleMatches(body, { bodyStyle: listing.bodyStyle ?? null, style: listing.style })) return false;
   return true;
 }
@@ -808,13 +775,13 @@ export function needPrefersAwd(
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
-  // Only a softened phrase is a ranking preference. "with AWD" is a hard limit, not this gap.
-  if (awdLimitFromText(text) === "soft") {
+  // Honesty copy only — SERV owns whether AWD is required vs preferred.
+  if (/\b(preferably|ideally|prefer)\b.{0,24}\b(awd|4wd|all[\s-]?wheel)\b|\b(awd|4wd)\b.{0,16}\b(prefer|nice to have)\b/i.test(text)) {
     gaps.push({
       id: "awd",
       mentioned: "Preferably AWD",
       honesty:
-        "Preferably all-wheel drive ranks higher when we know it. This is not a hard limit. Front-wheel drive stays in the list. Cars whose drivetrain we could not check are marked unverified.",
+        "Preferably all-wheel drive is a preference SERV can weigh. This site does not invent a hard AWD filter from the note.",
     });
   }
   if (
@@ -1076,65 +1043,18 @@ export function overlayExplicit(
   };
 }
 
-function mergePhraseList(current: string[], extra: string[]): string[] {
-  const seen = new Set(current.map((item) => item.toLowerCase()));
-  const out = [...current];
-  for (const item of extra) {
-    const key = item.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-    if (out.length >= 6) break;
-  }
-  return out;
-}
-
 /**
- * Fill facts the note already stated when a model extract or a blank form left them empty.
- * An explicit no-year-floor or no-mileage-cap choice is left alone.
- * An explicit nationwide radius (ZIP set, distance null) is left alone.
+ * Soft context only when SERV/form left fields empty.
+ * Never invents budget / year / miles / zip / body / transmission / history /
+ * seats / must-haves from note regex — SERV alone interprets free text.
  */
 export function supplementNeedFromNote(need: StructuredNeed, text: string): StructuredNeed {
-  const intake = intakeFromNote(text);
-  const yearBlocked = need.yearBandResolved && need.yearMin == null && need.yearMax == null;
-  const milesBlocked = need.milesCapResolved && need.milesMax == null;
-  const yearMin = need.yearMin != null ? need.yearMin : yearBlocked ? null : intake.yearMin;
-  const yearMax = need.yearMax != null ? need.yearMax : yearBlocked ? null : intake.yearMax;
-  const milesMax = need.milesMax != null ? need.milesMax : milesBlocked ? null : intake.milesMax;
-  const historyPreference = need.historyPreference ?? intake.historyPreference;
-  const conditionPriority =
-    need.conditionPriority !== "unspecified" ? need.conditionPriority : historyPreference ? "inspection_first" : "unspecified";
-  const zip = need.zip ?? intake.zip;
-  const distanceMiles =
-    need.distanceMiles != null ? need.distanceMiles : need.zip == null && zip != null ? intake.distanceMiles : need.distanceMiles;
-  const budgetMissing = !need.budgetKnown || need.budgetUsd == null;
-  const budgetUsd = budgetMissing ? (intake.budgetUsd ?? need.budgetUsd) : need.budgetUsd;
-  const budgetKnown = budgetUsd != null && (need.budgetKnown || intake.budgetUsd != null);
-  const useCase =
-    need.useCase !== "unspecified" ? need.useCase : useCaseFromText(text);
+  const useCase = need.useCase !== "unspecified" ? need.useCase : useCaseFromText(text);
+  const locationPhrase = need.locationPhrase ?? (/\bnear\s+me\b/i.test(text) ? "near me" : need.locationPhrase);
   return {
     ...need,
-    budgetUsd: budgetKnown ? budgetUsd : null,
-    budgetKnown,
     useCase,
-    transmission: need.transmission ?? intake.transmission,
-    fuelEconomyPriority: need.fuelEconomyPriority === true || intake.fuelEconomyPriority,
-    awdPreference: need.awdPreference === true || intake.awdPreference,
-    reliabilityPriority: need.reliabilityPriority === true || intake.reliabilityPriority,
-    historyPreference,
-    conditionPriority,
-    bodyStyle: need.bodyStyle ?? intake.bodyStyle,
-    locationPhrase: need.locationPhrase ?? intake.locationPhrase,
-    yearMin,
-    yearMax,
-    yearBandResolved: need.yearBandResolved || yearMin != null || yearMax != null,
-    milesMax,
-    milesCapResolved: need.milesCapResolved || milesMax != null,
-    seatsMin: need.seatsMin ?? intake.seatsMin,
-    zip,
-    distanceMiles,
-    mustHaves: mergePhraseList(need.mustHaves, intake.mustHaves),
-    priorities: mergePhraseList(need.priorities, intake.priorities),
+    locationPhrase,
   };
 }
 

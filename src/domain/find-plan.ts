@@ -7,18 +7,12 @@
 import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
-  explicitNeedFromText,
   yearBandForBudget,
   type PreferredModel,
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import {
-  awdLimitFromText,
-  budgetFromText,
-  intakeFromNote,
-  type NoteBodyStyle,
-} from "./note-intake";
+import { type NoteBodyStyle } from "./note-intake";
 import type { ServPlanHint } from "./search-spec";
 import { orderedYearBounds } from "./year-span";
 import {
@@ -171,6 +165,70 @@ function verbatimQuote(quote: string | null | undefined, note: string): string |
   return note.includes(trimmed) ? trimmed : null;
 }
 
+/**
+ * Expand spelled amounts ("thirty five thousand") into digits for SERV grounding.
+ * Validation only — never used as a SearchSpec / UserIntent constraint source.
+ * Does not run the budgetFromText keyword regex (that misread years as dollars).
+ */
+export function wordAmountTokens(note: string): number[] {
+  const WORD_ONES: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+  };
+  const WORD_TEENS: Record<string, number> = {
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+  };
+  const WORD_TENS: Record<string, number> = {
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
+    sixty: 60,
+    seventy: 70,
+    eighty: 80,
+    ninety: 90,
+  };
+  const tensAlt = Object.keys(WORD_TENS).join("|");
+  const onesAlt = Object.keys(WORD_ONES).join("|");
+  const teensAlt = Object.keys(WORD_TEENS).join("|");
+  const wordRe = new RegExp(
+    String.raw`\b(?:(${tensAlt})(?:[\s-]+(${onesAlt}))?|(${teensAlt})|(${onesAlt}))\s+(thousand|grand)\b`,
+    "gi",
+  );
+  const out: number[] = [];
+  for (const match of (note ?? "").matchAll(wordRe)) {
+    let base = 0;
+    if (match[1]) {
+      base = WORD_TENS[(match[1] ?? "").toLowerCase()] ?? 0;
+      if (match[2]) base += WORD_ONES[(match[2] ?? "").toLowerCase()] ?? 0;
+    } else if (match[3]) {
+      base = WORD_TEENS[(match[3] ?? "").toLowerCase()] ?? 0;
+    } else if (match[4]) {
+      base = WORD_ONES[(match[4] ?? "").toLowerCase()] ?? 0;
+    }
+    if (!base) continue;
+    const usd = base * 1000;
+    if (usd >= 1000 && usd <= 250_000) out.push(usd);
+  }
+  return out;
+}
+
 /** Expand note/form into allowed numeric tokens (including 20k → 20000). */
 export function groundedNumberTokens(note: string, form: FindPlanFormOverrides = {}): Set<string> {
   const tokens = new Set<string>();
@@ -200,8 +258,8 @@ export function groundedNumberTokens(note: string, form: FindPlanFormOverrides =
     if (!Number.isFinite(base)) continue;
     tokens.add(String(Math.round(base * 1000)));
   }
-  const fromWords = budgetFromText(note);
-  add(fromWords);
+  // Spelled budgets — grounding tokens only (SERV still owns interpretation).
+  for (const usd of wordAmountTokens(note)) add(usd);
   return tokens;
 }
 
@@ -276,23 +334,22 @@ function normalizeBodyStyle(raw: string): FindPlanBodyStyle {
   return "any";
 }
 
-const NOTE_BODY_TO_PLAN: Record<NoteBodyStyle, FindPlanBodyStyle> = {
-  SUV: "suv",
-  Sedan: "sedan",
-  Truck: "truck",
-  Hatchback: "hatchback",
-  Van: "van",
-  Wagon: "wagon",
-  Coupe: "coupe",
-  Convertible: "convertible",
-  Minivan: "minivan",
-};
-
-/** Body style the buyer named in the note — used to reject mismatched SERV directions. */
+/**
+ * Body style named in the note — validation grounding only (reject mismatched SERV
+ * directions). Not a SearchSpec / UserIntent constraint source.
+ */
 export function noteImpliedBodyStyle(note: string): FindPlanBodyStyle | null {
-  const intake = intakeFromNote(note);
-  if (!intake.bodyStyle) return null;
-  return NOTE_BODY_TO_PLAN[intake.bodyStyle] ?? null;
+  const blob = (note ?? "").toLowerCase();
+  if (/\b(suv|crossover|crossovers)\b/.test(blob)) return "suv";
+  if (/\b(truck|pickup)\b/.test(blob)) return "truck";
+  if (/\bminivan\b/.test(blob)) return "minivan";
+  if (/\bhatch(?:back)?\b/.test(blob)) return "hatchback";
+  if (/\bwagon\b/.test(blob)) return "wagon";
+  if (/\bconvertible\b/.test(blob)) return "convertible";
+  if (/\bcoupe\b/.test(blob)) return "coupe";
+  if (/\bvan\b/.test(blob)) return "van";
+  if (/\bsedan\b/.test(blob)) return "sedan";
+  return null;
 }
 
 /** EV / battery-electric intent from the note (not hybrid/Prius alone). */
@@ -724,149 +781,62 @@ export function planToDirections(plan: FindPlan, now = new Date()): SearchDirect
 }
 
 /**
- * Offline fallback when find_plan SERV fails or is unavailable.
- * Regex baseline for budget/ZIP/miles/body + never-empty body-style direction.
+ * Offline skeleton when find_plan SERV is unavailable or unusable.
+ * Form overrides only — never invents budget / years / miles / body / AWD / models
+ * from note regex or FALLBACK_MODELS catalog. SERV owns interpretation.
  */
 export function fallbackFindPlan(
   note: string,
   mode: "personal" | "flip" = "personal",
   form: FindPlanFormOverrides = {},
 ): FindPlan {
-  const baseline = explicitNeedFromText(note, mode);
-  const intake = intakeFromNote(note);
+  void mode;
   const budgetUsd =
     typeof form.budgetUsd === "number" && Number.isFinite(form.budgetUsd)
       ? Math.round(form.budgetUsd)
-      : baseline.budgetUsd;
+      : null;
   const yearMin =
-    typeof form.yearMin === "number" && Number.isFinite(form.yearMin) ? Math.round(form.yearMin) : baseline.yearMin;
+    typeof form.yearMin === "number" && Number.isFinite(form.yearMin) ? Math.round(form.yearMin) : null;
   const yearMax =
-    typeof form.yearMax === "number" && Number.isFinite(form.yearMax) ? Math.round(form.yearMax) : baseline.yearMax;
+    typeof form.yearMax === "number" && Number.isFinite(form.yearMax) ? Math.round(form.yearMax) : null;
   const milesMax =
     typeof form.milesMax === "number" && Number.isFinite(form.milesMax)
       ? Math.round(form.milesMax)
-      : baseline.milesMax;
-  const zip =
-    typeof form.zip === "string" && ZIP_RE.test(form.zip)
-      ? form.zip
-      : baseline.zip && ZIP_RE.test(baseline.zip)
-        ? baseline.zip
-        : null;
-
-  const bodyStyles: FindPlanBodyStyle[] = baseline.bodyStyle
-    ? [normalizeBodyStyle(baseline.bodyStyle)]
-    : (["any"] as FindPlanBodyStyle[]);
-
-  const namedModels = baseline.preferredModels
-    .map((item) => {
-      const make = allowlistedMake(item.make);
-      const model = make ? allowlistedModel(make, item.model) : null;
-      return make && model ? { make, model } : null;
-    })
-    .filter((item): item is FindPlanModel => item != null)
-    .slice(0, 6);
-
-  // Make-only notes (e.g. "Toyota SUV") still need searchable models from the bundled catalog.
-  const makeOnlyModels: FindPlanModel[] = [];
-  if (namedModels.length === 0) {
-    const body = bodyStyles[0] ?? "any";
-    for (const make of baseline.preferredMakes) {
-      const known = allowlistedMake(make);
-      if (!known) continue;
-      const catalog = bundledCatalogModels(known);
-      const pick =
-        body === "suv"
-          ? catalog.find((m) => /rav4|cr-v|tucson|forester|equinox|sportage|highlander|pilot/i.test(m))
-          : body === "truck"
-            ? catalog.find((m) => /tacoma|f-150|silverado|colorado|ranger|frontier/i.test(m))
-            : body === "sedan"
-              ? catalog.find((m) => /camry|accord|civic|corolla|altima|sonata|elantra/i.test(m))
-              : catalog[0];
-      const model = pick ? allowlistedModel(known, pick) : null;
-      if (model) makeOnlyModels.push({ make: known, model });
-      if (makeOnlyModels.length >= 3) break;
-    }
-  }
-  const seedModels = namedModels.length ? namedModels : makeOnlyModels;
-
-  const awdLimit = awdLimitFromText(note);
-  const awd =
-    awdLimit != null
-      ? ({
-          value: "awd_4wd",
-          strength: awdLimit === "hard" ? "required" : "preferred",
-          quote:
-            verbatimQuote("with AWD", note) ??
-            verbatimQuote("Preferably AWD", note) ??
-            verbatimQuote("preferably AWD", note) ??
-            verbatimQuote("AWD", note),
-        } satisfies FindPlanQuotedPref<FindPlanDrivetrainValue>)
-      : ({ value: "any", strength: "none", quote: null } satisfies FindPlanQuotedPref<FindPlanDrivetrainValue>);
-
-  const priorities: Array<{ id: FindPlanPriorityId; quote: string }> = [];
-  for (const id of baseline.priorities) {
-    if (!PRIORITY_SET.has(id)) continue;
-    // Fallback priorities may lack a verbatim quote — skip invented quotes.
-    const needle = id === "reliability" ? "reliable" : id.replace(/_/g, " ");
-    const idx = note.toLowerCase().indexOf(needle.toLowerCase());
-    if (idx < 0) continue;
-    const quote = note.slice(idx, idx + needle.length);
-    priorities.push({ id: id as FindPlanPriorityId, quote });
-  }
-
-  const directions: FindPlanDirection[] =
-    seedModels.length > 0
-      ? [
-          {
-            label: namedModels.length ? "Models from your note" : "Makes from your note",
-            why: namedModels.length
-              ? "The search uses the models named in your note."
-              : "The search uses the makes named in your note with common models.",
-            bodyStyle: bodyStyles[0] ?? "any",
-            models: seedModels,
-          },
-        ]
-      : [bodyStyleOnlyDirection(bodyStyles)];
-
-  const needsZip = Boolean(
-    !zip && (/\bnear me\b|\bnearby\b|\bclose by\b/i.test(note) || Boolean(intake.locationPhrase)),
-  );
+      : null;
+  const zip = typeof form.zip === "string" && ZIP_RE.test(form.zip) ? form.zip : null;
+  const bodyStyles: FindPlanBodyStyle[] = ["any"];
+  const noneDrive = {
+    value: "any" as const,
+    strength: "none" as const,
+    quote: null,
+  } satisfies FindPlanQuotedPref<FindPlanDrivetrainValue>;
 
   return {
-    summary: note.trim()
-      ? `Looking for a used car${budgetUsd != null ? ` around $${budgetUsd.toLocaleString("en-US")}` : ""}${
-          bodyStyles[0] && bodyStyles[0] !== "any" ? ` (${bodyStyles[0]})` : ""
-        }.`
-      : "Car shopping request.",
+    summary: note.trim() ? "Car shopping request (awaiting SERV plan)." : "Car shopping request.",
     bodyStyles,
     budget: {
       maxUsd: budgetUsd,
-      approximate: /\b(around|about|approximately|roughly|~)\b/i.test(note),
+      approximate: false,
       quote: null,
     },
     yearMin,
     yearMax,
     milesMax,
-    drivetrain: awd,
-    fuel: {
-      value: baseline.fuelEconomyPriority ? "hybrid" : "any",
-      strength: baseline.fuelEconomyPriority ? "preferred" : "none",
-      quote: null,
-    },
+    drivetrain: noneDrive,
+    fuel: { value: "any", strength: "none", quote: null },
     seatsMin: null,
     location: {
       zip,
-      phrase: intake.locationPhrase,
-      needsZip,
+      phrase: null,
+      needsZip: false,
     },
-    priorities,
-    namedModels: seedModels,
+    priorities: [],
+    namedModels: [],
     excludedMakes: [],
-    question: needsZip
-      ? { id: "zip", text: "What ZIP should we search near?" }
-      : budgetUsd == null
+    question:
+      budgetUsd == null
         ? { id: "budget", text: "What is your maximum budget?" }
         : { id: "none", text: null },
-    directions,
+    directions: [bodyStyleOnlyDirection(bodyStyles)],
   };
 }

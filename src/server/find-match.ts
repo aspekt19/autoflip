@@ -23,7 +23,6 @@ import {
   type StructuredNeed,
 } from "@/domain/need";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
-import { awdLimitFromText } from "@/domain/note-intake";
 import { implausibleOdometer } from "@/domain/find-best-deal";
 import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
@@ -230,7 +229,11 @@ function budgetOnlyDirection(need: StructuredNeed): SearchDirection {
 
 /** Hard all-wheel drive: confirm a blank drivetrain from the VIN decode, or mark it unverified. */
 async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fetchImpl?: typeof fetch): Promise<Listing[]> {
-  if (need.mode === "flip" || awdLimitFromText(need.note ?? "") !== "hard") return listings;
+  // SERV/form must-haves only — never re-parse the free-text note for AWD hardness.
+  const hardAwd = (need.mustHaves ?? []).some((item) =>
+    /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
+  );
+  if (need.mode === "flip" || !hardAwd) return listings;
   const out: Listing[] = [];
   let decoded = 0;
   for (const listing of listings) {

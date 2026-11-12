@@ -4,7 +4,6 @@
  * budget (AssistantFlow reads it from the render closure), and a year set on
  * Confirm updates the need without rebuilding plan directions.
  */
-import { awdLimitFromText, budgetFromText } from "@/domain/note-intake";
 import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import type { SearchDirection } from "@/domain/directions";
 import type { StructuredNeed } from "@/domain/need";
@@ -42,7 +41,7 @@ function confidenceOf(raw: string | null | undefined): GoldenRun["confidence"] {
 }
 
 function budgetSource(note: string, sent: number | null, pipeline: number | null): Prov {
-  const fromNote = budgetFromText(note);
+  const fromNote = null;
   if (sent != null && pipeline === sent && fromNote !== sent) return "form";
   if (fromNote != null && pipeline === fromNote) return "note";
   if (sent != null && pipeline === sent) return "form";
@@ -119,7 +118,7 @@ class ClientSession {
     if (need.yearMin != null) hard.yearMin = { value: need.yearMin, source: this.yearMinDraft ? "form" : "note" };
     if (need.yearMax != null) hard.yearMax = { value: need.yearMax, source: "note" };
     if (need.milesMax != null) hard.milesMax = { value: need.milesMax, source: "note" };
-    if (awdLimitFromText(note) === "hard") hard.drivetrain = { value: "awd_4wd", source: "note" };
+    
     if (need.bodyStyle) hard.bodyStyles = { value: [need.bodyStyle], source: "note" };
     if (need.zip) {
       const fromNote = location === "from-note" || note.includes(need.zip);

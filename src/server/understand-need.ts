@@ -25,7 +25,6 @@ import {
 } from "@/domain/constraint-provenance";
 import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
-import { intakeFromNote } from "@/domain/note-intake";
 import type { DecisionProof } from "@/domain/decision-note";
 import {
   buildDecisionProofRecord,
@@ -386,21 +385,8 @@ export async function understandNeed(
       ? userConstraints.zip.value.trim()
       : null;
 
-  // Drop stale wizard ZIP when this note named a city/place without those digits.
-  // Keep an explicit Confirm/form ZIP (answers needsZip / "near me").
-  {
-    const intake = intakeFromNote(screened.text);
-    if (
-      !formZip &&
-      intake.locationPhrase &&
-      !intake.zip &&
-      need.zip &&
-      need.zip !== intake.zip
-    ) {
-      need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
-    }
-  }
   // City/phrase → ZIP via free table. Default radius is UI suggestion only — never a constraint.
+  // Note regex no longer invents locationPhrase / ZIP — SERV/form own geo.
   {
     const withGeo = attachNoteGeo(need, { applyDefaultRadius: false });
     const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;

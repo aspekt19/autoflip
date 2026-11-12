@@ -319,4 +319,29 @@ describe("search_listings funnel", () => {
     const cars = executed.result.cars as Array<{ vin: string; model: string }>;
     expect(cars.map((c) => c.model).sort()).toEqual(["Camry", "RAV4"]);
   });
+
+  it("passes real upstream status/cause to SERV (not a generic error)", async () => {
+    // 400 is non-retryable so the tool result surfaces in one attempt.
+    const fetchImpl: typeof fetch = async () => new Response("bad filter", { status: 400 });
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", model: "Camry", priceMaxUsd: 15_000 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: {
+          cache: new TtlCache<unknown>(),
+          counter: new MemoryCounter(),
+        },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(false);
+    expect(executed.result.error).toBe("upstream");
+    expect(executed.result.status).toBe(400);
+    expect(executed.result.cause).toBe("http_error");
+    expect(executed.result.attempts).toBe(1);
+    expect(String(executed.summary)).toMatch(/status=400/);
+    expect(String(executed.summary)).toMatch(/cause=http_error/);
+  });
 });

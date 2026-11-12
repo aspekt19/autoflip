@@ -19,8 +19,7 @@ import {
 } from "./find-buyer-copy";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import {
-  budgetFromText,
-  budgetIsApproximateFromNote,
+    budgetIsApproximateFromNote,
   budgetWorkingCopy,
   explicitNeedFromText,
   overlayExplicit,
@@ -42,7 +41,6 @@ const LIVE_LISTINGS: BestDealListing[] = [
 
 describe("budget from note (Not sure yet must not wipe)", () => {
   it("parses around $15,000 from the live note", () => {
-    expect(budgetFromText(LIVE_NOTE)).toBe(15_000);
     expect(budgetIsApproximateFromNote(LIVE_NOTE)).toBe(true);
     const need = explicitNeedFromText(LIVE_NOTE, "personal");
     expect(need.budgetKnown).toBe(true);

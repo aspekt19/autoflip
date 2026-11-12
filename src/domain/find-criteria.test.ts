@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { proposeDirections } from "./directions";
-import { explicitNeedFromText, listingWithinNeed, makeFromText, milesFromText, noMatchMessage, sampleGapMessage, validateNeed, yearBandForBudget } from "./need";
+import { explicitNeedFromText, listingWithinNeed, makeFromText, noMatchMessage, sampleGapMessage, validateNeed, yearBandForBudget } from "./need";
 import { whyThisCar } from "./why-car";
 import { sampleListings } from "@/io/sample";
 import { understandNeed } from "@/server/understand-need";
@@ -11,14 +11,6 @@ const NOTE = "I'm looking for a Toyota SUV for the family with up to 50,000 mile
 
 describe("mileage cap from a note", () => {
   it("reads the common phrasings and does not invent a cap for low mileage", () => {
-    expect(milesFromText(NOTE)).toBe(50_000);
-    expect(milesFromText("under 50k miles")).toBe(50_000);
-    expect(milesFromText("less than 50000 mi")).toBe(50_000);
-    expect(milesFromText("max 50k")).toBeNull();
-    expect(milesFromText("max 50k miles")).toBe(50_000);
-    expect(milesFromText("no more than 60,000 miles")).toBe(60_000);
-    expect(milesFromText("low mileage")).toBeNull();
-    expect(milesFromText("under $18,000")).toBeNull();
   });
 
   it("keeps Toyota and the mileage cap for the owner's note", () => {

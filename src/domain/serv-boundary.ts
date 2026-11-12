@@ -32,14 +32,6 @@ import {
   type UserProvenanced,
 } from "@/domain/constraint-provenance";
 import {
-  budgetFromText,
-  bodyFromIntake,
-  yearsFromNote,
-  zipFromNote,
-  awdLimitFromText,
-} from "@/domain/note-intake";
-import { milesFromText } from "@/domain/need";
-import {
   filterRealRelaxedConditions,
   isRealRelaxationText,
   liveEvalOutcomeOk,
@@ -134,15 +126,11 @@ function userField<T>(value: T, field: ConstraintFieldKey): UserIntentField<T> {
   return { value: gated.value, provenance: "user", origin: "user" };
 }
 
-function noteField<T>(value: T): UserIntentField<T> {
-  return { value, provenance: "note", origin: "note" };
-}
-
 /**
  * Build UserIntent from raw note + optional provenanced form edits.
- * Only `origin: "user"` form cells become hard/form constraints on `fields`.
- * Note-extracted values stay as `origin: "note"` for context — stripped from
- * {@link serializeServFormConstraints} (Form edits channel).
+ * Only `origin: "user"` form cells become constraints on `fields`.
+ * The free-text note is context for SERV — code never regex-parses it into
+ * budget/year/miles/zip/body/drivetrain/transmission constraints.
  */
 export function buildUserIntent(input: {
   note: string;
@@ -151,47 +139,30 @@ export function buildUserIntent(input: {
 }): UserIntent {
   const note = input.note ?? "";
   const form = pickUserFormConstraints(input.formEdits ?? {});
-  const now = input.now ?? new Date();
   const fields: UserIntent["fields"] = {};
 
   const priceUser = userNumber(form.priceMaxUsd);
   if (priceUser != null && priceUser >= 1000) {
     fields.priceMaxUsd = userField(priceUser, "priceMaxUsd");
-  } else {
-    const fromNote = budgetFromText(note);
-    if (fromNote != null && fromNote >= 1000) {
-      fields.priceMaxUsd = noteField(fromNote);
-    }
   }
 
   const yearMinUser = userNumber(form.yearMin);
   const yearMaxUser = userNumber(form.yearMax);
-  const years = yearsFromNote(note, now);
   if (yearMinUser != null) {
     fields.yearMin = userField(yearMinUser, "yearMin");
-  } else if (years.yearMin != null) {
-    fields.yearMin = noteField(years.yearMin);
   }
   if (yearMaxUser != null) {
     fields.yearMax = userField(yearMaxUser, "yearMax");
-  } else if (years.yearMax != null) {
-    fields.yearMax = noteField(years.yearMax);
   }
 
   const milesUser = userNumber(form.milesMax);
-  const milesNote = milesFromText(note);
   if (milesUser != null) {
     fields.milesMax = userField(milesUser, "milesMax");
-  } else if (milesNote != null) {
-    fields.milesMax = noteField(milesNote);
   }
 
   const zipUser = userString(form.zip);
-  const zipNote = zipFromNote(note, budgetFromText(note));
   if (zipUser && /^\d{5}$/.test(zipUser)) {
     fields.zip = userField(zipUser, "zip");
-  } else if (zipNote) {
-    fields.zip = noteField(zipNote);
   }
 
   if (isUserProvenanced(form.radiusMi)) {
@@ -203,16 +174,11 @@ export function buildUserIntent(input: {
     : null;
   if (bodyUser && bodyUser.length) {
     fields.bodyStyles = userField(bodyUser, "bodyStyles");
-  } else {
-    const bodyNote = bodyFromIntake(note);
-    if (bodyNote) fields.bodyStyles = noteField([bodyNote]);
   }
 
   const driveUser = isUserProvenanced(form.drivetrain) ? form.drivetrain.value : undefined;
   if (driveUser === "awd_4wd") {
     fields.drivetrain = userField("awd_4wd" as const, "drivetrain");
-  } else if (awdLimitFromText(note) === "hard") {
-    fields.drivetrain = noteField("awd_4wd" as const);
   }
 
   const excludeUser = isUserProvenanced(form.excludeMakes)
@@ -220,12 +186,6 @@ export function buildUserIntent(input: {
     : null;
   if (excludeUser && excludeUser.length) {
     fields.excludeMakes = userField(excludeUser, "excludeMakes");
-  }
-
-  if (/\bautomatic only\b|\bonly automatic\b|\bmust be automatic\b/i.test(note)) {
-    fields.transmission = noteField("automatic");
-  } else if (/\bmanual only\b|\bonly manual\b|\bstick shift\b/i.test(note)) {
-    fields.transmission = noteField("manual");
   }
 
   return { note, fields };
