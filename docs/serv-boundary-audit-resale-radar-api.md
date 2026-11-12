@@ -305,12 +305,13 @@ Line numbers from this branch at audit time; prefer symbols if they drift.
 
 ## Counts
 
-| Fate | Count |
+| Fate | Count (tag occurrences in body bullets; some bullets name more than one fate) |
 |------|------:|
-| **removed** | 52 |
-| **moved into SERV tool param** | 61 |
-| **kept as guardrail** | 78 |
-| **Total decision points listed** | **191** |
+| removed | 45 |
+| moved into SERV tool param | 52 |
+| kept as guardrail | 99 |
+| Bullet rows (path:line) | 172 |
+| Total fate tags | 196 |
 
 ### Hotspots (highest concentration of `removed` / `moved`)
 
