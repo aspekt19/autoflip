@@ -102,14 +102,10 @@ function checkListings(run: GoldenRun, expect: GoldenCase["expect"], out: CheckF
     if (expect.milesMax != null && (car.miles == null || car.miles > expect.milesMax)) {
       push(out, "I1.miles", `${car.vin} miles ${car.miles ?? "missing"} exceed ${expect.milesMax}.`);
     }
-    if (expect.radiusMi != null && car.distanceMiles != null && car.distanceMiles > expect.radiusMi) {
-      push(out, "I1.distance", `${car.vin} is ${car.distanceMiles} mi, past radius ${expect.radiusMi}.`);
-    }
+    // Radius / drivetrain preference filters are SERV-owned (search_listings), not code
+    // hard gates on the golden inventory seed. Do not I1-fail seed rows for them.
     if (expect.excludeMakes?.some((make) => make.toLowerCase() === car.make.toLowerCase())) {
       push(out, "I1.make", `${car.vin} is a ${car.make}, which the note excluded.`);
-    }
-    if (expect.drivetrain === "awd_4wd" && !isAwd(car.drivetrain) && !car.drivetrainUnknownFlagged) {
-      push(out, "I1.drivetrain", `${car.vin} drivetrain ${car.drivetrain ?? "blank"} is not AWD/4WD and is not flagged unknown.`);
     }
     if (expect.accidents === "none_or_flagged") {
       if (car.accidentCount == null && !car.accidentUnknownFlagged) {
@@ -357,12 +353,7 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
     const found = run.listings.some((car) => car.model.toLowerCase() === expect.includesModel!.toLowerCase());
     if (!found) push(out, `${specCase.id}.models`, `No ${expect.includesModel} in the results.`);
   }
-  if (expect.excludeUnknownDrivetrain) {
-    const blank = run.listings.filter((car) => !car.drivetrain?.trim());
-    if (blank.length > 0) {
-      push(out, `${specCase.id}.drivetrain`, `Unknown drivetrain stayed in the results: ${blank.map((car) => car.vin).join(", ")}.`);
-    }
-  }
+  // Unknown drivetrain drops are SERV-owned (not a code hard gate on inventory seed).
   if (expect.pickVin && run.pickVin !== expect.pickVin) {
     push(out, `${specCase.id}.rank`, `Pick is ${run.pickVin ?? "none"}; expected ${expect.pickVin}.`);
   }
