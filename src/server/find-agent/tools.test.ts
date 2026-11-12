@@ -144,7 +144,7 @@ describe("search_listings funnel", () => {
     expect(hints).toContain("raise_price");
   });
 
-  it("reports searched filters, constraint roles, and duplicateSearch on identical re-calls", async () => {
+  it("reports searched filters, provenance constraint roles, and duplicateSearch on identical re-calls", async () => {
     const fetchImpl: typeof fetch = async (input) => {
       if (String(input).includes("listings")) {
         return new Response(JSON.stringify({ data: [] }), {
@@ -159,20 +159,31 @@ describe("search_listings funnel", () => {
       autodevKey: "test",
       autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
     };
-    const state = createFindAgentToolState();
+    // User set yearMin + priceMaxUsd; zip is SERV-chosen → relaxable.
+    const state = createFindAgentToolState(undefined, ["yearMin", "priceMaxUsd"]);
     const args = {
       zip: "33101",
       radiusMi: 35,
       priceMaxUsd: 45000,
+      yearMin: 2018,
       bodyFamily: "suv",
     };
     const first = await executeFindAgentTool("search_listings", args, deps, state);
     expect(first.ok).toBe(true);
     expect(first.result.searched).toEqual(
-      expect.objectContaining({ zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }),
+      expect.objectContaining({
+        zip: "33101",
+        radiusMi: 35,
+        priceMaxUsd: 45000,
+        yearMin: 2018,
+        bodyFamily: "suv",
+      }),
     );
-    expect(first.result.hardKeys).toEqual(expect.arrayContaining(["zip", "priceMaxUsd"]));
-    expect(first.result.relaxableKeys).toEqual(expect.arrayContaining(["radiusMi", "bodyFamily"]));
+    expect(first.result.hardKeys).toEqual(expect.arrayContaining(["yearMin", "priceMaxUsd"]));
+    expect(first.result.hardKeys).not.toContain("zip");
+    expect(first.result.relaxableKeys).toEqual(
+      expect.arrayContaining(["zip", "radiusMi", "bodyFamily"]),
+    );
     expect(first.result.duplicateSearch).toBeNull();
 
     const second = await executeFindAgentTool("search_listings", args, deps, state);

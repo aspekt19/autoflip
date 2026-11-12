@@ -8,7 +8,10 @@ import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
-import { fingerprintsFromSearchJournal } from "@/domain/search-listings-feedback";
+import {
+  fingerprintsFromSearchJournal,
+  hardSearchKeysFromUserBag,
+} from "@/domain/search-listings-feedback";
 import {
   assertNoNonUserSetConstraints,
   buildUserIntentFromFlatForm,
@@ -383,10 +386,10 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search. Prefer tight filters first.",
-    "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard keys (budget/zip) stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters. Code never auto-relaxes — you decide.",
-    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, do not repeat the same filters; change approach.",
+    "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
     "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
-    "A pass/nothing-fits must include passReason that states what you tried and why nothing fit — never pass silently after identical zero-result searches.",
+    "A pass/nothing-fits must include passReason that states what you tried and why nothing fit — never pass silently without a written reason and journaled searches.",
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
@@ -1542,6 +1545,12 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
+  const { constraints: userFormConstraints } = constraintsFromFormEdits(
+    input.note,
+    input.formEdits,
+  );
+  state.userHardKeys = hardSearchKeysFromUserBag(userFormConstraints);
   const deadline =
     input.deadline === undefined
       ? makeAgentLoopDeadline(input.budgetMs)

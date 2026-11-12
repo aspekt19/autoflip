@@ -9,11 +9,11 @@
  *
  * A bare pass with no vehicle and no documented reasons is incomplete and must
  * go back to SERV for a repair turn — it must not score as verdictReached.
- * Identical repeated zero-result searches without a filter change are incomplete —
- * SERV must change approach (code never auto-relaxes).
+ *
+ * A pass that has BOTH a written nothing-fits reason and journaled searches is
+ * accepted — including after identical empty searches. Code never forces SERV
+ * to change filters; duplicateSearch feedback on the tool is observational only.
  */
-
-import { allSearchesIdentical } from "./search-listings-feedback";
 
 export type AgentSearchJournalRow = {
   /** Tool args as sent (zip, radius, price, body, …). */
@@ -129,13 +129,6 @@ export function scoringVerdictComplete(
   if (!searchesDocumented(input.searches)) {
     issues.push(
       "Nothing-fits requires documenting every search_listings call (params + result count) in the journal.",
-    );
-  }
-
-  const allZero = input.searches.length > 0 && input.searches.every((s) => s.resultCount === 0);
-  if (allZero && allSearchesIdentical(input.searches)) {
-    issues.push(
-      "Identical zero-result searches were repeated without changing filters. Change at least one relaxable filter and re-search (or explain a real blocker) — code will not auto-relax; do not pass after only duplicate searches.",
     );
   }
 

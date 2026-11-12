@@ -8,6 +8,7 @@ import {
   classifySearchConstraints,
   duplicateSearchInfo,
   fingerprintSearchFilters,
+  type SearchFilterKey,
 } from "@/domain/search-listings-feedback";
 import {
   assertThinSearchProxyDidNotDropProductRows,
@@ -128,6 +129,11 @@ export type FindAgentToolState = {
   listingsByVin: Map<string, Listing>;
   /** Prior search_listings fingerprints this run (for duplicate detection). */
   searchFingerprints: string[];
+  /**
+   * Search filter keys the shopper set (origin=user on the form bag).
+   * Drives constraintRoles — never a hardcoded HARD_KEYS list.
+   */
+  userHardKeys: Set<SearchFilterKey>;
 };
 
 export type FindAgentToolDeps = {
@@ -408,7 +414,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "search_listings",
         description:
-          "Search live dealer listings (asking prices). Pass limit/page for pagination (max 50 per call); when truncated=true request the next page so nothing stays hidden. Returns unfiltered provider rows plus an observational funnel, constraintRoles (hard vs relaxable), and duplicateSearch when filters match a prior call — change a relaxable filter; code never auto-relaxes. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
+          "Search live dealer listings (asking prices). Pass limit/page for pagination (max 50 per call); when truncated=true request the next page so nothing stays hidden. Returns unfiltered provider rows plus an observational funnel, constraintRoles (hard = shopper origin=user; relaxable = SERV-chosen), and duplicateSearch when filters match a prior call — change a relaxable filter; code never auto-relaxes or forces filter changes. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
         parameters: searchParams,
       },
     },
@@ -707,11 +713,15 @@ export type ExecuteToolResult = {
   summary: string;
 };
 
-export function createFindAgentToolState(seed?: readonly Listing[]): FindAgentToolState {
+export function createFindAgentToolState(
+  seed?: readonly Listing[],
+  userHardKeys?: Iterable<SearchFilterKey> | null,
+): FindAgentToolState {
   const state: FindAgentToolState = {
     knownVins: new Set(),
     listingsByVin: new Map(),
     searchFingerprints: [],
+    userHardKeys: new Set(userHardKeys ?? []),
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -790,7 +800,7 @@ export async function executeFindAgentTool(
     const fingerprint = fingerprintSearchFilters(argsRecord);
     const duplicate = duplicateSearchInfo(fingerprint, state.searchFingerprints);
     state.searchFingerprints.push(fingerprint);
-    const constraintInfo = classifySearchConstraints(argsRecord);
+    const constraintInfo = classifySearchConstraints(argsRecord, state.userHardKeys);
     const summary =
       duplicate != null
         ? `search_listings → DUPLICATE of call #${duplicate.priorCallIndex}; change a relaxable filter (raw=${funnel[0]?.count ?? 0})`

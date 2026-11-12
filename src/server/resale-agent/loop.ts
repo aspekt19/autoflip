@@ -6,7 +6,10 @@
  */
 import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
-import { fingerprintsFromSearchJournal } from "@/domain/search-listings-feedback";
+import {
+  fingerprintsFromSearchJournal,
+  hardSearchKeysFromUserBag,
+} from "@/domain/search-listings-feedback";
 import {
   assertNoNonUserSetConstraints,
   buildUserIntentFromFlatForm,
@@ -401,10 +404,10 @@ Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
   return [
     "You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
-    "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable filter (radius, miles, year, body, model) then re-search. Code never auto-relaxes.",
-    "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions (real text; never redacted).",
-    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, change approach — do not repeat identical filters.",
-    "A pass/nothing-fits summary must state what you tried and why nothing fit — never pass silently after identical zero-result searches.",
+    "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
+    "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
+    "A pass/nothing-fits summary must state what you tried and why nothing fit — never pass silently without a written reason and journaled searches.",
     "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
     "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
@@ -1511,6 +1514,13 @@ export async function runResaleAgentLoop(input: {
   const restored = restoreResaleStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  const shopperContext = input.shopperContext ?? input.deps.shopperContext;
+  // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
+  const { constraints: userFormConstraints } = constraintsFromFormEdits(
+    input.note,
+    shopperContext,
+  );
+  state.userHardKeys = hardSearchKeysFromUserBag(userFormConstraints);
   const deadline =
     input.deadline === undefined
       ? makeAgentLoopDeadline(input.budgetMs)
@@ -1538,7 +1548,7 @@ export async function runResaleAgentLoop(input: {
 
   const shared = {
     note: input.note,
-    shopperContext: input.shopperContext ?? input.deps.shopperContext,
+    shopperContext,
     deps: input.deps,
     toolDeps,
     state,

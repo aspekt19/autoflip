@@ -5,6 +5,7 @@ import {
   classifySearchConstraints,
   duplicateSearchInfo,
   fingerprintSearchFilters,
+  hardSearchKeysFromUserBag,
 } from "./search-listings-feedback";
 
 describe("search_listings honest feedback", () => {
@@ -30,20 +31,44 @@ describe("search_listings honest feedback", () => {
     expect(a).not.toContain("limit");
   });
 
-  it("classifies budget/zip as hard and radius/body as relaxable", () => {
+  it("labels user-set yearMin hard and SERV-chosen zip relaxable", () => {
+    const userHard = hardSearchKeysFromUserBag({
+      yearMin: { value: 2016, origin: "user" },
+      priceMaxUsd: { value: 25000, origin: "user" },
+      // zip absent from user bag — SERV chose it
+    });
+    expect([...userHard]).toEqual(expect.arrayContaining(["yearMin", "priceMaxUsd"]));
+    expect(userHard.has("zip")).toBe(false);
+
+    const info = classifySearchConstraints(
+      {
+        zip: "97201",
+        priceMaxUsd: 25000,
+        radiusMi: 50,
+        bodyFamily: "suv",
+        yearMin: 2016,
+        fuel: "hybrid",
+      },
+      userHard,
+    );
+    expect(info.hardKeys).toEqual(expect.arrayContaining(["yearMin", "priceMaxUsd"]));
+    expect(info.hardKeys).not.toContain("zip");
+    expect(info.relaxableKeys).toEqual(
+      expect.arrayContaining(["zip", "radiusMi", "bodyFamily", "fuel"]),
+    );
+    expect(info.searched.priceMaxUsd).toBe(25000);
+  });
+
+  it("treats every filter as relaxable when the user bag is empty", () => {
     const info = classifySearchConstraints({
       zip: "97201",
       priceMaxUsd: 25000,
       radiusMi: 50,
-      bodyFamily: "suv",
-      yearMin: 2016,
-      fuel: "hybrid",
     });
-    expect(info.hardKeys).toEqual(expect.arrayContaining(["zip", "priceMaxUsd"]));
+    expect(info.hardKeys).toEqual([]);
     expect(info.relaxableKeys).toEqual(
-      expect.arrayContaining(["radiusMi", "bodyFamily", "yearMin", "fuel"]),
+      expect.arrayContaining(["zip", "priceMaxUsd", "radiusMi"]),
     );
-    expect(info.searched.priceMaxUsd).toBe(25000);
   });
 
   it("flags an identical repeated search as a duplicate", () => {

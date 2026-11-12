@@ -34,9 +34,9 @@ export type SearchConstraintRole = {
   /** Value SERV passed on this call (normalized). */
   value: string | number;
   /**
-   * Structural role — not query-specific.
-   * hard: shopper budget/location; keep unless the shopper note allows otherwise.
-   * relaxable: search choice SERV may change after empty/weak results.
+   * Provenance role — not a hardcoded key list.
+   * hard: shopper set this (origin=user on the stored form bag / UserIntent).
+   * relaxable: SERV chose this filter; may change after empty/weak results.
    */
   kind: "hard" | "relaxable";
 };
@@ -58,8 +58,44 @@ const FINGERPRINT_KEYS: SearchFilterKey[] = [
   "drivetrain",
 ];
 
-/** Hard unless the shopper's note allows otherwise — still SERV's call, never code-auto. */
-const HARD_KEYS = new Set<SearchFilterKey>(["priceMaxUsd", "zip"]);
+/**
+ * Form-bag key → search_listings filter keys (naming bridge only).
+ * Hardness still comes only from origin=user provenance — not from this map.
+ */
+const FORM_KEY_TO_SEARCH_KEYS: Record<string, readonly SearchFilterKey[]> = {
+  bodyStyles: ["bodyStyle", "bodyFamily"],
+};
+
+function isUserOriginCell(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const row = raw as { origin?: unknown; provenance?: unknown };
+  const origin = typeof row.origin === "string" ? row.origin : row.provenance;
+  return origin === "user" || origin === "form";
+}
+
+/**
+ * Derive hard search filter keys from the stored user form bag / UserIntent fields.
+ * Only origin=user (legacy form) cells count — everything SERV chose is relaxable.
+ * No hardcoded HARD_KEYS policy list.
+ */
+export function hardSearchKeysFromUserBag(
+  bag: Record<string, unknown> | null | undefined,
+): Set<SearchFilterKey> {
+  const hard = new Set<SearchFilterKey>();
+  if (!bag) return hard;
+  for (const [key, raw] of Object.entries(bag)) {
+    if (!isUserOriginCell(raw)) continue;
+    const aliased = FORM_KEY_TO_SEARCH_KEYS[key];
+    if (aliased) {
+      for (const searchKey of aliased) hard.add(searchKey);
+      continue;
+    }
+    if ((FINGERPRINT_KEYS as readonly string[]).includes(key)) {
+      hard.add(key as SearchFilterKey);
+    }
+  }
+  return hard;
+}
 
 function normalizeFilterValue(key: SearchFilterKey, raw: unknown): string | number | null {
   if (raw == null || raw === "") return null;
@@ -98,12 +134,17 @@ export function fingerprintSearchFilters(params: Record<string, unknown> | null 
 /** Active filters with hard vs relaxable roles for SERV's eyes. */
 export function classifySearchConstraints(
   params: Record<string, unknown> | null | undefined,
+  userHardKeys?: ReadonlySet<SearchFilterKey> | readonly SearchFilterKey[] | null,
 ): {
   searched: Record<string, string | number>;
   roles: SearchConstraintRole[];
   hardKeys: SearchFilterKey[];
   relaxableKeys: SearchFilterKey[];
 } {
+  const hardSet =
+    userHardKeys instanceof Set
+      ? userHardKeys
+      : new Set<SearchFilterKey>(userHardKeys ?? []);
   const row = params && typeof params === "object" && !Array.isArray(params) ? params : {};
   const searched: Record<string, string | number> = {};
   const roles: SearchConstraintRole[] = [];
@@ -111,7 +152,7 @@ export function classifySearchConstraints(
     const value = normalizeFilterValue(key, row[key]);
     if (value == null) continue;
     searched[key] = value;
-    const kind = HARD_KEYS.has(key) ? "hard" : "relaxable";
+    const kind = hardSet.has(key) ? "hard" : "relaxable";
     roles.push({ key, value, kind });
   }
   return {
