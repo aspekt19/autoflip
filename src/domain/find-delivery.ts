@@ -1,6 +1,12 @@
 /**
- * Shared Find delivery → charge gate (REPORT_356a / AUDIT R8).
- * A credit is owed only when a search actually returned cars.
+ * Shared Find delivery → charge gate.
+ *
+ * Structural SERV boundary: charge only when a car is chosen OR SERV documented
+ * nothing-fits (searches + reasons). Listing delivery alone is not enough when
+ * the agent loop owns the verdict — use {@link findAgentSettleChargesCredit}.
+ *
+ * Legacy match-time debit (pre-agent) still uses {@link findDeliveryChargesCredit}
+ * for routes that return cards without a decide path.
  */
 
 export type FindDeliveryChargeInput = {
@@ -12,8 +18,8 @@ export type FindDeliveryChargeInput = {
 };
 
 /**
- * True only when the shopper received at least one car from a real provider query.
- * Zero cars, no_directions, or emptyReason must never charge (UI, API v1, MCP).
+ * Legacy: true when the shopper received at least one car from a real provider query.
+ * Zero cars / emptyReason must never charge at match time.
  */
 export function findDeliveryChargesCredit(input: FindDeliveryChargeInput): boolean {
   if (!input.ok) return false;
@@ -21,4 +27,18 @@ export function findDeliveryChargesCredit(input: FindDeliveryChargeInput): boole
   if (input.listingCount <= 0) return false;
   if (typeof input.emptyReason === "string" && input.emptyReason.trim()) return false;
   return true;
+}
+
+export type FindAgentSettleChargeInput = {
+  chosenVin: string | null | undefined;
+  /** scoringVerdictComplete kind === nothing_fits */
+  nothingFitsDocumented: boolean;
+  agentLoopRan: boolean;
+};
+
+/** Decide/settle charge gate — chosen car or documented nothing-fits after agent loop. */
+export function findAgentSettleChargesCredit(input: FindAgentSettleChargeInput): boolean {
+  if (!input.agentLoopRan) return false;
+  if (input.chosenVin?.trim()) return true;
+  return input.nothingFitsDocumented;
 }

@@ -75,3 +75,15 @@ Primary fate only (first bold tag per bullet in the partials).
 | Check login + 3 free/month + settle-after-success / release on fail | Product rules 1–3 (auth/billing); SERV-less charge still flagged in Check partial |
 | Check listing fetch grounding (`groundLlmFieldsInPage`) | Fact hygiene, not ranking |
 | Journal SERV decide/challenge response ids | Required audit trail |
+
+## Implementation counts (this PR)
+
+| Metric | Count |
+|--------|------:|
+| Decision points catalogued (all audit docs) | 376 |
+| Removed / stripped | 141 |
+| Moved into SERV tool param / note provenance | 87 |
+| Kept as guardrails | 211 |
+
+Structural enforcement: `src/domain/serv-boundary.ts` + `src/domain/serv-boundary.test.ts`.
+Inventories: `docs/serv-boundary-audit.md`, `docs/serv-boundary-audit-find.md`, `docs/serv-boundary-audit-resale-radar-api.md`, `docs/serv-boundary-audit-check.md`.

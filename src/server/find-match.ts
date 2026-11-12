@@ -30,7 +30,8 @@ import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
-import { filterInventoryWithWiden } from "@/domain/inventory-widen";
+// inventory-widen (code-owned soft drop / radius widen) removed from the SERV boundary —
+// SERV re-searches via search_listings. Seed path uses hard gate for user-set constraints only.
 import { buildSearchSpec, enforceHard, hardDropSentence, type ServPlanHint } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
@@ -654,7 +655,7 @@ export async function runFindMatch(
     }
   }
 
-  // Soft preferences that emptied local inventory are loosened in filterInventoryWithWiden.
+  // Soft preferences / radius widen are SERV-owned via search_listings — not code widen.
   // An explicit radius is never auto-widened to Nationwide (Chicago live defect).
   const nationwideWidenNote: string | null = null;
   const filterNeed = need;
@@ -792,22 +793,12 @@ export async function runFindMatch(
       if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
       narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
     } else {
-      const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
-      const hiddenOther = prepared.length - cars.length;
-      const widen = filterInventoryWithWiden(cars, filterNeed, { servPlan: servPlanHint });
-      const otherNote =
-        hiddenOther > 0
-          ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
-          : null;
-      // Nationwide widen note is attached once on the first direction only.
-      const onceWiden = di === 0 ? nationwideWidenNote : null;
-      const widenNote =
-        onceWiden ??
-        widen.explanation ??
-        (widen.dropped.length && widen.listings.length === 0 ? hardDropSentence(widen.dropped) : null);
-      const gateNote = [widenNote, otherNote].filter(Boolean).join(" ") || null;
+      // No code-owned soft widen — SERV owns re-search/relax. Hard gate only for user-set constraints.
+      const gated = applyHardGate(prepared, filterNeed, servPlanHint);
+      const onceNote = di === 0 ? nationwideWidenNote : null;
+      const gateNote = [onceNote, gated.note].filter(Boolean).join(" ") || null;
       if (gateNote) directionNote = [directionNote, gateNote].filter(Boolean).join(" ");
-      narrowed = widen.listings;
+      narrowed = gated.listings;
     }
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();

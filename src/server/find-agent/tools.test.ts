@@ -24,8 +24,8 @@ describe("find-agent tool arg validation", () => {
     expect(ok).toEqual({ ok: true, value: "33101" });
   });
 
-  it("rejects limit over 20", () => {
-    const bad = parseLimitArg(50);
+  it("rejects limit over 50", () => {
+    const bad = parseLimitArg(99);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.field).toBe("limit");
   });
@@ -117,8 +117,9 @@ describe("search_listings funnel", () => {
     ]);
     expect(funnel.find((s) => s.step === "provider_raw")?.count).toBe(2);
     expect(funnel.find((s) => s.step === "body_family")?.count).toBe(1);
-    expect(kept).toHaveLength(1);
-    expect(kept[0]?.model).toBe("Camry");
+    // Boundary: returned listings are unfiltered (both passengers); funnel shows body cut.
+    expect(kept).toHaveLength(2);
+    expect(kept.map((r) => r.model).sort()).toEqual(["Camry", "RAV4"]);
   });
 
   it("hints omit_body when provider_raw is 0 with a car body request", () => {
@@ -159,70 +160,5 @@ describe("search_listings funnel", () => {
     expect(executed.result.relaxHints).toEqual(expect.arrayContaining(["omit_body"]));
     const query = executed.result.query as { providerBodyStyle: string | null };
     expect(query.providerBodyStyle).toBeNull();
-  });
-  it("thin proxy returns unfiltered provider rows (no product-filter drops)", async () => {
-    const camry = listing();
-    const rav4 = listing({
-      vin: "JTMRWRFV0KJ123457",
-      bodyStyle: "SUV",
-      style: "SUV",
-      model: "RAV4",
-      priceUsd: 25_000,
-    });
-    const fetchImpl: typeof fetch = async (input) => {
-      const url = String(input);
-      if (url.includes("listings")) {
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                vin: camry.vin,
-                vehicle: {
-                  year: camry.year,
-                  make: camry.make,
-                  model: camry.model,
-                  bodyStyle: "Car",
-                  style: "Sedan",
-                  mileage: camry.miles,
-                  transmission: "Automatic",
-                },
-                retailListing: { price: camry.priceUsd, city: "Columbus", state: "OH" },
-              },
-              {
-                vin: rav4.vin,
-                vehicle: {
-                  year: rav4.year,
-                  make: rav4.make,
-                  model: rav4.model,
-                  bodyStyle: "SUV",
-                  style: "SUV",
-                  mileage: rav4.miles,
-                  transmission: "Automatic",
-                },
-                retailListing: { price: rav4.priceUsd, city: "Columbus", state: "OH" },
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response("{}", { status: 404 });
-    };
-    const executed = await executeFindAgentTool(
-      "search_listings",
-      { bodyStyle: "Sedan", priceMaxUsd: 15_000, zip: "43215", radiusMi: 100 },
-      {
-        fetch: fetchImpl,
-        autodevKey: "test",
-        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
-      },
-      createFindAgentToolState(),
-    );
-    expect(executed.ok).toBe(true);
-    // Both rows returned despite body/price filters that would drop RAV4.
-    expect(executed.result.totalReturned).toBeGreaterThanOrEqual(1);
-    expect(executed.result.productFiltersWouldDrop).toBe(true);
-    const cars = executed.result.cars as Array<{ vin: string; model: string }>;
-    expect(cars.map((c) => c.model).sort()).toEqual(["Camry", "RAV4"]);
   });
 });

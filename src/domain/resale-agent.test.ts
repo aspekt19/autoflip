@@ -33,8 +33,8 @@ describe("resaleAgentLoopEnabled", () => {
 });
 
 describe("resolveResaleAgentMode", () => {
-  it("defaults to auto", () => {
-    expect(resolveResaleAgentMode({})).toBe("auto");
+  it("defaults to tools (Responses-API preferred)", () => {
+    expect(resolveResaleAgentMode({})).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "tools" })).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "next_action" })).toBe("next_action");
   });

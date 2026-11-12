@@ -70,7 +70,7 @@ export function resaleAgentLoopEnabled(
 }
 
 /**
- * Default is tools: Resale always uses /v1/responses tools mode when available.
+ * Default is tools: Resale always uses Responses-API tools mode when available.
  * `auto` still tries tools first and only falls back to schema-only chat when
  * tools are unsupported/empty (never on serv_http).
  */

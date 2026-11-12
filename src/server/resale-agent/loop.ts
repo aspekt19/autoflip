@@ -6,12 +6,6 @@
  */
 import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
 import {
-  assertNoNonUserSetConstraints,
-  buildUserIntentFromFlatForm,
-  serializeUserIntentConstraints,
-  type UserIntent,
-} from "@/domain/serv-boundary";
-import {
   applyResaleAgentGuardrails,
   RESALE_AGENT_NEXT_ACTION_SCHEMA,
   RESALE_AGENT_RESULT_SCHEMA,
@@ -316,82 +310,23 @@ function restoreResaleStateFromCheckpoint(
   };
 }
 
-
-function constraintsFromFormEdits(
-  note: string,
-  formEdits?: Record<string, unknown> | null,
-): { intent: UserIntent; constraints: Record<string, unknown> } {
-  const form = formEdits ?? {};
-  const looksTagged = Object.values(form).some(
-    (v) => v && typeof v === "object" && !Array.isArray(v) && "provenance" in (v as object) && "value" in (v as object),
-  );
-  if (looksTagged) {
-    const intent: UserIntent = { note, fields: {} };
-    for (const [key, raw] of Object.entries(form)) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const row = raw as { value?: unknown; provenance?: unknown; quote?: unknown };
-      if (row.provenance !== "note" && row.provenance !== "form") continue;
-      (intent.fields as Record<string, unknown>)[key] = {
-        value: row.value,
-        provenance: row.provenance,
-        ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
-      };
-    }
-    return { intent, constraints: form };
-  }
-  const intent = buildUserIntentFromFlatForm({ note, form });
-  return { intent, constraints: serializeUserIntentConstraints(intent) };
-}
-
 function systemPrompt(note: string, shopperContext?: Record<string, unknown> | null): string {
-  const { intent, constraints } = constraintsFromFormEdits(note, shopperContext);
-  const gate = assertNoNonUserSetConstraints(constraints, intent);
-  if (!gate.ok) {
-    throw new Error(
-      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
-    );
-  }
-  const rankingKeys = [
-    "repairAbility",
-    "targetProfitUsd",
-    "asIs",
-    "sellWithinDays",
-    "timeToSell",
-    "resaleChannel",
-    "preferredMakes",
-    "preferredModels",
-    "plannedDirectionIds",
-  ] as const;
-  const ranking: Record<string, unknown> = {};
-  for (const key of rankingKeys) {
-    const value = shopperContext?.[key];
-    if (value == null) continue;
-    if (Array.isArray(value) && value.length === 0) continue;
-    ranking[key] = value;
-  }
-  const constraintLine =
-    Object.keys(constraints).length > 0
-      ? `
-User-set constraints (provenance-tagged; untouched fields absent): ${JSON.stringify(constraints)}`
-      : "";
-  const rankingLine =
-    Object.keys(ranking).length > 0
-      ? `
-Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
+  const ctx =
+    shopperContext && Object.keys(shopperContext).length > 0
+      ? `\nShopper structured context: ${JSON.stringify(shopperContext)}`
       : "";
   return [
     "You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, relax soft filters (radius, miles, year, secondary models) and re-search.",
-    "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions (real text; never redacted).",
-    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions.",
+    "Hard budget stays unless the shopper note allows otherwise. Explain every relaxation in relaxedConditions.",
     "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
     "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
     "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
-    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
+    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks.",
     "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
-    `Shopper note:\n${note.trim() || "(empty)"}${constraintLine}${rankingLine}`,
+    `Shopper note:\n${note.trim() || "(empty)"}${ctx}`,
   ].join(" ");
 }
 
@@ -525,7 +460,7 @@ function chatBody(input: {
     maxTokens: input.maxTokens,
     model: input.model,
     // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
-    // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
+    // supported reasoning_effort. Prompt Guard / Shadow live on the Responses API.
     tools: undefined,
     reasoningEffort: input.reasoningEffort ?? "low",
   });
@@ -1545,7 +1480,7 @@ export async function runResaleAgentLoop(input: {
     return runToolsMode(shared);
   }
 
-  // Prefer /v1/responses tools. Fall back to schema-only chat only when tools
+  // Prefer Responses-API tools. Fall back to schema-only chat only when tools
   // are unsupported/empty — never on serv_http (Resale must stay on tools when available).
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;

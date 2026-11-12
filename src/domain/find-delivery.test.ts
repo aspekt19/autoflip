@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findDeliveryChargesCredit } from "./find-delivery";
+import { findAgentSettleChargesCredit, findDeliveryChargesCredit } from "./find-delivery";
 
 describe("findDeliveryChargesCredit", () => {
   it("charges only when ok + provider query + ≥1 listing and no emptyReason", () => {
@@ -36,6 +36,42 @@ describe("findDeliveryChargesCredit", () => {
         providerQueriesUsed: 1,
         listingCount: 0,
         emptyReason: "empty_inventory",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("findAgentSettleChargesCredit", () => {
+  it("charges chosen VIN or documented nothing-fits after agent loop", () => {
+    expect(
+      findAgentSettleChargesCredit({
+        chosenVin: "1HGCM82633A004352",
+        nothingFitsDocumented: false,
+        agentLoopRan: true,
+      }),
+    ).toBe(true);
+    expect(
+      findAgentSettleChargesCredit({
+        chosenVin: null,
+        nothingFitsDocumented: true,
+        agentLoopRan: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not charge without agent loop or incomplete nothing-fits", () => {
+    expect(
+      findAgentSettleChargesCredit({
+        chosenVin: "1HGCM82633A004352",
+        nothingFitsDocumented: false,
+        agentLoopRan: false,
+      }),
+    ).toBe(false);
+    expect(
+      findAgentSettleChargesCredit({
+        chosenVin: null,
+        nothingFitsDocumented: false,
+        agentLoopRan: true,
       }),
     ).toBe(false);
   });

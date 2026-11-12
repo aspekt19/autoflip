@@ -215,46 +215,26 @@ export const RESALE_CREDIT_NOTE_CHARGED =
 export const RESALE_CREDIT_NOTE_UNPAID =
   "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
 
-/** Incomplete empty (no SERV nothing-fits) — free; not an unpaid debit. */
+/** No flip chosen (pass / empty) — intentional free completion, not an unpaid debit. */
 export const RESALE_CREDIT_NOTE_NO_FLIP =
   "No report credit charged — no flip was chosen.";
 
-/** Documented nothing-fits still uses a report credit (SERV settled). */
-export const RESALE_CREDIT_NOTE_NOTHING_FITS =
-  "1 report credit used — SERV explained why nothing fit.";
-
 /**
- * Charge when a flip VIN was published OR SERV documented nothing-fits.
- * Incomplete empties (no agent explanation) do not charge.
+ * Charge when a concrete flip VIN was published OR SERV documented nothing-fits
+ * (searches + reasons) after the agent loop. Incomplete results must not charge.
  */
 export function resaleDeliveryChargesCredit(
-  delivery: Partial<
-    Pick<ResaleSearchOkBody, "best" | "emptyReason" | "agentVerdict" | "reviewNote" | "message">
-  >,
+  delivery: Pick<ResaleSearchOkBody, "best"> & {
+    nothingFitsDocumented?: boolean;
+    agentVerdictReached?: boolean;
+  },
 ): boolean {
   const best = delivery.best;
   if (best && typeof best === "object") {
     const vin = typeof (best as { vin?: unknown }).vin === "string" ? (best as { vin: string }).vin.trim() : "";
     if (vin.length > 0) return true;
   }
-  // Documented nothing-fits: agent verdict present with a real explanation.
-  const verdict = delivery.agentVerdict as unknown as { summary?: unknown; why?: unknown } | null | undefined;
-  const summary =
-    verdict && typeof verdict.summary === "string"
-      ? verdict.summary
-      : verdict && typeof verdict.why === "string"
-        ? verdict.why
-        : "";
-  const note = [
-    typeof delivery.reviewNote === "string" ? delivery.reviewNote : "",
-    typeof delivery.message === "string" ? delivery.message : "",
-    summary,
-  ]
-    .join(" ")
-    .trim();
-  const empty = typeof delivery.emptyReason === "string" ? delivery.emptyReason.trim() : "";
-  if (delivery.agentVerdict && empty && note.length >= 12) return true;
-  return false;
+  return Boolean(delivery.nothingFitsDocumented && delivery.agentVerdictReached);
 }
 
 export function jobToClientBody(
@@ -997,7 +977,7 @@ export async function advanceResaleJob(
           });
           return { ok: true, job: charged.job, balance: charged.balance };
         }
-        logResaleStage("job_agent_loop_failed", deadline.startedAtMs, {
+        logResaleStage("job_agent_loop_fallback", deadline.startedAtMs, {
           jobId,
           error: agent.error,
         });
@@ -1005,19 +985,7 @@ export async function advanceResaleJob(
           job = { ...job, agentLoopCheckpoint: null, updatedAt: new Date().toISOString() };
           await storeResaleJob(deps.kv, job);
         }
-        // Never fall through to classic inventory / code choose.
-        return {
-          ok: false,
-          status: 503,
-          body: {
-            error: "agent_loop_failed",
-            message:
-              typeof agent.message === "string" && agent.message.trim()
-                ? agent.message
-                : "The SERV Resale agent loop did not finish. No code fallback pick was published.",
-            jobId,
-          },
-        };
+        // Fall through to classic inventory when the agent loop cannot finish.
       }
 
       if (!deps.inventoryDeps) {

@@ -40,18 +40,29 @@ export const CITIES: readonly CityTemplate[] = [
   { id: "chicago", name: "Chicago", zip: "60601", radiusMi: 60 },
   { id: "atlanta", name: "Atlanta", zip: "30301", radiusMi: 80 },
   { id: "phoenix", name: "Phoenix", zip: "85001", radiusMi: 90 },
+  { id: "miami", name: "Miami", zip: "33101", radiusMi: 70 },
+  { id: "minneapolis", name: "Minneapolis", zip: "55401", radiusMi: 80 },
+  { id: "portland", name: "Portland", zip: "97201", radiusMi: 60 },
+  { id: "nashville", name: "Nashville", zip: "37201", radiusMi: 90 },
+  { id: "raleigh", name: "Raleigh", zip: "27601", radiusMi: 75 },
+  { id: "columbus", name: "Columbus", zip: "43215", radiusMi: 80 },
   { id: "nationwide", name: "nationwide", zip: "", radiusMi: 0 },
 ];
 
 export const BUDGETS: readonly BudgetTemplate[] = [
   { id: "8k", phrase: "around $8,000" },
+  { id: "10k", phrase: "under ten thousand" },
   { id: "12k", phrase: "under $12k" },
   { id: "15k", phrase: "about $15,000" },
+  { id: "18k", phrase: "around eighteen thousand" },
   { id: "20k", phrase: "around $20k" },
+  { id: "22k", phrase: "max $22,500" },
   { id: "25k", phrase: "max $25,000" },
+  { id: "28k", phrase: "budget is about $28k" },
   { id: "30k", phrase: "around $30k" },
   { id: "35k", phrase: "under thirty five thousand" },
   { id: "40k", phrase: "budget is $40k" },
+  { id: "45k", phrase: "up to forty five thousand" },
 ];
 
 export const BODIES: readonly BodyTemplate[] = [
@@ -63,6 +74,9 @@ export const BODIES: readonly BodyTemplate[] = [
   { id: "minivan", phrase: "a minivan" },
   { id: "any", phrase: "a used car" },
   { id: "wagon", phrase: "a wagon or crossover" },
+  { id: "coupe", phrase: "a coupe" },
+  { id: "hybrid_suv", phrase: "a hybrid SUV or crossover" },
+  { id: "small_suv", phrase: "a small SUV" },
 ];
 
 export const NEEDS: readonly NeedTemplate[] = [
@@ -76,6 +90,10 @@ export const NEEDS: readonly NeedTemplate[] = [
   { id: "cheap", phrase: "cheap to insure and maintain" },
   { id: "cargo", phrase: "lots of cargo space for weekend gear" },
   { id: "newer", phrase: "2019 or newer if I can stretch" },
+  { id: "quiet", phrase: "quiet cabin for long highway drives" },
+  { id: "pets", phrase: "easy to clean with dogs in the back" },
+  { id: "city", phrase: "easy to park in a dense city" },
+  { id: "no_salvage", phrase: "clean title only, nothing salvage" },
 ];
 
 export const MESSY: readonly MessyTemplate[] = [
@@ -135,6 +153,9 @@ export const FLIP_GOALS: readonly FlipGoalTemplate[] = [
   { id: "thin", phrase: "okay with a thinner margin if days-to-sell looks short" },
   { id: "safe", phrase: "skip do-not-drive recalls; prefer clean title flips" },
   { id: "volume", phrase: "looking for underpriced comps I can wholesale or private-party" },
+  { id: "auction", phrase: "open to auction buys if transport math still works" },
+  { id: "truck_flip", phrase: "prefer trucks or SUVs that turn faster in this metro" },
+  { id: "as_is", phrase: "as-is flips are fine if the discount covers risk" },
 ];
 
 /** Assemble a clean Resale/flip note before optional messy wrapping. */
