@@ -7,7 +7,7 @@ export type PrimaryNavLink = { href: string; label: string };
  * Keep product verbs (Find/Check/Resale/Radar) + Pricing in the core row; park docs/meta under More
  * so 1366–1440 laptops do not collide with the logo.
  */
-export const NAV_MORE_HREFS = new Set(["/reports", "/where-serv-runs", "/proof", "/agents"]);
+export const NAV_MORE_HREFS = new Set(["/reports", "/where-serv-runs", "/proof"]);
 
 /**
  * Primary header links. Resale stays whenever resaleEvaluate is on; Deal Radar

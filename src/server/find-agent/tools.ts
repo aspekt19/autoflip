@@ -153,6 +153,8 @@ export type FindAgentShopperFacts = {
   budgetUsd: number | null;
   zip: string | null;
   radiusMi: number | null;
+  /** Resale: confirmed brief is budget + location only (broad profit search). */
+  budgetOnly?: boolean;
 };
 
 export type FindAgentToolState = {

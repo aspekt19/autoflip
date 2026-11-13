@@ -7,6 +7,7 @@ import {
   formatShopperBriefCard,
   parseShopperBrief,
   RESALE_INVENTED_BODY_KEYS,
+  stripBudgetOnlySearchArgs,
   validateResaleProfitFirstBrief,
 } from "./shopper-brief";
 import { resaleAgentStableInstructions } from "@/server/resale-agent/loop";
@@ -174,3 +175,37 @@ describe("Resale profit-first golden: budget-only brief", () => {
     );
   });
 });
+
+describe("stripBudgetOnlySearchArgs", () => {
+  it("keeps budget + location and drops invented vehicle-slice filters", () => {
+    const { args, dropped } = stripBudgetOnlySearchArgs({
+      zip: "78701",
+      radiusMi: 75,
+      priceMaxUsd: 12_000,
+      bodyStyle: "Coupe",
+      make: "BMW",
+      model: "M4",
+      yearMin: 2018,
+      yearMax: 2022,
+      milesMax: 60_000,
+      limit: 20,
+    });
+    expect(dropped.sort()).toEqual(
+      ["bodyStyle", "make", "milesMax", "model", "yearMax", "yearMin"].sort(),
+    );
+    expect(args).toEqual({
+      zip: "78701",
+      radiusMi: 75,
+      priceMaxUsd: 12_000,
+      limit: 20,
+    });
+  });
+
+  it("drops nothing when the search is already budget + location", () => {
+    const raw = { zip: "85001", radiusMi: 50, priceMaxUsd: 10_000, limit: 20 };
+    const { args, dropped } = stripBudgetOnlySearchArgs(raw);
+    expect(dropped).toEqual([]);
+    expect(args).toEqual(raw);
+  });
+});
+

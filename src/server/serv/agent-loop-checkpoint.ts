@@ -46,6 +46,7 @@ export type AgentLoopCheckpointV1 = {
     budgetUsd: number | null;
     zip: string | null;
     radiusMi: number | null;
+    budgetOnly?: boolean;
   };
   /** Pending ask_shopper call_id while waiting for the shopper reply. */
   pendingAskCallId?: string | null;

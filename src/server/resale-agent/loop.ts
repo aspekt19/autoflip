@@ -408,6 +408,7 @@ function restoreResaleStateFromCheckpoint(
       budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
       zip: checkpoint.shopperFacts.zip ?? null,
       radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+      budgetOnly: checkpoint.shopperFacts.budgetOnly === true,
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
@@ -1232,10 +1233,10 @@ async function runToolsMode(input: {
 
     if (calls.length === 0) {
       if (!submitNudgeSent) {
-        // One repair: require a terminal tool. Features attach only on the
-        // dedicated selection hop (set here) — not on later validation retries.
+        // One repair: require a terminal tool on a bare (search) hop.
+        // Do not set selectionHop here — Kronos/Multipath/Shadow attach only
+        // on the later hop that can accept the terminal (after deferral).
         submitNudgeSent = true;
-        selectionHop = true;
         forceTerminalTool = true;
         responsesInput = [
           ...responsesInput,
@@ -2231,6 +2232,8 @@ export async function runResaleAgentLoop(input: {
     if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
+    state.shopperFacts.budgetOnly =
+      pendingBrief.budgetOnly === true || !(pendingBrief.hardConstraints?.length);
     state.radiusWidenAgreed = Boolean(
       pendingBrief.agreedRelaxations?.some((row) =>
         /radius|distance|nationwide|widen/i.test(`${row.key} ${row.value}`),

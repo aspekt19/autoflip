@@ -100,7 +100,7 @@ test("wide viewport shows all primary links without More", async ({ page }) => {
   for (const href of ["/scout", "/favorites", "/compare-cars", "/verify", "/developers"]) {
     await expect(page.locator(`header nav a[href='${href}']`)).toHaveCount(0);
   }
-  // Agent docs surface as /agents under More (or core on very wide), never /developers.
+  // Agent docs surface as a core tab at /agents, never /developers.
 });
 
 test("mid viewport keeps overflow destinations under More", async ({ page }) => {

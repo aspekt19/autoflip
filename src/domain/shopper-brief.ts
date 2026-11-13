@@ -241,6 +241,40 @@ export const RESALE_INVENTED_BODY_KEYS = new Set([
   "vehicleType",
 ]);
 
+/** search_listings fields that slice inventory by vehicle, not budget/location. */
+export const RESALE_BUDGET_ONLY_SEARCH_STRIP_KEYS = [
+  "bodyStyle",
+  "bodyFamily",
+  "make",
+  "model",
+  "yearMin",
+  "yearMax",
+  "milesMax",
+] as const;
+
+/**
+ * Budget-only Resale: keep budget + ZIP/radius filters; drop invented vehicle
+ * slice filters. Code does not parse chat — it enforces the confirmed brief.
+ */
+export function stripBudgetOnlySearchArgs(raw: unknown): {
+  args: unknown;
+  dropped: string[];
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { args: raw, dropped: [] };
+  }
+  const row = { ...(raw as Record<string, unknown>) };
+  const dropped: string[] = [];
+  for (const key of RESALE_BUDGET_ONLY_SEARCH_STRIP_KEYS) {
+    const value = row[key];
+    if (value != null && value !== "") {
+      dropped.push(key);
+      delete row[key];
+    }
+  }
+  return { args: row, dropped };
+}
+
 /**
  * Resale profit-first structural checks on a parsed brief (no chat parsing).
  * Budget + quote required; budget-only → no invented body/type hard constraints.

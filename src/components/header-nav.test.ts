@@ -45,12 +45,12 @@ describe("splitPrimaryNavLinks", () => {
       "/resale",
       "/radar",
       "/pricing",
+      "/agents",
     ]);
     expect(more.map((link) => link.href)).toEqual([
       "/reports",
       "/where-serv-runs",
       "/proof",
-      "/agents",
     ]);
     expect(links.find((link) => link.href === "/agents")?.label).toBe("For AI agents");
     for (const hidden of ["/scout", "/favorites", "/compare-cars", "/verify", "/developers"]) {

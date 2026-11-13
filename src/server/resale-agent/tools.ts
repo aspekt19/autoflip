@@ -13,6 +13,7 @@ import {
   checkBudgetUserQuote,
   formatShopperBriefCard,
   parseShopperBrief,
+  stripBudgetOnlySearchArgs,
   validateResaleProfitFirstBrief,
   type ShopperBrief,
 } from "@/domain/shopper-brief";
@@ -440,7 +441,14 @@ export async function executeResaleAgentTool(
     };
   }
 
-  const executed = await executeFindAgentTool(name, rawArgs, deps, state);
+  let searchArgs = rawArgs;
+  let budgetOnlyDropped: string[] = [];
+  if (name === "search_listings" && state.shopperFacts.budgetOnly === true) {
+    const stripped = stripBudgetOnlySearchArgs(rawArgs);
+    searchArgs = stripped.args;
+    budgetOnlyDropped = stripped.dropped;
+  }
+  const executed = await executeFindAgentTool(name, searchArgs, deps, state);
   if (name === "search_listings" && executed.ok) {
     const cars = Array.isArray(executed.result.cars) ? executed.result.cars : [];
     const vins = cars
@@ -458,8 +466,17 @@ export async function executeResaleAgentTool(
         flipPnl,
         pnlHonesty:
           "flipPnl is code-computed (negotiate, tax, title fee, recon, expected resale, profit). Use only these dollars when picking flips.",
+        ...(budgetOnlyDropped.length
+          ? {
+              budgetOnlyDroppedFilters: budgetOnlyDropped,
+              budgetOnlyNote:
+                "Budget-only brief: dropped body/make/model/year/miles filters. Search is budget + location, ranked by code profit.",
+            }
+          : {}),
       },
-      summary: `${executed.summary}; pnl=${flipPnl.length}`,
+      summary: `${executed.summary}; pnl=${flipPnl.length}${
+        budgetOnlyDropped.length ? `; dropped=${budgetOnlyDropped.join(",")}` : ""
+      }`,
     };
   }
   return executed;
