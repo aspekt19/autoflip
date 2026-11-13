@@ -19,7 +19,7 @@ Example request used in the published case:
 
 > I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
 
-Find requires a verified account and one report credit for a completed search. The published Proof run was isolated and did not charge a customer credit.
+Find requires a verified account and an available report credit to start a search; the credit is committed only when a qualifying result is delivered. The published Proof run was isolated and did not charge a customer credit.
 
 ## Try Lemonless
 
