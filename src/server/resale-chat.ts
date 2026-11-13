@@ -253,6 +253,10 @@ export async function runResaleChatTurn(input: {
         servUsageTotal: journalMeta.servUsageTotal,
         carsFound: "knownVins" in agent ? agent.knownVins.length : 0,
         passReason: null,
+        featuresActive: journalMeta.featuresActive,
+        featuresActivePerCall: journalMeta.featuresActivePerCall,
+        featureRejections: journalMeta.featureRejections,
+        servResponseIds: journalMeta.servResponseIds,
       },
       error: "error" in agent ? agent.error : "could_not_finish",
     };
@@ -275,8 +279,11 @@ export async function runResaleChatTurn(input: {
   }
 
   const alternatives = [...agent.pnlByVin.values()];
-  const bestVin = agent.verdict.picks[0]?.vin?.toUpperCase() ?? null;
-  const best = bestVin ? agent.pnlByVin.get(bestVin) ?? alternatives[0] ?? null : null;
+  // Chosen flip must be non-pass — pass-only rows are rejects / nothing-fits, not a buy.
+  const actionablePick =
+    agent.verdict.picks.find((p) => p.action !== "pass") ?? null;
+  const bestVin = actionablePick?.vin?.toUpperCase() ?? null;
+  const best = bestVin ? agent.pnlByVin.get(bestVin) ?? null : null;
   const shouldCharge = Boolean(best) || (agent.verdict.picks.length === 0 && Boolean(agent.verdict.summary?.trim()));
   let charged = session.charged;
   if (shouldCharge && !charged && !input.skipCredit) {
@@ -361,6 +368,10 @@ export async function runResaleChatTurn(input: {
       servUsageTotal: journalMeta.servUsageTotal,
       carsFound: agent.knownVins.length,
       passReason,
+      featuresActive: journalMeta.featuresActive,
+      featuresActivePerCall: journalMeta.featuresActivePerCall,
+      featureRejections: journalMeta.featureRejections,
+      servResponseIds: journalMeta.servResponseIds,
     },
   };
   session.result = result;

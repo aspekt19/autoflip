@@ -370,6 +370,15 @@ export function validateFindSubmitPicks(
   /** Only shopper-agreed widens count — never invent from SERV prose alone. */
   const radiusWidenAgreed = opts.radiusWidenAgreed === true;
 
+  const actionable = validated.verdict.picks.filter((p) => p.action !== "pass");
+  if (validated.verdict.picks.length > 0 && actionable.length === 0) {
+    issues.push({
+      field: "picks",
+      message:
+        "submit_picks with only action=pass is inconsistent with choosing a car. Set action to buy|negotiate|inspect_first for the pick, or call submit_nothing_fits with a written reason.",
+    });
+  }
+
   for (const [index, pick] of validated.verdict.picks.entries()) {
     const vin = pick.vin.toUpperCase();
     const listing = opts.listingsByVin.get(vin);

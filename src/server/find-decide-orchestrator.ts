@@ -50,6 +50,8 @@ export type FindAgentLoopMeta = {
   /** SERV passReason when nothing was chosen. */
   passReason?: string | null;
   featuresActive?: string[];
+  /** Per SERV call feature lists (journal order). */
+  featuresActivePerCall?: string[][];
   featureRejections?: string[];
   servResponseIds?: string[];
 };
@@ -329,22 +331,9 @@ export async function runFindDecideOrchestrator(
       const coverage = freeGovToolCoverage(record.listings, receipts);
       const counts = summarizeFindAgentJournal(agent.journal);
       const lastServ = [...agent.journal].reverse().find((e) => e.kind === "serv");
-      const featuresActive = [
-        ...new Set(
-          agent.journal.flatMap((e) => (e.kind === "serv" ? e.features ?? [] : [])),
-        ),
-      ];
-      const featureRejections = [
-        ...new Set(
-          agent.journal.flatMap((e) => (e.kind === "serv" ? e.featureFlags ?? [] : [])).filter((f) =>
-            f.includes("FEATURE_REJECTION"),
-          ),
-        ),
-      ];
-      const servResponseIds = agent.journal
-        .filter((e): e is Extract<typeof e, { kind: "serv" }> => e.kind === "serv")
-        .map((e) => e.responseId)
-        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const featuresActive = counts.featuresActive;
+      const featureRejections = counts.featureRejections;
+      const servResponseIds = counts.servResponseIds;
       // lemonless.decision_proof.v1 requires a ≥32-char digest; never ship a raw
       // agent:mode:rounds string (e2e isDecisionProofRecord filters those out → "got none").
       const proofRecords: DecisionProofRecord[] = [
@@ -409,6 +398,7 @@ export async function runFindDecideOrchestrator(
           carsFound: carsFoundFromSearchJournal(searchesFromFindJournal(agent.journal)),
           passReason: agent.verdict.passReason,
           featuresActive,
+          featuresActivePerCall: counts.featuresActivePerCall,
           featureRejections,
           servResponseIds,
         },

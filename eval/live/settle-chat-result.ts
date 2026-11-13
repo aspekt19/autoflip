@@ -158,8 +158,10 @@ export function settleFindChatCaseResult(input: {
   const verdictReached = Boolean(chosenVin) || nothingFits;
   const confirmedBrief =
     result.confirmedBrief && typeof result.confirmedBrief === "object"
-      ? (result.confirmedBrief as { summary?: string })
+      ? (result.confirmedBrief as Record<string, unknown> & { summary?: string })
       : null;
+  const runId =
+    typeof result.runId === "string" && result.runId.trim() ? result.runId.trim() : null;
   const pick: LiveEvalPick = {
     vin: chosenVin,
     label,
@@ -219,6 +221,9 @@ export function settleFindChatCaseResult(input: {
     featuresActive: Array.isArray(agentLoop?.featuresActive)
       ? (agentLoop!.featuresActive as string[])
       : [],
+    featuresActivePerCall: Array.isArray(agentLoop?.featuresActivePerCall)
+      ? (agentLoop!.featuresActivePerCall as string[][])
+      : [],
     featureRejections: Array.isArray(agentLoop?.featureRejections)
       ? (agentLoop!.featureRejections as string[])
       : [],
@@ -226,6 +231,8 @@ export function settleFindChatCaseResult(input: {
     servResponseIds: Array.isArray(agentLoop?.servResponseIds)
       ? (agentLoop!.servResponseIds as string[])
       : [],
+    runId,
+    confirmedBrief,
   };
 }
 
@@ -307,11 +314,21 @@ export function settleResaleChatCaseResult(input: {
   const scoringOk = Boolean(chosenVin) || nothingFits;
   const carsFound =
     typeof agentLoop?.carsFound === "number" ? agentLoop.carsFound : listing ? 1 : 0;
+  const agentVerdict =
+    result.agentVerdict && typeof result.agentVerdict === "object"
+      ? (result.agentVerdict as { verdict?: string | null })
+      : null;
+  const pickVerdict =
+    typeof agentVerdict?.verdict === "string" && agentVerdict.verdict.trim()
+      ? agentVerdict.verdict
+      : chosenVin
+        ? "buy"
+        : "pass";
   const pick: LiveEvalPick = chosenVin
     ? {
         vin: chosenVin,
         label: joined?.label ?? null,
-        verdict: "buy",
+        verdict: pickVerdict,
         confidence: typeof best?.confidence === "string" ? best.confidence : null,
         priceUsd: joined?.priceUsd ?? listing?.priceUsd ?? null,
         miles: joined?.miles ?? listing?.miles ?? null,
@@ -335,8 +352,10 @@ export function settleResaleChatCaseResult(input: {
       };
   const confirmedBrief =
     result.confirmedBrief && typeof result.confirmedBrief === "object"
-      ? (result.confirmedBrief as { summary?: string })
+      ? (result.confirmedBrief as Record<string, unknown> & { summary?: string })
       : null;
+  const runId =
+    typeof result.runId === "string" && result.runId.trim() ? result.runId.trim() : null;
 
   const honestyMessage =
     typeof result.message === "string" && result.message.trim()
@@ -382,6 +401,22 @@ export function settleResaleChatCaseResult(input: {
     journalToolCalls:
       typeof agentLoop?.journalToolCalls === "number" ? agentLoop.journalToolCalls : 0,
     servUsageTotal: servUsageFromChat(agentLoop, result),
+    featuresActive: Array.isArray(agentLoop?.featuresActive)
+      ? (agentLoop!.featuresActive as string[])
+      : Array.isArray(asRecord(result.journalMeta)?.featuresActive)
+        ? (asRecord(result.journalMeta)!.featuresActive as string[])
+        : [],
+    featuresActivePerCall: Array.isArray(agentLoop?.featuresActivePerCall)
+      ? (agentLoop!.featuresActivePerCall as string[][])
+      : [],
+    featureRejections: Array.isArray(agentLoop?.featureRejections)
+      ? (agentLoop!.featureRejections as string[])
+      : [],
+    servResponseIds: Array.isArray(agentLoop?.servResponseIds)
+      ? (agentLoop!.servResponseIds as string[])
+      : [],
     chosenListingCount: chosenVin ? 1 : 0,
+    runId,
+    confirmedBrief,
   };
 }
