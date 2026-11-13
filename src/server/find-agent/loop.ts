@@ -539,7 +539,7 @@ export function findAgentStableInstructions(): string {
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
     "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
-    "submit_nothing_fits reason must state why nothing fit; code attaches journaled search evidence automatically.",
+    "submit_nothing_fits must include an overall reason and rejectedCandidates: one exact tool-returned VIN + a concrete reason for each returned candidate you considered and rejected. Use rejectedCandidates: [] only when every journaled search returned zero listings. Code attaches search filters/counts automatically; do not repeat them.",
     "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
@@ -574,20 +574,45 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
 }
 
 const FIND_TERMINAL_NUDGE =
-  "No terminal tool yet. Call submit_picks (chosen cars) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches. If every search kept 0 listings, you MUST call submit_nothing_fits with a short written reason now.";
+  "No terminal tool yet. Call submit_picks (chosen cars) or submit_nothing_fits (overall reason + rejectedCandidates). Code already journals every search_listings call — do not re-document search filters/counts. If every search kept 0 listings, call submit_nothing_fits with rejectedCandidates: [] and a short written reason.";
 
 const FIND_COULD_NOT_FINISH =
   "We couldn't finish this search — SERV stopped without submit_picks or submit_nothing_fits after a repair turn.";
 
 function nothingFitsVerdictFromReason(
   reason: string,
+  rejectedCandidates: unknown,
+  listingsByVin: ReadonlyMap<string, Listing>,
   journal: readonly FindAgentJournalEntry[],
 ): FindAgentVerdict {
   const searches = searchesFromFindJournal(journal);
+  const picks: FindAgentVerdict["picks"] = [];
+  if (Array.isArray(rejectedCandidates)) {
+    for (const row of rejectedCandidates) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const candidate = row as { vin?: unknown; reason?: unknown };
+      const vin = typeof candidate.vin === "string" ? candidate.vin.trim().toUpperCase() : "";
+      const why = typeof candidate.reason === "string" ? candidate.reason.trim() : "";
+      if (!vin || !why) continue;
+      const listing = listingsByVin.get(vin);
+      const label = listing
+        ? [listing.year, listing.make, listing.model, listing.trim].filter(Boolean).join(" ")
+        : vin;
+      picks.push({
+        vin,
+        label,
+        action: "pass",
+        offerUsd: null,
+        openingOffer: null,
+        walkAway: null,
+        why,
+      });
+    }
+  }
   return {
     summary: reason.trim(),
     confidence: "low",
-    picks: [],
+    picks,
     relaxedConditions: synthesizeRelaxedConditionsFromSearches(searches),
     passReason: reason.trim(),
   };
@@ -599,7 +624,12 @@ function honestEmptyNothingFitsFromJournal(
 ): FindAgentVerdict | null {
   const searches = searchesFromFindJournal(journal);
   if (!searchesAllEmpty(searches)) return null;
-  return nothingFitsVerdictFromReason(honestNothingFitsReasonFromSearches(searches), journal);
+  return nothingFitsVerdictFromReason(
+    honestNothingFitsReasonFromSearches(searches),
+    [],
+    new Map<string, Listing>(),
+    journal,
+  );
 }
 
 function argumentText(value: unknown): string {
@@ -1496,12 +1526,17 @@ async function runToolsMode(input: {
                   typeof (args as { reason?: unknown }).reason === "string"
                     ? String((args as { reason: string }).reason)
                     : "",
+                  (args as { rejectedCandidates?: unknown }).rejectedCandidates,
+                  input.state.listingsByVin,
                   input.journal,
                 )
               : args;
           const checked = validateFindSubmitPicks(
             submitArgs,
-            submitPickGateOpts(input.state, budgetUsd, searches),
+            {
+              ...submitPickGateOpts(input.state, budgetUsd, searches),
+              allowPassOnly: call.name === "submit_nothing_fits",
+            },
           );
           if (!checked.ok) {
             // Drop features for repair/retry; next accepted terminal re-enters selection hop.

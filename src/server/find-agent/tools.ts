@@ -683,7 +683,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final find verdict with chosen cars. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps) — empty/error/unavailable still count. Set openingOffer and walkAway (offerUsd mirrors openingOffer). Code validates real VINs, offer ≤ budget/asking, confirmed radius when distanceMiles is known, and a no-accident/no-salvage brief against accidentCount or a title brand in any source. Unknown history is allowed. At least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits and name the near misses). Cite sources in why. On validation failure fix and call submit_picks again. Do not invent cars.",
+          "Submit the final find verdict with chosen cars. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps) — empty/error/unavailable still count. Set openingOffer and walkAway (offerUsd mirrors openingOffer). Code validates real VINs, offer ≤ budget/asking, confirmed radius when distanceMiles is known, and a no-accident/no-salvage brief against accidentCount or a title brand in any source. Unknown history is allowed. At least one buy|negotiate|inspect_first action is required here; for a reasoned no-buy result use submit_nothing_fits with a summary and candidate-specific rejection reasons. Cite sources in why. On validation failure fix and call submit_picks again. Do not invent cars.",
         parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
@@ -692,7 +692,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_nothing_fits",
         description:
-          "Terminal: no car fits after searching. Pass a written reason only. Code attaches journaled search_listings evidence (params, counts, HTTP status) automatically — do not re-document searches.",
+          "Terminal: no car fits after searching. Provide a concise overall reason plus rejectedCandidates. For every real inventory candidate you considered and rejected, include its exact tool-returned VIN and a specific reason (for example, wrong drivetrain, over budget, excessive mileage, outside the radius, or unverified history). Use an empty rejectedCandidates array only when every journaled search returned zero listings. Code attaches search filters, counts, and provider status automatically — do not re-document them.",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -700,10 +700,24 @@ export function findAgentChatTools(): Array<{
             reason: {
               type: "string",
               description:
-                "Why nothing fits, referencing what you tried. Code already journals every search_listings call.",
+                "Overall explanation of why no returned vehicle meets the confirmed brief.",
+            },
+            rejectedCandidates: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  vin: { type: "string", minLength: 11, maxLength: 17 },
+                  reason: { type: "string", minLength: 2 },
+                },
+                required: ["vin", "reason"],
+              },
+              description:
+                "One row per returned candidate you considered but rejected. Use the exact VIN from tool output and a concrete reason. Empty only if all searches returned zero listings.",
             },
           },
-          required: ["reason"],
+          required: ["reason", "rejectedCandidates"],
         },
       },
     },

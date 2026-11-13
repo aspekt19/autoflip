@@ -385,6 +385,8 @@ export function validateFindSubmitPicks(
     searches?: readonly AgentSearchJournalRow[];
     /** Confirmed brief rows. A no-accident / no-salvage row is a hard constraint. */
     hardConstraints?: readonly ShopperBriefConstraint[];
+    /** Only submit_nothing_fits may accept an all-pass shortlist. */
+    allowPassOnly?: boolean;
   },
 ):
   | { ok: true; verdict: FindAgentVerdict }
@@ -406,7 +408,7 @@ export function validateFindSubmitPicks(
   const forbidsAccidents = briefForbidsAccidents(opts.hardConstraints);
 
   const actionable = validated.verdict.picks.filter((p) => p.action !== "pass");
-  if (validated.verdict.picks.length > 0 && actionable.length === 0) {
+  if (validated.verdict.picks.length > 0 && actionable.length === 0 && opts.allowPassOnly !== true) {
     issues.push({
       field: "picks",
       message:
@@ -457,13 +459,15 @@ export function validateFindSubmitPicks(
       });
       if (historyIssue) issues.push(historyIssue);
     }
-    const offerIssue = structuredOfferRepairIssue({
-      prose: `${pick.why}\n${validated.verdict.summary}`,
-      openingOffer: pick.openingOffer,
-      walkAway: pick.walkAway,
-      field: `picks[${index}].openingOffer`,
-    });
-    if (offerIssue) issues.push(offerIssue);
+    if (pick.action !== "pass") {
+      const offerIssue = structuredOfferRepairIssue({
+        prose: `${pick.why}\n${validated.verdict.summary}`,
+        openingOffer: pick.openingOffer,
+        walkAway: pick.walkAway,
+        field: `picks[${index}].openingOffer`,
+      });
+      if (offerIssue) issues.push(offerIssue);
+    }
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({
         field: `picks[${index}].offerUsd`,

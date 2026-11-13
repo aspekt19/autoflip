@@ -63,15 +63,17 @@ flowchart TD
 
 Every delivered run can carry a decision journal showing which steps were performed by SERV, which were computed by code, and where a safety rule constrained the result.
 
-## Evidence: a real Denver search
+## Evidence: a live Denver search
 
-The public [Proof page](https://autoflip-umber.vercel.app/proof) contains the recorded answers, run links, source links, and a criterion-by-criterion comparison for this request:
+The public [Proof page](https://autoflip-umber.vercel.app/proof) now shows one recorded case comparing Gemini Chat in **Auto** mode with Lemonless Find on the same buyer request:
 
-> I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
+> I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
 
-The capture compares a plain chat answer, Perplexity, and two Lemonless runs. The two Lemonless runs each performed their own live search; they did not receive the same frozen candidate set, so the different picks do not prove that toggling SERV features alone caused a better decision.
+Gemini returned general model-level advice, recommending 2022–2023 Subaru Forester and 2023 Mazda CX-5 families, with an opening negotiation target of $24,200 out the door.
 
-The capture was recorded at **2026-11-13 14:29:45 UTC**, before no-accident and radius hardening merged in [PR #207](https://github.com/aspekt19/autoflip/pull/207). The historical output includes a source-reported accident and must not be read as evidence that the later hard gate passed that vehicle. The [Proof page](https://autoflip-umber.vercel.app/proof) carries this disclosure alongside the original answers and sources.
+Lemonless Find searched live inventory and selected a specific **2021 Subaru Forester Premium AWD** in Longmont, Colorado: VIN `JF2SKAJC5MH423912`, listed at $20,197 with 89,215 miles. Its structured offer was $19,000 to open, with a $20,000 vehicle-price walk-away point and a $25,000 all-in ceiling. The run included VIN decode, safety, fuel-economy and local asking-price evidence checks.
+
+The Find result was produced by the same server-side chat function used by `/api/find/chat`, in an isolated evaluation run that did not charge a customer credit or modify production data. This is one case study, not a statistically representative benchmark or a claim that Find always selects the best vehicle. The Proof page links the original Gemini conversation, the vehicle listing and the test record.
 
 ## What the product does not claim
 
