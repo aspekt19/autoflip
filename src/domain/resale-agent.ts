@@ -25,6 +25,8 @@ export type ResaleAgentPick = {
   action: "buy" | "negotiate" | "pass" | "needs_inspection";
   offerUsd: number | null;
   why: string;
+  /** SERV-stated risks of this flip (shown on result cards). */
+  riskNotes: string | null;
 };
 
 export type ResaleAgentVerdict = {
@@ -95,8 +97,12 @@ export const RESALE_AGENT_RESULT_SCHEMA = {
           action: { type: "string", enum: ["buy", "negotiate", "pass", "needs_inspection"] },
           offerUsd: { type: ["number", "null"] },
           why: { type: "string" },
+          riskNotes: {
+            type: ["string", "null"],
+            description: "Risks of this flip for the shopper (shown on the result card).",
+          },
         },
-        required: ["vin", "action", "offerUsd", "why"],
+        required: ["vin", "action", "offerUsd", "why", "riskNotes"],
       },
     },
     relaxedConditions: {
@@ -147,8 +153,9 @@ export const RESALE_AGENT_NEXT_ACTION_SCHEMA = {
           action: { type: "string", enum: ["buy", "negotiate", "pass", "needs_inspection"] },
           offerUsd: { type: ["number", "null"] },
           why: { type: "string" },
+          riskNotes: { type: ["string", "null"] },
         },
-        required: ["vin", "action", "offerUsd", "why"],
+        required: ["vin", "action", "offerUsd", "why", "riskNotes"],
       },
     },
     relaxedConditions: {
@@ -257,11 +264,16 @@ export function validateResaleAgentVerdict(input: unknown): ValidateResaleAgentV
     const offerRaw = row.offerUsd == null ? null : asFiniteNumber(row.offerUsd);
     const offerUsd = offerRaw != null ? Math.round(offerRaw) : null;
     const why = asTrimmedString(row.why, 400) || "Chosen from live listings with code PnL.";
+    const riskNotes =
+      row.riskNotes == null || row.riskNotes === ""
+        ? null
+        : asTrimmedString(row.riskNotes, 400);
     picks.push({
       vin,
       action: actionRaw as ResaleAgentPick["action"],
       offerUsd,
       why,
+      riskNotes,
     });
   }
 

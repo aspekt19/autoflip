@@ -43,12 +43,14 @@ describe("validateResaleAgentVerdict + guardrails", () => {
           action: "buy",
           offerUsd: 12_000,
           why: "real",
+          riskNotes: null,
         },
         {
           vin: "INVENTEDVIN000001",
           action: "buy",
           offerUsd: 10_000,
           why: "fake",
+          riskNotes: null,
         },
       ],
       relaxedConditions: [],
@@ -73,6 +75,7 @@ describe("validateResaleAgentVerdict + guardrails", () => {
           action: "buy",
           offerUsd: 14_000,
           why: "Looks cheap.",
+          riskNotes: null,
         },
       ],
       relaxedConditions: [],
@@ -107,7 +110,15 @@ describe("validateResaleAgentVerdict + guardrails", () => {
       {
         summary: "Jeep looks cheap vs comps.",
         confidence: "medium",
-        picks: [{ vin: VIN, action: "buy", offerUsd: 8_500, why: "Ask under resale mid." }],
+        picks: [
+          {
+            vin: VIN,
+            action: "buy",
+            offerUsd: 8_500,
+            why: "Ask under resale mid.",
+            riskNotes: null,
+          },
+        ],
         relaxedConditions: [],
       },
       { listingsByVin: listings, budgetUsd: 12_000, pnlByVin },
@@ -123,7 +134,9 @@ describe("validateResaleAgentVerdict + guardrails", () => {
       {
         summary: "Break-even.",
         confidence: "low",
-        picks: [{ vin: VIN, action: "negotiate", offerUsd: 8_500, why: "Zero mid." }],
+        picks: [
+          { vin: VIN, action: "negotiate", offerUsd: 8_500, why: "Zero mid.", riskNotes: null },
+        ],
         relaxedConditions: [],
       },
       {
@@ -138,7 +151,15 @@ describe("validateResaleAgentVerdict + guardrails", () => {
       {
         summary: "Needs inspection — mid not positive.",
         confidence: "low",
-        picks: [{ vin: VIN, action: "needs_inspection", offerUsd: 8_000, why: "Mid ≤ 0." }],
+        picks: [
+          {
+            vin: VIN,
+            action: "needs_inspection",
+            offerUsd: 8_000,
+            why: "Mid ≤ 0.",
+            riskNotes: "Mid profit not positive — inspect before buy.",
+          },
+        ],
         relaxedConditions: [],
       },
       { listingsByVin: listings, budgetUsd: 12_000, pnlByVin },
@@ -150,7 +171,9 @@ describe("validateResaleAgentVerdict + guardrails", () => {
     const ok = validateResaleAgentVerdict({
       summary: "ok",
       confidence: "high",
-      picks: [{ vin: VIN, action: "negotiate", offerUsd: 25_000, why: "x" }],
+      picks: [
+        { vin: VIN, action: "negotiate", offerUsd: 25_000, why: "x", riskNotes: null },
+      ],
       relaxedConditions: [],
     });
     expect(ok.ok).toBe(true);

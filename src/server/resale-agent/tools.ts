@@ -9,6 +9,13 @@ import {
   type ResaleCandidatePnl,
 } from "@/domain/resale-pnl";
 import { RESALE_AGENT_RESULT_SCHEMA, type ResaleAgentPnlFact } from "@/domain/resale-agent";
+import {
+  checkBudgetUserQuote,
+  formatShopperBriefCard,
+  parseShopperBrief,
+  validateResaleProfitFirstBrief,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
 import type { Listing } from "@/domain/types";
 import {
   createFindAgentToolState,
@@ -149,16 +156,92 @@ export function computeAndRememberPnl(
   return cards;
 }
 
+/** Resale profit-first submit_brief — required budget+quote, optional hard constraints, risk notes. */
+export const RESALE_SUBMIT_BRIEF_PARAMETERS: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: {
+      type: "string",
+      description: "One short English summary — profit within budget; budget-only or named hard constraints.",
+    },
+    budget: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        maxUsd: { type: "number", description: "Required dollar ceiling for the flip buy." },
+        userQuote: {
+          type: "string",
+          description: "Verbatim shopper words for the budget from chat (required).",
+        },
+      },
+      required: ["maxUsd", "userQuote"],
+    },
+    zip: { type: ["string", "null"] },
+    radiusMi: {
+      type: ["number", "null"],
+      description:
+        "Required. Miles radius — sensible default when shopper named a city/ZIP; null only for nationwide.",
+    },
+    notes: { type: ["string", "null"] },
+    budgetOnly: {
+      type: "boolean",
+      description:
+        "True when the shopper declined optional constraints — brief is budget + location only; invent no body/type.",
+    },
+    hardConstraints: {
+      type: "array",
+      description: "Optional constraints the shopper explicitly added — treated as hard. Empty when budgetOnly.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          key: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["key", "value"],
+      },
+    },
+    riskNotes: {
+      type: "array",
+      description:
+        "Risk of each user hard constraint (and brief-level risks). Shown on the brief card. Empty array OK when budgetOnly.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          key: { type: "string" },
+          risk: { type: "string" },
+        },
+        required: ["key", "risk"],
+      },
+    },
+  },
+  required: ["summary", "budget", "zip", "radiusMi", "notes", "budgetOnly", "riskNotes"],
+};
+
 export function resaleAgentChatTools(): Array<{
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }> {
-  // Drop Find's submit_picks / submit_nothing_fits; Resale has its own schema + get_flip_pnl.
+  // Drop Find's submit_picks / submit_nothing_fits / submit_brief; Resale owns those schemas.
   const base = findAgentChatTools().filter(
-    (tool) => tool.function.name !== "submit_picks" && tool.function.name !== "submit_nothing_fits",
+    (tool) =>
+      tool.function.name !== "submit_picks" &&
+      tool.function.name !== "submit_nothing_fits" &&
+      tool.function.name !== "submit_brief",
   );
   return [
     ...base,
+    {
+      type: "function",
+      function: {
+        name: "submit_brief",
+        description:
+          "Resale profit-first brief for Confirm/Correct before search. Ask budget first, then once for optional constraints. budgetOnly=true → budget+location only (broad profit search; invent no body/type). If constraints added, they are hardConstraints with a riskNotes row each. budget.maxUsd + budget.userQuote required (verbatim). Do not search until confirmed.",
+        parameters: RESALE_SUBMIT_BRIEF_PARAMETERS,
+      },
+    },
     {
       type: "function",
       function: {
@@ -183,7 +266,7 @@ export function resaleAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final resale flip verdict with chosen flips. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is positive (> 0). Mid ≤ 0 fails for repair — code never rewrites your action. On validation failure the tool returns issues — fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
+          "Submit the final resale flip verdict ranked by code mid-profit. Each pick needs why + riskNotes. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is positive (> 0). Mid ≤ 0 fails for repair — code never rewrites your action. On validation failure fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
         parameters: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
@@ -293,6 +376,65 @@ export async function executeResaleAgentTool(
         honesty: "Code-only P&L. Do not invent fees, tax, recon, or resale dollars.",
       },
       summary: `get_flip_pnl → ${cards.length} cards, missing=${missing.length}`,
+    };
+  }
+
+  if (name === "submit_brief") {
+    if (state.briefConfirmed) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: {
+          error: "brief_already_confirmed",
+          message:
+            "The shopper already confirmed the search brief. Do not call submit_brief again — call search_listings now, then submit_picks or submit_nothing_fits.",
+        },
+        summary: "submit_brief rejected: brief already confirmed",
+      };
+    }
+    const parsed = parseShopperBrief(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `submit_brief rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    const profitGate = validateResaleProfitFirstBrief(parsed.brief);
+    if (!profitGate.ok) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: { error: "resale_profit_first", issues: profitGate.issues },
+        summary: `submit_brief rejected: ${profitGate.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    const quoteCheck = checkBudgetUserQuote(parsed.brief.budget, deps.chatTranscript ?? "");
+    if (!quoteCheck.ok) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: {
+          error: "budget_quote",
+          status: quoteCheck.status,
+          issues: [{ field: "budget", message: quoteCheck.message }],
+        },
+        summary: `submit_brief rejected: ${quoteCheck.status}`,
+      };
+    }
+    // Normalize budgetOnly when shopper added no hard constraints.
+    const brief: ShopperBrief = {
+      ...parsed.brief,
+      budgetOnly:
+        parsed.brief.budgetOnly === true || !(parsed.brief.hardConstraints?.length),
+    };
+    const card = formatShopperBriefCard(brief);
+    return {
+      name: "submit_brief",
+      ok: true,
+      result: { ok: true, paused: true, brief, card, quoteStatus: quoteCheck.status },
+      summary: `submit_brief: ${brief.summary.slice(0, 80)}`,
     };
   }
 

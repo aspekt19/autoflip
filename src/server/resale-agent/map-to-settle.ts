@@ -160,10 +160,18 @@ export function mapResaleAgentLoopToSettle(input: {
     reasons: topPick
       ? [{ evidenceId: `car:${topPick.vin.toUpperCase()}`, text: topPick.why }]
       : [{ evidenceId: "agent:summary", text: agent.verdict.summary }],
-    risks: agent.relaxedConditions.map((r, i) => ({
-      evidenceId: `relax:${i}`,
-      text: `${r.name}: ${r.why}`,
-    })),
+    risks: [
+      ...agent.relaxedConditions.map((r, i) => ({
+        evidenceId: `relax:${i}`,
+        text: `${r.name}: ${r.why}`,
+      })),
+      ...agent.verdict.picks
+        .filter((p) => Boolean(p.riskNotes?.trim()))
+        .map((p) => ({
+          evidenceId: `pick-risk:${p.vin.toUpperCase()}`,
+          text: p.riskNotes!.trim(),
+        })),
+    ],
     unknowns: [],
     no_serv_step: false,
     serv_steps: [
