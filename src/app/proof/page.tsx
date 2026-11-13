@@ -6,7 +6,7 @@ import {
   VerbatimAnswer,
   verdictLabel,
 } from "@/app/proof/answer-text";
-import { loadProofPageData, type ProofExample, type ProofLink } from "@/domain/proof-page-runs";
+import { loadProofPageData, type ProofExample, type ProofLink, type SnapshotComparisonProof } from "@/domain/proof-page-runs";
 
 function uniqueLinks(links: ProofLink[]): ProofLink[] {
   const seen = new Set<string>();
@@ -244,6 +244,164 @@ function ExampleBlock({ example, index, total }: { example: ProofExample; index:
   );
 }
 
+
+function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotComparisonProof }) {
+  const off = comparison.arms.features_off;
+  const on = comparison.arms.features_on;
+
+  return (
+    <section className="proof-example" id="frozen-snapshot-serv-ab">
+      <p className="kicker">Frozen snapshot · live SERV A/B</p>
+      <h2>{comparison.metadata.title}</h2>
+      <p>
+        One Auto.dev listing search captured {comparison.snapshot.candidates.length} candidates.
+        The same immutable snapshot was then sent to SERV twice: once with verdict features off
+        and once with the Kronos–Multipath/Shadow feature bundle on. This isolates the verdict
+        step; it is not a full end-to-end test of every vehicle-data provider.
+      </p>
+      <p className="hint">
+        Captured {comparison.metadata.capturedAt} · run #{comparison.metadata.runId} ·{" "}
+        <a href={comparison.metadata.runUrl} target="_blank" rel="noreferrer">GitHub Actions run</a>
+        {" · "}
+        <a
+          href={`https://github.com/aspekt19/autoflip/blob/${comparison.metadata.headSha}/eval/results/snapshot-serv-ab-2026-11-13.json`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          committed evidence JSON
+        </a>
+      </p>
+
+      <details className="decision" open>
+        <summary>Buyer request and frozen data</summary>
+        <div className="decision-body">
+          <blockquote><p>{comparison.query}</p></blockquote>
+          <p>
+            ZIP {comparison.snapshot.buyerZip} · radius {comparison.snapshot.radiusMiles} mi ·
+            asking-price search cap ${comparison.snapshot.askingPriceSearchCapUsd.toLocaleString("en-US")} ·
+            mileage cap {comparison.snapshot.mileageCap.toLocaleString("en-US")} mi ·
+            {comparison.snapshot.candidates.length} candidates.
+          </p>
+          <h3>What data was actually called</h3>
+          <ul className="refuse">
+            {comparison.metadata.providersCalled.map((provider) => <li key={provider}>{provider}</li>)}
+          </ul>
+          <p>
+            Not called in this isolated test: {comparison.metadata.providersNotCalled.join(", ")}.
+            The ZIP geocode succeeded; dealer distances came from listing coordinates or the bundled
+            ZIP-centroid table.
+          </p>
+          <h3>Data limitations</h3>
+          <ul className="refuse">
+            {comparison.snapshot.dataCaveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
+          </ul>
+        </div>
+      </details>
+
+      <details className="decision" open>
+        <summary>Two SERV decisions on the same snapshot</summary>
+        <div className="decision-body">
+          <h3>Features off</h3>
+          <p>
+            <strong>{off.pick.year} {off.pick.make} {off.pick.model}</strong> · VIN{" "}
+            <code>{off.pick.vin}</code> · asking ${off.pick.askingPriceUsd.toLocaleString("en-US")} ·{" "}
+            {off.pick.miles.toLocaleString("en-US")} mi · {off.pick.distanceMiles} mi away.
+          </p>
+          <p>
+            Opening offer ${off.openingOfferUsd?.toLocaleString("en-US") ?? "not returned"} ·
+            walk-away ${off.walkAwayUsd?.toLocaleString("en-US") ?? "not returned"}.
+          </p>
+          <p>{off.rationale}</p>
+          <p className="hint">
+            Requested/returned model: {off.requestedModel} / {off.responseModel} · response{" "}
+            <code>{off.responseId}</code> · {off.latencyMs.toLocaleString("en-US")} ms ·{" "}
+            {off.usage.totalTokens.toLocaleString("en-US")} tokens · harness estimate ${off.estimatedCostUsd.toFixed(2)}.
+          </p>
+
+          <h3>Features on</h3>
+          <p>
+            <strong>{on.pick.year} {on.pick.make} {on.pick.model}</strong> · VIN{" "}
+            <code>{on.pick.vin}</code> · asking ${on.pick.askingPriceUsd.toLocaleString("en-US")} ·{" "}
+            {on.pick.miles.toLocaleString("en-US")} mi · {on.pick.distanceMiles} mi away.
+          </p>
+          <p>
+            Opening offer ${on.openingOfferUsd?.toLocaleString("en-US") ?? "not returned"} ·
+            walk-away ${on.walkAwayUsd?.toLocaleString("en-US") ?? "not returned"}.
+          </p>
+          <p>{on.rationale}</p>
+          <p className="hint">
+            Requested/returned model: {on.requestedModel} / {on.responseModel} · response{" "}
+            <code>{on.responseId}</code> · {on.latencyMs.toLocaleString("en-US")} ms ·{" "}
+            {on.usage.totalTokens.toLocaleString("en-US")} tokens · harness estimate ${on.estimatedCostUsd.toFixed(2)}.
+          </p>
+          <p>
+            Both responses report the same returned model id ({off.responseModel}); the features-on
+            request used the SERV model alias {on.requestedModel}. The response metadata alone does
+            not establish which internal transformations were billed or applied beyond the request
+            configuration, so the page records requested and returned model separately.
+          </p>
+        </div>
+      </details>
+
+      <section>
+        <h3>Criterion-by-criterion result</h3>
+        <p>{comparison.result.score}. No criterion winner in this single run.</p>
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr><th>Criterion</th><th>Features off</th><th>Features on</th><th>Winner</th></tr>
+            </thead>
+            <tbody>
+              {comparison.criteria.map((criterion) => (
+                <tr key={criterion.id}>
+                  <th scope="row">{criterion.label}</th>
+                  <td>{criterion.featuresOff}</td>
+                  <td>{criterion.featuresOn}</td>
+                  <td>{criterion.winner}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>{comparison.result.conclusion}</p>
+        <p>{comparison.result.notableDifference}</p>
+        <p>{comparison.result.latency}</p>
+        <p>{comparison.result.cost}</p>
+      </section>
+
+      <details className="decision">
+        <summary>All {comparison.snapshot.candidates.length} candidates in the frozen snapshot</summary>
+        <div className="decision-body">
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Vehicle / VIN</th><th>Asking</th><th>Miles</th><th>Location</th><th>Distance</th><th>Feed accidents</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.snapshot.candidates.map((candidate) => (
+                  <tr key={candidate.vin}>
+                    <td>
+                      {candidate.year} {candidate.make} {candidate.model}<br />
+                      <code>{candidate.vin}</code>
+                    </td>
+                    <td>${candidate.askingPriceUsd.toLocaleString("en-US")}</td>
+                    <td>{candidate.miles.toLocaleString("en-US")}</td>
+                    <td>{candidate.location}</td>
+                    <td>{candidate.distanceMiles} mi</td>
+                    <td>{candidate.listingReportedAccidents ?? "unknown"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
+  );
+}
+
 export default function ProofPage() {
   const data = loadProofPageData();
   const examples = data.examples;
@@ -266,6 +424,8 @@ export default function ProofPage() {
             finished.
           </p>
         )}
+
+        {data.snapshotComparison ? <SnapshotComparisonBlock comparison={data.snapshotComparison} /> : null}
 
         {examples.map((example, index) => (
           <ExampleBlock key={example.id} example={example} index={index} total={examples.length} />
