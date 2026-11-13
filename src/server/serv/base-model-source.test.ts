@@ -20,10 +20,8 @@ function filesUnder(dir: string): string[] {
 }
 
 describe("BASE_MODEL single source of truth", () => {
-  it("BASE_MODEL is set (SERV_MODEL may override at call sites)", () => {
-    expect(typeof BASE_MODEL).toBe("string");
-    expect(BASE_MODEL.length).toBeGreaterThan(0);
-    expect(BASE_MODEL).not.toContain(["gpt-6", ".1-sol"].join(""));
+  it("BASE_MODEL is gpt-6.1-sol (SERV_MODEL may override at call sites)", () => {
+    expect(BASE_MODEL).toBe(["gpt-6", ".1-sol"].join(""));
   });
 
   it("src has no quoted production model id outside the BASE_MODEL constant", () => {
@@ -47,14 +45,8 @@ describe("BASE_MODEL single source of truth", () => {
     expect(hits, hits.join("\n")).toEqual([]);
   });
 
-  it("src contains no leftover prior Sol production id", () => {
-    const legacy = ["gpt-6", ".1-sol"].join("");
-    const hits: string[] = [];
-    for (const file of filesUnder(SRC_ROOT)) {
-      const rel = path.relative(SRC_ROOT, file);
-      const text = readFileSync(file, "utf8");
-      if (text.includes(legacy)) hits.push(rel);
-    }
-    expect(hits).toEqual([]);
+  it("src does not assign leftover gpt-6-luna as BASE_MODEL", () => {
+    const profiles = readFileSync(path.join(SRC_ROOT, PROFILES_REL), "utf8");
+    expect(profiles).not.toMatch(/export\s+const\s+BASE_MODEL\s*=\s*["']gpt-6-luna["']/);
   });
 });

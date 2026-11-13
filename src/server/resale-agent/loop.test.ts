@@ -129,19 +129,20 @@ describe("runResaleAgentLoop", () => {
           tools?: Array<{ name?: string }>;
           instructions?: string;
           input?: unknown;
+          max_output_tokens?: number;
         };
         expect(typeof body.instructions).toBe("string");
-        expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
-        expect(body.tools?.map((t) => t.name).slice(0, 2)).toEqual([
-          "serv_prompt_guard",
-          "serv_shadow_agent",
-        ]);
+        expect(body.instructions).not.toMatch(/Shopper note:/i);
         expect(body.tools?.some((t) => t.name === "search_listings")).toBe(true);
         expect(body.tools?.some((t) => t.name === "get_flip_pnl")).toBe(true);
         expect(body.tools?.some((t) => t.name === "submit_picks")).toBe(true);
         expect(Array.isArray(body.input)).toBe(true);
+        expect(typeof body.max_output_tokens).toBe("number");
 
         if (responsesCalls === 1) {
+          expect(body.model).toBe(BASE_MODEL);
+          expect(body.tools?.map((t) => t.name)[0]).toBe("serv_prompt_guard");
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(false);
           return new Response(
             JSON.stringify({
               id: "resp_resale_1",
@@ -181,6 +182,9 @@ describe("runResaleAgentLoop", () => {
         const blob = JSON.stringify(inputItems);
         if (blob.includes("flipPnl")) sawFlipPnl = true;
 
+        expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
+        expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
+        expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
         return new Response(
           JSON.stringify({
             id: "resp_resale_2",
@@ -238,8 +242,9 @@ describe("runResaleAgentLoop", () => {
     expect(result.pnlByVin.size).toBeGreaterThan(0);
     expect(responsesCalls).toBe(2);
     expect(result.servFeatures.features).toEqual(
-      expect.arrayContaining(["serv_prompt_guard", "serv_shadow_agent", "multipath"]),
+      expect.arrayContaining(["serv_shadow_agent", "multipath"]),
     );
+    expect(result.servFeatures.features).not.toContain("serv_prompt_guard");
     expect(result.featureFlags).toEqual([]);
   });
 

@@ -181,19 +181,21 @@ describe("runFindAgentLoop", () => {
           reasoning?: { effort?: string };
           instructions?: string;
           input?: unknown;
+          max_output_tokens?: number;
         };
         expect(typeof body.instructions).toBe("string");
         expect(body.instructions!.length).toBeGreaterThan(0);
-        expect(body.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
-        expect(body.tools?.map((t) => t.name).slice(0, 2)).toEqual([
-          "serv_prompt_guard",
-          "serv_shadow_agent",
-        ]);
+        expect(body.instructions).not.toMatch(/Shopper conversation \/ note:/i);
         expect(Array.isArray(body.tools) && body.tools.some((t) => t.name === "submit_picks")).toBe(true);
         expect(body.reasoning?.effort).toBe("low");
         expect(Array.isArray(body.input)).toBe(true);
+        expect(typeof body.max_output_tokens).toBe("number");
 
         if (responsesCalls === 1) {
+          // Search hop (no journaled searches yet): bare model + first-turn prompt_guard.
+          expect(body.model).toBe(BASE_MODEL);
+          expect(body.tools?.map((t) => t.name)[0]).toBe("serv_prompt_guard");
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(false);
           return new Response(
             JSON.stringify({
               id: "resp_tools_1",
@@ -260,9 +262,19 @@ describe("runFindAgentLoop", () => {
         }
 
         if (responsesCalls === 2) {
+          // After searches: verdict step — kronos-multipath + shadow, no prompt_guard.
+          expect(body.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
+          expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
+          expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
           return new Response(
             JSON.stringify({
               id: "resp_tools_2",
+              usage: {
+                input_tokens: 100,
+                output_tokens: 40,
+                total_tokens: 140,
+                input_tokens_details: { cached_tokens: 80 },
+              },
               output: [
                 {
                   type: "function_call",
@@ -328,9 +340,12 @@ describe("runFindAgentLoop", () => {
     expect(sawBothOutputs).toBe(true);
     expect(responsesCalls).toBe(2);
     expect(result.servFeatures.features).toEqual(
-      expect.arrayContaining(["serv_prompt_guard", "serv_shadow_agent", "multipath", "kronos"]),
+      expect.arrayContaining(["serv_shadow_agent", "multipath", "kronos"]),
     );
+    expect(result.servFeatures.features).not.toContain("serv_prompt_guard");
     expect(result.featureFlags).toEqual([]);
+    const servRows = result.journal.filter((e) => e.kind === "serv");
+    expect(servRows.some((e) => e.usage?.cached_tokens === 80)).toBe(true);
   });
 
   it("tools mode: rejected submit_picks returns issues then accepts repair", async () => {

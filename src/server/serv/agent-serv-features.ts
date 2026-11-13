@@ -1,14 +1,19 @@
 /**
  * SERV Reasoning extensions for agentic Find/Resale loops.
  *
- * Product profiles already use these on chat (find_plan → kronos-multipath +
- * prompt_guard; flip_judge/radar_review → multipath + prompt_guard + shadow).
- * Agentic /v1/responses turns must request the same extensions — never silently
- * omit them. If Responses rejects a feature, journal the exact error and keep
- * sending it; structured chat finish can still use features that work there.
+ * Cost model (OpenServ docs — prompt-caching + usage-and-billing):
+ * - Cache key = system prompt + SERV transformation type (+ prompt versions),
+ *   NOT the application model. Put variable data in input messages.
+ * - Kronos audit/repair bills on cache miss; Multipath is a separate transform;
+ *   prompt_guard and shadow_agent are extra billable steps.
  *
- * Headers today are only Authorization + Content-Type (same as runServ). Features
- * are carried as model suffix + tools + reasoning params (not custom headers).
+ * Step policy:
+ * - intake / search: bare BASE_MODEL (standard SERV transform), no shadow
+ * - verdict (after searches / terminal nudge): Find → kronos-multipath + shadow;
+ *   Resale → multipath + shadow
+ * - serv_prompt_guard only on the first user message of a chat (first SERV call)
+ *
+ * Application tools stay stable and in fixed order; only serv_* markers vary by step.
  */
 import type { ServResponsesToolDef } from "./agent-chat-turn";
 import {
@@ -22,6 +27,20 @@ import { shadowOutcomeFrom } from "./proof";
 
 export type ServFeatureKind = "none" | "multipath" | "kronos" | "kronos-multipath";
 
+/** Per-hop role inside the agent loop. */
+export type AgentServStep = "intake" | "search" | "verdict";
+
+/**
+ * Comfortable output ceilings per step (Responses `max_output_tokens`).
+ * Docs: use a reasonable ceiling so balance checks pass; avoid tight caps that
+ * truncate tool calls / reasoning ("model anxiety").
+ */
+export const AGENT_STEP_MAX_OUTPUT_TOKENS: Record<AgentServStep, number> = {
+  intake: 8_192,
+  search: 16_384,
+  verdict: 65_536,
+};
+
 export type AgentServFeatureRejection = {
   feature: string;
   status: number;
@@ -33,6 +52,7 @@ export type AgentServFeatureRejection = {
 
 export type AgentServFeatureJournal = {
   model: string;
+  step: AgentServStep;
   features: DocumentedFeature[];
   promptGuard: "requested" | "not_used";
   shadowRequested: boolean;
@@ -41,16 +61,21 @@ export type AgentServFeatureJournal = {
   contentFilter: "default_on";
   promptCache: "default";
   reasoningEffort: "low" | "medium" | "high";
+  maxOutputTokens: number;
   featureRejections: AgentServFeatureRejection[];
 };
 
 export type AgentServFeatureBundle = {
   product: "find" | "resale";
+  step: AgentServStep;
   feature: ServFeatureKind;
   model: string;
   reasoningEffort: "low" | "medium";
   shadowHint: string;
   shadowMaxIterations: number;
+  hasPromptGuard: boolean;
+  hasShadow: boolean;
+  maxOutputTokens: number;
   /** Flat Responses tools: Prompt Guard + Shadow Agent (prepend before app tools). */
   responsesExtensionTools: ServResponsesToolDef[];
   /** Chat-shaped tools for structured finish / next_action when features are requested. */
@@ -163,35 +188,71 @@ function featuresFor(bundle: {
 }
 
 /**
- * Find agentic loop: match find_plan routing (kronos-multipath + prompt_guard)
- * and add Shadow Agent (used on flip/radar/report paths today).
+ * Resolve which agent step this SERV call is.
+ * Chat path: intake until brief confirmed. After journaled searches or a
+ * terminal nudge → verdict (quality features). Otherwise search.
  */
-export function findAgentServFeatureBundle(
-  baseModel: string = BASE_MODEL,
-): AgentServFeatureBundle {
-  const feature: ServFeatureKind = "kronos-multipath";
-  const shadowHint = FIND_AGENT_SHADOW_HINT;
+export function resolveAgentServStep(input: {
+  requireBriefConfirm: boolean;
+  briefConfirmed: boolean;
+  searchCount: number;
+  submitNudgeSent: boolean;
+}): AgentServStep {
+  if (input.requireBriefConfirm && !input.briefConfirmed) return "intake";
+  if (input.searchCount > 0 || input.submitNudgeSent) return "verdict";
+  return "search";
+}
+
+export function buildAgentServFeatureBundle(input: {
+  product: "find" | "resale";
+  step: AgentServStep;
+  /** Prompt Guard only on the first SERV call of a chat. */
+  includePromptGuard: boolean;
+  baseModel?: string;
+}): AgentServFeatureBundle {
+  const baseModel = input.baseModel ?? BASE_MODEL;
+  const shadowHint =
+    input.product === "find" ? FIND_AGENT_SHADOW_HINT : RESALE_AGENT_SHADOW_HINT;
   const shadowMaxIterations = SHADOW_MAX_ITERATIONS;
   const reasoningEffort = "low" as const;
+  const maxOutputTokens = AGENT_STEP_MAX_OUTPUT_TOKENS[input.step];
+
+  let feature: ServFeatureKind = "none";
+  let hasShadow = false;
+  if (input.step === "verdict") {
+    hasShadow = true;
+    feature = input.product === "find" ? "kronos-multipath" : "multipath";
+  }
+
+  const hasPromptGuard = input.includePromptGuard === true;
+  const responsesExtensionTools: ServResponsesToolDef[] = [];
+  const chatExtensionTools: AgentServFeatureBundle["chatExtensionTools"] = [];
+  if (hasPromptGuard) {
+    responsesExtensionTools.push(promptGuardResponsesTool());
+    chatExtensionTools.push(promptGuardChatTool());
+  }
+  if (hasShadow) {
+    responsesExtensionTools.push(shadowResponsesTool(shadowHint, shadowMaxIterations));
+    chatExtensionTools.push(shadowChatTool(shadowHint, shadowMaxIterations));
+  }
+
   return {
-    product: "find",
+    product: input.product,
+    step: input.step,
     feature,
     model: servModelWithFeature(baseModel, feature),
     reasoningEffort,
     shadowHint,
     shadowMaxIterations,
-    responsesExtensionTools: [
-      promptGuardResponsesTool(),
-      shadowResponsesTool(shadowHint, shadowMaxIterations),
-    ],
-    chatExtensionTools: [
-      promptGuardChatTool(),
-      shadowChatTool(shadowHint, shadowMaxIterations),
-    ],
+    hasPromptGuard,
+    hasShadow,
+    maxOutputTokens,
+    responsesExtensionTools,
+    chatExtensionTools,
     features: featuresFor({
       feature,
-      hasPromptGuard: true,
-      hasShadow: true,
+      hasPromptGuard,
+      hasShadow,
       reasoningEffort,
       onResponses: true,
     }),
@@ -199,40 +260,33 @@ export function findAgentServFeatureBundle(
 }
 
 /**
- * Resale agentic loop: match flip_judge (multipath + prompt_guard + shadow).
- * Kronos is also used elsewhere in the product; include via journal note when
- * we later try kronos-multipath — default stays flip_judge-aligned multipath.
+ * Find verdict bundle (kronos-multipath + prompt_guard + shadow).
+ * Prefer buildAgentServFeatureBundle with an explicit step in the agent loop.
+ */
+export function findAgentServFeatureBundle(
+  baseModel: string = BASE_MODEL,
+): AgentServFeatureBundle {
+  return buildAgentServFeatureBundle({
+    product: "find",
+    step: "verdict",
+    includePromptGuard: true,
+    baseModel,
+  });
+}
+
+/**
+ * Resale verdict bundle (multipath + prompt_guard + shadow).
+ * Prefer buildAgentServFeatureBundle with an explicit step in the agent loop.
  */
 export function resaleAgentServFeatureBundle(
   baseModel: string = BASE_MODEL,
 ): AgentServFeatureBundle {
-  const feature: ServFeatureKind = "multipath";
-  const shadowHint = RESALE_AGENT_SHADOW_HINT;
-  const shadowMaxIterations = SHADOW_MAX_ITERATIONS;
-  const reasoningEffort = "low" as const;
-  return {
+  return buildAgentServFeatureBundle({
     product: "resale",
-    feature,
-    model: servModelWithFeature(baseModel, feature),
-    reasoningEffort,
-    shadowHint,
-    shadowMaxIterations,
-    responsesExtensionTools: [
-      promptGuardResponsesTool(),
-      shadowResponsesTool(shadowHint, shadowMaxIterations),
-    ],
-    chatExtensionTools: [
-      promptGuardChatTool(),
-      shadowChatTool(shadowHint, shadowMaxIterations),
-    ],
-    features: featuresFor({
-      feature,
-      hasPromptGuard: true,
-      hasShadow: true,
-      reasoningEffort,
-      onResponses: true,
-    }),
-  };
+    step: "verdict",
+    includePromptGuard: true,
+    baseModel,
+  });
 }
 
 /** Merge OpenServ extension tools ahead of application tools (order matches runServ). */
@@ -254,20 +308,22 @@ export function journalFromBundle(
   const onResponses = (opts?.endpoint ?? "responses") === "responses";
   return {
     model: bundle.model,
+    step: bundle.step,
     features: featuresFor({
       feature: bundle.feature,
-      hasPromptGuard: true,
-      hasShadow: true,
+      hasPromptGuard: bundle.hasPromptGuard,
+      hasShadow: bundle.hasShadow,
       reasoningEffort: bundle.reasoningEffort,
       onResponses,
     }),
-    promptGuard: "requested",
-    shadowRequested: true,
-    shadowMaxIterations: bundle.shadowMaxIterations,
+    promptGuard: bundle.hasPromptGuard ? "requested" : "not_used",
+    shadowRequested: bundle.hasShadow,
+    shadowMaxIterations: bundle.hasShadow ? bundle.shadowMaxIterations : null,
     shadowOutcome: opts?.shadowOutcome ?? null,
     contentFilter: "default_on",
     promptCache: "default",
     reasoningEffort: bundle.reasoningEffort,
+    maxOutputTokens: bundle.maxOutputTokens,
     featureRejections: opts?.featureRejections ?? [],
   };
 }

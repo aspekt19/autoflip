@@ -4,9 +4,8 @@ import { resolveProfileBaseModel, SERV_PROFILE_MODEL_CANDIDATES } from "./profil
 import { SERV_FLIP_DECISION_SHORTLIST_IDS } from "./flip-decision-shortlist";
 
 describe("production SERV model = BASE_MODEL only", () => {
-  it("BASE_MODEL is gpt-6-luna", () => {
-    expect(typeof BASE_MODEL).toBe("string");
-    expect(BASE_MODEL.length).toBeGreaterThan(0);
+  it("BASE_MODEL is gpt-6.1-sol", () => {
+    expect(BASE_MODEL).toBe(["gpt-6", ".1-sol"].join(""));
   });
 
   it("Flip production shortlist is BASE_MODEL only (no Sonnet-first order)", () => {

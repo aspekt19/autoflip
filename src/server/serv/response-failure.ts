@@ -221,6 +221,132 @@ export function extractUsageFromPayload(payload: unknown): CompareUsage | null {
   return null;
 }
 
+/** Per-call usage fields for the agent journal (tokens + any cost/cache the API returns). */
+export type AgentServCallUsage = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  reasoning_tokens: number | null;
+  /** Responses: usage.input_tokens_details.cached_tokens; Chat: prompt_tokens_details.cached_tokens. */
+  cached_tokens: number | null;
+  /** Present only when the API returns a numeric cost field — never invented. */
+  cost: number | null;
+};
+
+function numOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+function cachedTokensFromUsage(usage: Record<string, unknown>): number | null {
+  const inputDetails = usage.input_tokens_details;
+  if (inputDetails && typeof inputDetails === "object" && !Array.isArray(inputDetails)) {
+    const cached = numOrNull((inputDetails as { cached_tokens?: unknown }).cached_tokens);
+    if (cached != null) return cached;
+  }
+  const promptDetails = usage.prompt_tokens_details;
+  if (promptDetails && typeof promptDetails === "object" && !Array.isArray(promptDetails)) {
+    const cached = numOrNull((promptDetails as { cached_tokens?: unknown }).cached_tokens);
+    if (cached != null) return cached;
+  }
+  return numOrNull(usage.cached_tokens);
+}
+
+function costFromPayload(body: Record<string, unknown>, usage: Record<string, unknown> | null): number | null {
+  const candidates = [
+    body.cost,
+    body.cost_usd,
+    body.total_cost,
+    usage?.cost,
+    usage?.cost_usd,
+    usage?.total_cost,
+    (body.openserv as { cost?: unknown } | undefined)?.cost,
+  ];
+  for (const c of candidates) {
+    const n = numOrNull(c);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/**
+ * Journal-ready usage from a Responses or Chat payload.
+ * Copies only fields the API returns (docs: input/output/total tokens;
+ * cache metrics via *_tokens_details.cached_tokens). Cost is optional.
+ */
+export function extractAgentServCallUsage(payload: unknown): AgentServCallUsage | null {
+  if (!payload || typeof payload !== "object") return null;
+  const body = payload as Record<string, unknown>;
+  const rawUsage =
+    (body.usage && typeof body.usage === "object" && !Array.isArray(body.usage)
+      ? (body.usage as Record<string, unknown>)
+      : null) ??
+    (body.usageMetadata && typeof body.usageMetadata === "object" && !Array.isArray(body.usageMetadata)
+      ? (body.usageMetadata as Record<string, unknown>)
+      : null);
+  const base = extractUsageFromPayload(payload);
+  const cached = rawUsage ? cachedTokensFromUsage(rawUsage) : null;
+  const cost = costFromPayload(body, rawUsage);
+  if (!base && cached == null && cost == null) return null;
+  return {
+    input_tokens: base?.prompt_tokens ?? numOrNull(rawUsage?.input_tokens) ?? null,
+    output_tokens: base?.completion_tokens ?? numOrNull(rawUsage?.output_tokens) ?? null,
+    total_tokens: base?.total_tokens ?? numOrNull(rawUsage?.total_tokens) ?? null,
+    reasoning_tokens: base?.reasoning_tokens ?? null,
+    cached_tokens: cached,
+    cost,
+  };
+}
+
+export type AgentServUsageTotals = {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  /** Sum of per-call cost when every call that reported usage also reported cost; else null. */
+  cost: number | null;
+};
+
+export function sumAgentServUsage(
+  rows: ReadonlyArray<AgentServCallUsage | null | undefined>,
+): AgentServUsageTotals {
+  let calls = 0;
+  let input_tokens = 0;
+  let output_tokens = 0;
+  let total_tokens = 0;
+  let reasoning_tokens = 0;
+  let cached_tokens = 0;
+  let costSum = 0;
+  let costKnown = 0;
+  for (const row of rows) {
+    if (!row) continue;
+    calls += 1;
+    if (row.input_tokens != null) input_tokens += row.input_tokens;
+    if (row.output_tokens != null) output_tokens += row.output_tokens;
+    if (row.total_tokens != null) total_tokens += row.total_tokens;
+    if (row.reasoning_tokens != null) reasoning_tokens += row.reasoning_tokens;
+    if (row.cached_tokens != null) cached_tokens += row.cached_tokens;
+    if (row.cost != null) {
+      costSum += row.cost;
+      costKnown += 1;
+    }
+  }
+  return {
+    calls,
+    input_tokens,
+    output_tokens,
+    total_tokens,
+    reasoning_tokens,
+    cached_tokens,
+    cost: costKnown > 0 && costKnown === calls ? costSum : costKnown > 0 ? costSum : null,
+  };
+}
+
 function firstChoiceMessage(payload: unknown): Record<string, unknown> | null {
   if (!payload || typeof payload !== "object") return null;
   const choices = (payload as { choices?: unknown }).choices;

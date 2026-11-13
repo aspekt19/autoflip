@@ -13,7 +13,7 @@
  */
 
 /** Production default for all SERV steps. Override with env `SERV_MODEL` (or per-profile `SERV_PROFILE_MODEL_*`). */
-export const BASE_MODEL = "gpt-6-luna";
+export const BASE_MODEL = "gpt-6.1-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 /** True when the base id (suffixes stripped) is a Gemini model (chat/completions only). */

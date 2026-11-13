@@ -67,11 +67,12 @@ import {
   type AgentLoopCheckpoint,
 } from "@/server/serv/agent-loop-checkpoint";
 import {
+  buildAgentServFeatureBundle,
   classifyAgentFeatureRejection,
   formatFeatureRejectionFlags,
   journalFromBundle,
   mergeResponsesTools,
-  resaleAgentServFeatureBundle,
+  resolveAgentServStep,
   shadowOutcomeForAgentTurn,
   type AgentServFeatureBundle,
   type AgentServFeatureJournal,
@@ -85,7 +86,13 @@ import {
   type ResponsesInputItem,
 } from "@/server/serv/agent-tool-loop-protocol";
 import { servApiBase, toolCall } from "@/server/serv/run";
-import { servFinishReason } from "@/server/serv/response-failure";
+import {
+  extractAgentServCallUsage,
+  servFinishReason,
+  sumAgentServUsage,
+  type AgentServCallUsage,
+  type AgentServUsageTotals,
+} from "@/server/serv/response-failure";
 import {
   createResaleAgentToolState,
   executeResaleAgentTool,
@@ -112,6 +119,9 @@ export type ResaleAgentJournalServCall = {
   shadowOutcome: string | null;
   featureRejections: AgentServFeatureRejection[];
   featureFlags: string[];
+  step?: AgentServFeatureJournal["step"];
+  maxOutputTokens?: number;
+  usage?: AgentServCallUsage | null;
 };
 
 export type ResaleAgentJournalToolCall = {
@@ -421,7 +431,37 @@ function constraintsFromFormEdits(
   return { intent, constraints: serializeUserIntentConstraints(intent) };
 }
 
-function systemPrompt(note: string, shopperContext?: Record<string, unknown> | null): string {
+/**
+ * Byte-stable Resale system prompt / Responses `instructions`.
+ * OpenServ prompt cache keys on the system prompt (+ transform type) — never put
+ * transcript, brief, dates, ids, or other per-request data here.
+ */
+export function resaleAgentStableInstructions(): string {
+  return [
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV.",
+    SERV_TOPIC_SCOPE_RULE,
+    "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
+    "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
+    "You decide which listings to search for profitable flips given budget, region, and flip goal.",
+    "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
+    "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
+    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
+    "End ONLY with a terminal tool: submit_picks (chosen flips) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts/HTTP statuses.",
+    "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
+    "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
+    "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
+    "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
+    "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
+    "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
+    "Per-request shopper conversation, confirmed brief, and form constraints arrive in input messages — not in these instructions.",
+  ].join(" ");
+}
+
+/** Per-request shopper/context payload for Responses `input` (not instructions). */
+export function resaleAgentRequestContextMessage(
+  note: string,
+  shopperContext?: Record<string, unknown> | null,
+): string {
   const { intent, constraints } = constraintsFromFormEdits(note, shopperContext);
   const gate = assertNoNonUserSetConstraints(constraints, intent);
   if (!gate.ok) {
@@ -449,32 +489,18 @@ function systemPrompt(note: string, shopperContext?: Record<string, unknown> | n
   }
   const constraintLine =
     Object.keys(constraints).length > 0
-      ? `
-User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
+      ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
   const rankingLine =
     Object.keys(ranking).length > 0
-      ? `
-Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
+      ? `\nFlip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
-  return [
-    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV.",
-    SERV_TOPIC_SCOPE_RULE,
-    "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
-    "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
-    "You decide which listings to search for profitable flips given budget, region, and flip goal.",
-    "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
-    "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
-    "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
-    "End ONLY with a terminal tool: submit_picks (chosen flips) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts/HTTP statuses.",
-    "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
-    "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
-    "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
-    "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
-    "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
-    "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
-    `Shopper note:\n${note.trim() || "(empty)"}${constraintLine}${rankingLine}`,
-  ].join(" ");
+  return `Shopper note:\n${note.trim() || "(empty)"}${constraintLine}${rankingLine}`;
+}
+
+function systemPrompt(note: string, shopperContext?: Record<string, unknown> | null): string {
+  void resaleAgentRequestContextMessage(note, shopperContext);
+  return resaleAgentStableInstructions();
 }
 
 const RESALE_TERMINAL_NUDGE =
@@ -654,6 +680,7 @@ function responsesBody(input: {
     tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
     toolChoice: "auto",
     reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
+    maxTokens: input.bundle.maxOutputTokens,
   });
 }
 
@@ -725,6 +752,9 @@ function pushServJournal(input: {
     shadowOutcome: base.shadowOutcome,
     featureRejections: turnRejections,
     featureFlags: flags,
+    step: base.step,
+    maxOutputTokens: base.maxOutputTokens,
+    usage: extractAgentServCallUsage(input.turn.payload),
   });
 }
 
@@ -775,6 +805,7 @@ async function finalizeVerdict(input: {
       schema: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
     },
     reasoningEffort: "low",
+    maxTokens: input.bundle.maxOutputTokens,
   });
   const turn = await postChat({
     apiKey: input.apiKey,
@@ -967,25 +998,36 @@ async function runToolsMode(input: {
   } | null;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = resolveResaleAgentMode(process.env);
-  const bundle = resaleAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
   const instructions = systemPrompt(input.note, input.shopperContext);
+  const requestContext = resaleAgentRequestContextMessage(input.note, input.shopperContext);
   const seedUser =
     "Search for profitable flips that fit the shopper. Call tools as needed (search_listings injects code flipPnl; parallel OK). When ready, call submit_picks — do not invent VINs or dollars.";
   const finishMessages: ChatMessage[] = input.resume?.messages?.length
     ? [...input.resume.messages]
     : [
         { role: "system", content: instructions },
+        { role: "user", content: requestContext },
         { role: "user", content: seedUser },
       ];
   const applicationTools = resaleAgentResponsesTools();
   let responsesInput: ResponsesInputItem[] = input.resume?.responsesInput?.length
     ? [...input.resume.responsesInput]
-    : [responsesUserMessage(seedUser)];
+    : [responsesUserMessage(requestContext), responsesUserMessage(seedUser)];
   let toolRounds = input.resume?.toolRounds ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   const startRound = input.resume?.roundsCompleted ?? 0;
+  let latestBundle = buildAgentServFeatureBundle({
+    product: "resale",
+    step: resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromResaleJournal(input.journal).length,
+      submitNudgeSent,
+    }),
+    includePromptGuard: firstTurn,
+  });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
     if (!agentLoopMayStartServCall(input.deadline)) {
@@ -1014,9 +1056,21 @@ async function runToolsMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
+    const step = resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromResaleJournal(input.journal).length,
+      submitNudgeSent,
+    });
+    const bundle = buildAgentServFeatureBundle({
+      product: "resale",
+      step,
+      includePromptGuard: firstTurn,
+    });
+    latestBundle = bundle;
     const body = responsesBody({
       instructions,
       input: responsesInput,
@@ -1055,7 +1109,7 @@ async function runToolsMode(input: {
         message: turn.error || `SERV tools call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...resaleLoopMeta(bundle, rejections)
+        ...resaleLoopMeta(latestBundle, rejections)
       };
     }
 
@@ -1070,7 +1124,7 @@ async function runToolsMode(input: {
         message: "First tools-mode response had no function_call items.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...resaleLoopMeta(bundle, rejections)
+        ...resaleLoopMeta(latestBundle, rejections)
       };
     }
     firstTurn = false;
@@ -1104,7 +1158,7 @@ async function runToolsMode(input: {
           listingsByVin: input.state.listingsByVin,
           pnlByVin: input.state.pnlByVin,
           droppedPicks: [],
-          ...resaleLoopMeta(bundle, rejections),
+          ...resaleLoopMeta(latestBundle, rejections),
         };
       }
       const searches = searchesFromResaleJournal(input.journal);
@@ -1120,7 +1174,7 @@ async function runToolsMode(input: {
           : RESALE_COULD_NOT_FINISH,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1310,7 +1364,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1426,7 +1480,7 @@ async function runToolsMode(input: {
         listingsByVin: input.state.listingsByVin,
         pnlByVin: input.state.pnlByVin,
         droppedPicks: [],
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
   }
@@ -1447,7 +1501,7 @@ async function runToolsMode(input: {
         listingsByVin: input.state.listingsByVin,
         pnlByVin: input.state.pnlByVin,
         droppedPicks: [],
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
     const searches = searchesFromResaleJournal(input.journal);
@@ -1463,7 +1517,7 @@ async function runToolsMode(input: {
         : RESALE_COULD_NOT_FINISH,
       journal: input.journal,
       knownVins: [...input.state.knownVins],
-      ...resaleLoopMeta(bundle, rejections),
+      ...resaleLoopMeta(latestBundle, rejections),
     };
   }
 }
@@ -1490,26 +1544,40 @@ async function runNextActionMode(input: {
   } | null;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = resolveResaleAgentMode(process.env);
-  const bundle = resaleAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
+  const stable = resaleAgentStableInstructions();
+  const requestContext = resaleAgentRequestContextMessage(input.note, input.shopperContext);
   const messages: ChatMessage[] = input.resume?.messages?.length
     ? [...input.resume.messages]
     : [
         {
           role: "system",
           content: [
-            systemPrompt(input.note, input.shopperContext),
+            stable,
             "Each turn return JSON with action search or finish.",
             "search runs search_listings with the provided filters.",
             "finish must include the resale_agent_result fields (summary, confidence, picks, relaxedConditions).",
           ].join(" "),
         },
+        { role: "user", content: requestContext },
         { role: "user", content: "Begin. Prefer a focused search first." },
       ];
   let toolRounds = input.resume?.toolRounds ?? 0;
   const startRound = input.resume?.roundsCompleted ?? 0;
+  let firstTurn = input.resume?.firstTurn ?? true;
+  let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let latestBundle = buildAgentServFeatureBundle({
+    product: "resale",
+    step: resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromResaleJournal(input.journal).length,
+      submitNudgeSent,
+    }),
+    includePromptGuard: firstTurn,
+  });
 
-  const nextActionBody = (msgs: ChatMessage[]) =>
+  const nextActionBody = (msgs: ChatMessage[], bundle: AgentServFeatureBundle) =>
     chatBody({
       messages: msgs,
       model: bundle.model,
@@ -1519,9 +1587,22 @@ async function runNextActionMode(input: {
         schema: RESALE_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
       },
       reasoningEffort: "low",
+      maxTokens: bundle.maxOutputTokens,
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
+    const step = resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromResaleJournal(input.journal).length,
+      submitNudgeSent,
+    });
+    const bundle = buildAgentServFeatureBundle({
+      product: "resale",
+      step,
+      includePromptGuard: firstTurn,
+    });
+    latestBundle = bundle;
     if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildResaleCheckpoint({
         phase: "next_action",
@@ -1531,8 +1612,8 @@ async function runNextActionMode(input: {
         messages,
         journal: input.journal,
         state: input.state,
-        submitNudgeSent: false,
-        firstTurn: false,
+        submitNudgeSent,
+        firstTurn,
         featureRejections: rejections,
       });
       return {
@@ -1548,10 +1629,12 @@ async function runNextActionMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
-    let body = nextActionBody(messages);
+    let body = nextActionBody(messages, bundle);
+    firstTurn = false;
+
     let turn = await postChat({
       apiKey: input.deps.servKey,
       baseUrl: input.baseUrl,
@@ -1626,7 +1709,7 @@ async function runNextActionMode(input: {
         message: turn.error || `SERV next_action call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1682,7 +1765,7 @@ async function runNextActionMode(input: {
           message: repair.error || `SERV next_action repair failed (HTTP ${repair.status}).`,
           journal: input.journal,
           knownVins: [...input.state.knownVins],
-          ...resaleLoopMeta(bundle, rejections),
+          ...resaleLoopMeta(latestBundle, rejections),
         };
       }
       parsed = parseJsonObject(messageText(repair.payload, "structured"));
@@ -1699,7 +1782,7 @@ async function runNextActionMode(input: {
         message: "Could not parse next_action JSON.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1748,7 +1831,7 @@ async function runNextActionMode(input: {
           journal: input.journal,
           knownVins: [...input.state.knownVins],
           checkpoint,
-          ...resaleLoopMeta(bundle, rejections),
+          ...resaleLoopMeta(latestBundle, rejections),
         };
       }
       continue;
@@ -1805,7 +1888,7 @@ async function runNextActionMode(input: {
             message: repair.error || "SERV finish repair failed.",
             journal: input.journal,
             knownVins: [...input.state.knownVins],
-            ...resaleLoopMeta(bundle, rejections),
+            ...resaleLoopMeta(latestBundle, rejections),
           };
         }
         const repaired = parseJsonObject(messageText(repair.payload, "structured"));
@@ -1821,7 +1904,7 @@ async function runNextActionMode(input: {
             message: validated.issues.map((i) => i.message).join("; "),
             journal: input.journal,
             knownVins: [...input.state.knownVins],
-            ...resaleLoopMeta(bundle, rejections),
+            ...resaleLoopMeta(latestBundle, rejections),
           };
         }
       }
@@ -1863,7 +1946,7 @@ async function runNextActionMode(input: {
         listingsByVin: input.state.listingsByVin,
         pnlByVin: input.state.pnlByVin,
         droppedPicks: guarded.dropped,
-        ...resaleLoopMeta(bundle, rejections),
+        ...resaleLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1883,7 +1966,7 @@ async function runNextActionMode(input: {
     message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
-    ...resaleLoopMeta(bundle, rejections),
+    ...resaleLoopMeta(latestBundle, rejections),
   };
 }
 
@@ -2065,17 +2148,28 @@ export async function runResaleAgentLoop(input: {
   });
 }
 
-/** Journal step counts for eval reports. */
+/** Journal step counts + per-request SERV usage total for eval reports. */
 export function summarizeResaleAgentJournal(journal: readonly ResaleAgentJournalEntry[]): {
   servCalls: number;
   toolCalls: number;
   toolRounds: number;
+  servUsageTotal: AgentServUsageTotals;
 } {
   let servCalls = 0;
   let toolCalls = 0;
+  const usageRows: Array<AgentServCallUsage | null> = [];
   for (const entry of journal) {
-    if (entry.kind === "serv") servCalls += 1;
-    else if (entry.kind === "tool" && entry.name !== "_mode_fallback") toolCalls += 1;
+    if (entry.kind === "serv") {
+      servCalls += 1;
+      usageRows.push(entry.usage ?? null);
+    } else if (entry.kind === "tool" && entry.name !== "_mode_fallback") {
+      toolCalls += 1;
+    }
   }
-  return { servCalls, toolCalls, toolRounds: toolCalls };
+  return {
+    servCalls,
+    toolCalls,
+    toolRounds: toolCalls,
+    servUsageTotal: sumAgentServUsage(usageRows),
+  };
 }

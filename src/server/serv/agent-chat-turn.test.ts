@@ -22,10 +22,17 @@ describe("agent chat/responses reasoning_effort", () => {
     expect(body.reasoning_effort).toBe("low");
     expect(body.reasoning_effort).not.toBe("none");
     expect(body).not.toHaveProperty("max_completion_tokens");
+
+    const capped = buildServChatTurnBody({
+      messages: [{ role: "user", content: "hi" }],
+      maxTokens: 4096,
+      omitReasoningEffort: true,
+    });
+    expect(capped.max_completion_tokens).toBe(4096);
   });
 
-  it("responses body prefers tools with supported effort and no token caps", () => {
-    const body = buildServResponsesTurnBody({
+  it("responses body prefers tools with supported effort and optional token caps", () => {
+    const bare = buildServResponsesTurnBody({
       instructions: "Find a car.",
       input: "Begin.",
       tools: [
@@ -38,8 +45,16 @@ describe("agent chat/responses reasoning_effort", () => {
       ],
       reasoning: { effort: "none", summary: "auto" },
     });
-    expect((body.reasoning as { effort: string }).effort).toBe("low");
-    expect(body.tools).toHaveLength(1);
-    expect(body).not.toHaveProperty("max_output_tokens");
+    expect((bare.reasoning as { effort: string }).effort).toBe("low");
+    expect(bare.tools).toHaveLength(1);
+    expect(bare).not.toHaveProperty("max_output_tokens");
+
+    const capped = buildServResponsesTurnBody({
+      instructions: "Find a car.",
+      input: "Begin.",
+      maxTokens: 8192,
+      reasoning: { effort: "low", summary: "auto" },
+    });
+    expect(capped.max_output_tokens).toBe(8192);
   });
 });

@@ -21,17 +21,21 @@ export {
   type ServProfile,
 } from "./profiles";
 export {
+  AGENT_STEP_MAX_OUTPUT_TOKENS,
+  buildAgentServFeatureBundle,
   classifyAgentFeatureRejection,
   findAgentServFeatureBundle,
   formatFeatureRejectionFlags,
   journalFromBundle,
   mergeResponsesTools,
   resaleAgentServFeatureBundle,
+  resolveAgentServStep,
   servModelWithFeature,
   shadowOutcomeForAgentTurn,
   type AgentServFeatureBundle,
   type AgentServFeatureJournal,
   type AgentServFeatureRejection,
+  type AgentServStep,
 } from "./agent-serv-features";
 export {
   resolveProfileBaseModel,
@@ -44,8 +48,12 @@ export {
 export {
   classifyServPlannerFailure,
   coerceUsageRecord,
+  extractAgentServCallUsage,
   extractUsageFromPayload,
   inspectServMessageFields,
+  sumAgentServUsage,
+  type AgentServCallUsage,
+  type AgentServUsageTotals,
   type ServMessageFieldInspect,
   type ServResponseFailureCategory,
   type ServResponseFailureDiag,
