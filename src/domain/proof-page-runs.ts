@@ -193,7 +193,6 @@ export type SnapshotComparisonProof = {
       generatedAt: string;
       reason: string;
     };
-    sameCandidateSet: boolean;
     sameCandidateCount: number;
     sameCandidateSet: boolean;
     arms: Record<"features_off" | "features_on", {
