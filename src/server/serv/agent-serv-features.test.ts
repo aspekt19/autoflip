@@ -85,6 +85,22 @@ describe("agent-serv-features", () => {
     expect(verdict.maxOutputTokens).toBe(AGENT_STEP_MAX_OUTPUT_TOKENS.verdict);
   });
 
+  it("servVerdictFeatures=off keeps the verdict hop on the bare model (no Kronos/Multipath/Shadow)", () => {
+    const off = buildAgentServFeatureBundle({
+      product: "find",
+      step: "verdict",
+      includePromptGuard: false,
+      servVerdictFeatures: "off",
+    });
+    expect(off.model).toBe(BASE_MODEL);
+    expect(off.feature).toBe("none");
+    expect(off.hasShadow).toBe(false);
+    expect(off.responsesExtensionTools).toEqual([]);
+    expect(off.features).not.toContain("serv_shadow_agent");
+    expect(off.features).not.toContain("kronos");
+    expect(off.features).not.toContain("multipath");
+  });
+
   it("resolveAgentServStep maps brief/search/verdict phases", () => {
     expect(
       resolveAgentServStep({

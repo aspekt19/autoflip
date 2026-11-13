@@ -56,6 +56,8 @@ export type FindChatSession = {
   result: Record<string, unknown> | null;
   error: string | null;
   updatedAt: string;
+  /** Eval-only; default "on". Never accepted from the public /api/find/chat body. */
+  servVerdictFeatures?: "on" | "off";
 };
 
 function sessionKey(sessionId: string): string {
@@ -121,6 +123,8 @@ export async function runFindChatTurn(input: {
   confirmBrief?: boolean;
   /** Eval/internal: do not charge report credits. */
   skipCredit?: boolean;
+  /** Eval-only: "off" disables Kronos/Multipath/Shadow on the verdict hop. */
+  servVerdictFeatures?: "on" | "off";
   servKey: string;
   autodevKey: string;
   servBaseUrl?: string;
@@ -205,6 +209,7 @@ export async function runFindChatTurn(input: {
       result: null,
       error: null,
       updatedAt: new Date().toISOString(),
+      servVerdictFeatures: input.servVerdictFeatures === "off" ? "off" : "on",
     };
   } else if (session.status === "done" && session.result) {
     return {
@@ -285,6 +290,11 @@ export async function runFindChatTurn(input: {
     };
   }
 
+  if (input.servVerdictFeatures === "off" || session.servVerdictFeatures === "off") {
+    session.servVerdictFeatures = "off";
+  } else {
+    session.servVerdictFeatures = "on";
+  }
   const transcript = formatServChatTranscript(session.messages);
   const shopperReply =
     !confirmBrief && session.checkpoint?.pendingAskQuestion && userText ? userText : null;
@@ -306,6 +316,7 @@ export async function runFindChatTurn(input: {
       autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
       budgetUsd: null,
       budgetProvenance: null,
+      servVerdictFeatures: session.servVerdictFeatures === "off" ? "off" : (input.servVerdictFeatures ?? "on"),
     },
   });
 

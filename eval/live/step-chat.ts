@@ -35,6 +35,8 @@ export type EvalChatHopDeps = {
   fetchImpl?: typeof fetch;
   /** Test seam: inject one-turn chat fn instead of Find/Resale servers. */
   turn?: ChatTurnFn;
+  /** Eval-only: "off" disables Kronos/Multipath/Shadow on the Find verdict hop. */
+  servVerdictFeatures?: "on" | "off";
 };
 
 export type EvalChatHopOutcome =
@@ -85,6 +87,7 @@ function chatTurnForProduct(product: GeneratedQuery["product"], deps: EvalChatHo
       continue: turn.continue,
       confirmBrief: turn.confirmBrief,
       skipCredit: true,
+      servVerdictFeatures: deps.servVerdictFeatures === "off" ? "off" : "on",
       servKey: deps.servKey,
       autodevKey: deps.autodevKey,
       servBaseUrl: deps.servBaseUrl,

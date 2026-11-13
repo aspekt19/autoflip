@@ -34,6 +34,8 @@ export type EvalLiveBatchRecord = {
   createdAt: string;
   updatedAt: string;
   exp: number;
+  /** Eval-only; default "on". */
+  servVerdictFeatures?: "on" | "off";
 };
 
 function batchKey(batchId: string): string {
@@ -66,6 +68,7 @@ export function createEvalLiveBatch(input: {
   maxQueries: number;
   maxUsd: number;
   queries: GeneratedQuery[];
+  servVerdictFeatures?: "on" | "off";
 }): EvalLiveBatchRecord {
   const now = Date.now();
   const affordable = input.queries.filter(
@@ -88,6 +91,7 @@ export function createEvalLiveBatch(input: {
     createdAt: new Date(now).toISOString(),
     updatedAt: new Date(now).toISOString(),
     exp: Math.floor(now / 1000) + EVAL_LIVE_BATCH_TTL_SEC,
+    servVerdictFeatures: input.servVerdictFeatures === "off" ? "off" : "on",
   };
 }
 
@@ -144,5 +148,6 @@ export function evalLiveBatchToReport(batch: EvalLiveBatchRecord): LiveEvalRepor
     results: batch.results,
     findCount: counts.find,
     resaleCount: counts.resale,
+    servVerdictFeatures: batch.servVerdictFeatures === "off" ? "off" : "on",
   };
 }
