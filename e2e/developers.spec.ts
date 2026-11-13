@@ -8,9 +8,9 @@ test.beforeAll(() => {
   mkdirSync(SCREEN_DIR, { recursive: true });
 });
 
-test("/developers shows Check/Find curl, MCP config, and OpenServ note", async ({ page }) => {
-  await page.goto("/developers");
-  await expect(page.getByRole("heading", { name: "For agents" })).toBeVisible();
+test("/agents shows Check/Find curl, MCP config, and OpenServ note", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(page.getByRole("heading", { name: "For AI agents" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Check a car (curl)" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Find cars (async)" })).toBeVisible();
   await expect(page.getByText(/OpenServ auth note/i)).toBeVisible();

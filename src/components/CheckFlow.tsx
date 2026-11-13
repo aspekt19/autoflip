@@ -902,8 +902,7 @@ function CheckResultCard({
           ))}
         </ul>
         <p className="hint">
-          A report is a screening tool, not an inspection or a complete history record.{" "}
-          <Link href="/report/sample">See a sample full report</Link>.
+          A report is a screening tool, not an inspection or a complete history record.
         </p>
       </section>
     </article>

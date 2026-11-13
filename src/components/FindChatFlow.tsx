@@ -49,6 +49,10 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
     const id = reason.evidenceId?.replace(/^car:/i, "").toUpperCase() ?? "";
     if (id) whyByVin.set(id, reason.text);
   }
+  const sourcesByVin = (result.sourcesCheckedByVin ?? {}) as Record<
+    string,
+    Array<{ source?: string; status?: string; label?: string }>
+  >;
   const summaryWhy = bestDeal?.why?.trim() || verdict?.reasons?.[0]?.text || null;
   const poolByVin = new Map(
     offerPool
@@ -118,6 +122,14 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     </p>
                   ) : null}
                   {why ? <p>{why}</p> : null}
+                  {vin && sourcesByVin[vin]?.length ? (
+                    <p className="hint">
+                      Sources:{" "}
+                      {sourcesByVin[vin]!
+                        .map((s) => `${s.label ?? s.source} (${(s.status ?? "").replace(/_/g, " ")})`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
                   {vdp ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">

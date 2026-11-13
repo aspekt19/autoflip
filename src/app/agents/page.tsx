@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import { AgentKeys } from "@/components/AgentKeys";
 
-export const metadata: Metadata = { title: "Agents" };
+export const metadata: Metadata = { title: "For AI agents" };
 
 export const dynamic = "force-dynamic";
 
-export default function DevelopersPage() {
+export default function AgentsPage() {
   return (
     <div className="sub">
       <div className="sheet-page site-frame prose">
-        <h1>For agents</h1>
+        <h1>For AI agents</h1>
         <p className="lead">
           An agent can run the same Check, Find, Resale, and Deal Radar a person uses on the site — same SERV
           plan/decide/second-check path and the same report with decision journal. Create a key for this browser, then send

@@ -77,6 +77,11 @@ export type ResaleSearchOkBody = {
   scope: string | null;
   emptyReason: string | null;
   creditNote: string;
+  /** Attempt-only evidence sources per pick VIN (checked / empty / error / unavailable / not checked). */
+  sourcesCheckedByVin?: Record<
+    string,
+    Array<{ source: string; status: string; label: string }>
+  >;
 };
 
 /** Step-1 plan-only slice. */

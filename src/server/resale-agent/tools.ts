@@ -37,6 +37,8 @@ export const RESALE_AGENT_TOOL_NAMES = [
   "search_listings",
   "get_recalls_complaints",
   "get_safety_ratings",
+  "get_vin_decode",
+  "get_fuel_economy",
   "get_market_comps",
   "get_flip_pnl",
   "submit_picks",
@@ -266,7 +268,7 @@ export function resaleAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final resale flip verdict ranked by code mid-profit. Each pick needs why + riskNotes. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is positive (> 0). Mid ≤ 0 fails for repair — code never rewrites your action. On validation failure fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
+          "Submit the final resale flip verdict ranked by code mid-profit. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps, get_flip_pnl) — empty/error/unavailable still count. Each pick needs why + riskNotes citing sources. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is positive (> 0). Mid ≤ 0 fails for repair — code never rewrites your action. On validation failure fix and call submit_picks again.",
         parameters: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },

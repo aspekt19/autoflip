@@ -26,10 +26,6 @@ export function HomeStage() {
               {/* Search card above headline — city lights behind the title hurt legibility. */}
               <div className="film-search">
                 <HomeSearch onModeChange={setMode} />
-                <p className="sample-link">
-                  <Link href="/report/sample">See a sample report</Link>
-                  <span> (labeled sample, no credit)</span>
-                </p>
                 <p className="account-note">{HOME_ACCOUNT_LINE}</p>
               </div>
               <div className="film-slogan">

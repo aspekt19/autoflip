@@ -25,7 +25,7 @@ const ROUTES: { path: string; slug: string }[] = [
   { path: "/compare-cars", slug: "compare-cars" },
   { path: "/reports", slug: "reports" },
   { path: "/favorites", slug: "favorites" },
-  { path: "/developers", slug: "developers" },
+  { path: "/agents", slug: "agents" },
   { path: "/credits", slug: "credits" },
   { path: "/account", slug: "account" },
   { path: "/report/sample", slug: "report-sample" },

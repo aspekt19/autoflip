@@ -68,6 +68,10 @@ export function ResaleChatFlow() {
     ? ((result.agentVerdict as { picks: Array<{ vin?: string; why?: string; riskNotes?: string | null }> })
         .picks)
     : [];
+  const sourcesByVin = (result.sourcesCheckedByVin ?? {}) as Record<
+    string,
+    Array<{ source?: string; status?: string; label?: string }>
+  >;
   const cars = best ? [best, ...alternatives] : alternatives;
 
   return (
@@ -139,6 +143,14 @@ export function ResaleChatFlow() {
                   </ul>
                   {pick?.why ? <p>{pick.why}</p> : null}
                   {pick?.riskNotes ? <p className="hint">Risk: {pick.riskNotes}</p> : null}
+                  {car.vin && sourcesByVin[car.vin.toUpperCase()]?.length ? (
+                    <p className="hint">
+                      Sources:{" "}
+                      {sourcesByVin[car.vin.toUpperCase()]!
+                        .map((s) => `${s.label ?? s.source} (${(s.status ?? "").replace(/_/g, " ")})`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
                   {vdp ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">

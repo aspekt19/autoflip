@@ -347,6 +347,7 @@ export async function runResaleChatTurn(input: {
     alternatives: alternatives.filter((row) => row.vin !== best?.vin).slice(0, 8),
     agentVerdict: settled.delivery.agentVerdict ?? null,
     journal: settled.delivery.journal ?? null,
+    sourcesCheckedByVin: settled.delivery.sourcesCheckedByVin ?? {},
     message: summary,
     charged,
     balance,

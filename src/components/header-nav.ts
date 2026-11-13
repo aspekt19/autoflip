@@ -7,12 +7,12 @@ export type PrimaryNavLink = { href: string; label: string };
  * Keep product verbs (Find/Check/Resale/Radar) + Pricing in the core row; park docs/meta under More
  * so 1366–1440 laptops do not collide with the logo.
  */
-export const NAV_MORE_HREFS = new Set(["/reports", "/where-serv-runs", "/proof"]);
+export const NAV_MORE_HREFS = new Set(["/reports", "/where-serv-runs", "/proof", "/agents"]);
 
 /**
  * Primary header links. Resale stays whenever resaleEvaluate is on; Deal Radar
- * sits next to it when enabled. Frozen surfaces (compare, saved cars, verify,
- * public API) stay out of the nav.
+ * sits next to it when enabled. Frozen surfaces (compare, saved cars, verify)
+ * stay out of the nav. Agent/API docs surface as /agents ("For AI agents").
  */
 export function primaryNavLinks(input: {
   flags: ProductFlags | null;
@@ -28,6 +28,7 @@ export function primaryNavLinks(input: {
     { href: "/reports", label: "Reports" },
     { href: "/where-serv-runs", label: "How it decides" },
     { href: "/proof", label: "Proof" },
+    { href: "/agents", label: "For AI agents" },
   ];
 }
 

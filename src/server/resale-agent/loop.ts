@@ -40,6 +40,13 @@ import {
   type ResaleAgentVerdict,
 } from "@/domain/resale-agent";
 import {
+  RESALE_EVIDENCE_SOURCES,
+  evaluateEvidenceGate,
+  evidenceJournalFromAgentJournal,
+  evidenceRepairAlreadySent,
+  type EvidenceSourceRow,
+} from "@/domain/serv-evidence-gate";
+import {
   AGENT_LOOP_BUDGET_CONTINUE,
   agentLoopMayStartServCall,
   makeAgentLoopDeadline,
@@ -124,6 +131,15 @@ export type ResaleAgentJournalServCall = {
   usage?: AgentServCallUsage | null;
 };
 
+const EVIDENCE_JOURNAL_TOOLS = new Set([
+  "get_recalls_complaints",
+  "get_safety_ratings",
+  "get_vin_decode",
+  "get_fuel_economy",
+  "get_market_comps",
+  "get_flip_pnl",
+]);
+
 export type ResaleAgentJournalToolCall = {
   kind: "tool";
   name: string;
@@ -138,6 +154,8 @@ export type ResaleAgentJournalToolCall = {
   providerCause?: string;
   /** Attempts including retries before the final provider outcome. */
   providerAttempts?: number;
+  /** Slim tool result for evidence-gate status. */
+  result?: unknown;
 };
 
 export type ResaleAgentJournalEntry = ResaleAgentJournalServCall | ResaleAgentJournalToolCall;
@@ -215,6 +233,7 @@ function journalResaleSearchEntry(
           ...(providerAttempts != null ? { providerAttempts } : {}),
         }
       : {}),
+    ...(EVIDENCE_JOURNAL_TOOLS.has(executed.name) ? { result: executed.result } : {}),
   };
 }
 
@@ -481,6 +500,7 @@ export function resaleAgentStableInstructions(): string {
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
     "End ONLY with a terminal tool: submit_picks (chosen flips) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts/HTTP statuses.",
     "submit_picks: rank by code mid-profit (highest first). Each pick needs why + riskNotes (risks of that flip). buy|negotiate only when code mid-profit is positive (> 0); mid ≤ 0 fails for repair — never invent cars, prices, VINs, or dollars.",
+    "Before submit_picks on finalists: attempt get_recalls_complaints, get_safety_ratings, get_vin_decode, get_fuel_economy, get_market_comps, and get_flip_pnl (batch VIN lists; ≤1 call per source per finalist). Empty, error, or unavailable still counts — cite sources in why/riskNotes. Result cards show sources checked.",
     "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Parallel tool calls are fine.",
     "Per-request shopper conversation, confirmed brief, and form constraints arrive in input messages — not in these instructions.",
@@ -749,6 +769,35 @@ function listingFactsFromState(
     });
   }
   return out;
+}
+
+/** Attempt-only evidence gate for Resale submit_picks (includes get_flip_pnl). */
+export function evaluateResaleEvidenceGate(input: {
+  picks: ReadonlyArray<{ vin: string }>;
+  listingsByVin: ReadonlyMap<string, Listing>;
+  journal: readonly ResaleAgentJournalEntry[];
+}):
+  | { ok: true; byVin: Record<string, EvidenceSourceRow[]>; acceptedWithGaps: boolean }
+  | { ok: false; issues: Array<{ field: string; message: string }>; byVin: Record<string, EvidenceSourceRow[]> } {
+  const listings = new Map<
+    string,
+    { vin: string; year: number; make: string; model: string }
+  >();
+  for (const [vin, listing] of input.listingsByVin) {
+    listings.set(vin.toUpperCase(), {
+      vin: vin.toUpperCase(),
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+    });
+  }
+  return evaluateEvidenceGate({
+    picks: input.picks,
+    listingsByVin: listings,
+    journal: evidenceJournalFromAgentJournal(input.journal),
+    requiredSources: RESALE_EVIDENCE_SOURCES,
+    repairAlreadySent: evidenceRepairAlreadySent(input.journal),
+  });
 }
 
 function pushServJournal(input: {
@@ -1367,6 +1416,42 @@ async function runToolsMode(input: {
                 searchJournalEvidence: searches,
               },
             };
+          }
+          if (call.name === "submit_picks" && checked.verdict.picks.length > 0) {
+            const evidence = evaluateResaleEvidenceGate({
+              picks: checked.verdict.picks,
+              listingsByVin: input.state.listingsByVin,
+              journal: input.journal,
+            });
+            if (!evidence.ok) {
+              selectionHop = false;
+              forceTerminalTool = true;
+              const repair = boundaryRepairMessage({
+                issues: evidence.issues,
+                searches,
+                hint:
+                  "Attempt each evidence source once for every finalist (include get_flip_pnl; batched VIN lists OK). Empty/error/unavailable still counts. Then call submit_picks again.",
+              });
+              input.journal.push({
+                kind: "tool",
+                name: call.name,
+                args,
+                summary: `submit_picks rejected: evidence_incomplete — ${evidence.issues.map((i) => i.message).join("; ")}`,
+                ok: false,
+              });
+              return {
+                callId: call.callId,
+                name: "submit_picks" as const,
+                accepted: false as const,
+                output: {
+                  ok: false,
+                  error: "evidence_incomplete",
+                  issues: evidence.issues,
+                  message: repair,
+                  sourcesCheckedByVin: evidence.byVin,
+                },
+              };
+            }
           }
           const enriched = enrichResaleRelaxed(checked.verdict, input.journal);
           input.journal.push({

@@ -4,6 +4,13 @@
 import { emptyAgentVerdict, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
 import { joinChosenListing } from "@/domain/join-chosen-listing";
+import {
+  FIND_EVIDENCE_SOURCES,
+  evaluateEvidenceGate,
+  evidenceJournalFromAgentJournal,
+  formatSourcesCheckedLine,
+  type EvidenceSourceRow,
+} from "@/domain/serv-evidence-gate";
 import type { FindAgentLoopResult } from "./loop";
 import type { Listing } from "@/domain/types";
 import { BASE_MODEL } from "@/server/serv";
@@ -41,6 +48,28 @@ function candidateFromListing(listing: Listing, key: string): BestDealCandidate 
   };
 }
 
+function sourcesCheckedFromFindAgent(
+  agent: Extract<FindAgentLoopResult, { ok: true }>,
+): Record<string, EvidenceSourceRow[]> {
+  const listings = new Map<string, { vin: string; year: number; make: string; model: string }>();
+  for (const [vin, listing] of agent.listingsByVin) {
+    listings.set(vin.toUpperCase(), {
+      vin: vin.toUpperCase(),
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+    });
+  }
+  const gate = evaluateEvidenceGate({
+    picks: agent.verdict.picks,
+    listingsByVin: listings,
+    journal: evidenceJournalFromAgentJournal(agent.journal),
+    requiredSources: FIND_EVIDENCE_SOURCES,
+    repairAlreadySent: true,
+  });
+  return gate.byVin;
+}
+
 export function mapFindAgentLoopToDecide(input: {
   agent: Extract<FindAgentLoopResult, { ok: true }>;
 }): {
@@ -48,6 +77,7 @@ export function mapFindAgentLoopToDecide(input: {
   agentVerdict: AgentVerdict;
   shortlistKeys: string[];
   offerPool: Listing[];
+  sourcesCheckedByVin: Record<string, EvidenceSourceRow[]>;
 } {
   const listingsByVin = input.agent.listingsByVin;
   const ranked: BestDealCandidate[] = [];
@@ -131,6 +161,11 @@ export function mapFindAgentLoopToDecide(input: {
     inspect_first: "needs_inspection",
     pass: "pass",
   } as const;
+  const sourcesCheckedByVin = sourcesCheckedFromFindAgent(input.agent);
+  const sourceUnknowns = Object.entries(sourcesCheckedByVin).map(([vin, rows]) => {
+    const line = formatSourcesCheckedLine(rows);
+    return line ? `${vin}: ${line}` : null;
+  }).filter((line): line is string => Boolean(line));
   const agentVerdict = emptyAgentVerdict({
     // Label/price/miles from verified listing join — never SERV prose alone.
     pick: joined
@@ -151,7 +186,10 @@ export function mapFindAgentLoopToDecide(input: {
       evidenceId: `relax:${i}`,
       text: `${r.name}: ${r.why}`,
     })),
-    unknowns: input.agent.verdict.passReason ? [input.agent.verdict.passReason] : [],
+    unknowns: [
+      ...(input.agent.verdict.passReason ? [input.agent.verdict.passReason] : []),
+      ...sourceUnknowns,
+    ],
     no_serv_step: false,
     serv_steps: [
       {
@@ -173,5 +211,5 @@ export function mapFindAgentLoopToDecide(input: {
     },
   });
 
-  return { bestDeal, agentVerdict, shortlistKeys, offerPool };
+  return { bestDeal, agentVerdict, shortlistKeys, offerPool, sourcesCheckedByVin };
 }

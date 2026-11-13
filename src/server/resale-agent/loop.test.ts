@@ -221,16 +221,21 @@ describe("runResaleAgentLoop", () => {
           );
         }
 
-        expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
-        expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
-        expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
+        // Selection hop uses multipath+shadow; evidence-repair hop is bare + tool_choice required.
+        const selection = body.model === `${BASE_MODEL}-serv-multipath`;
+        if (selection) {
+          expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
+          expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
+        } else {
+          expect(body.model).toBe(BASE_MODEL);
+        }
         return new Response(
           JSON.stringify({
-            id: "resp_resale_3",
+            id: `resp_resale_${responsesCalls}`,
             output: [
               {
                 type: "function_call",
-                call_id: "call_submit_1",
+                call_id: `call_submit_${responsesCalls}`,
                 name: "submit_picks",
                 arguments: JSON.stringify({
                   summary: "Negotiate the Civic — code PnL looks positive.",
@@ -280,7 +285,7 @@ describe("runResaleAgentLoop", () => {
     expect(sawFlipPnl).toBe(true);
     expect(sawReasoningEcho).toBe(true);
     expect(result.pnlByVin.size).toBeGreaterThan(0);
-    expect(responsesCalls).toBe(3);
+    expect(responsesCalls).toBeGreaterThanOrEqual(3);
     expect(result.servFeatures.features).toEqual(
       expect.arrayContaining(["serv_shadow_agent", "multipath"]),
     );

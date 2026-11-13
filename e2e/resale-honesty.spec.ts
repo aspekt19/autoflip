@@ -147,8 +147,8 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
   await expect(page.getByRole("heading", { name: "Not available" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /connect telegram/i })).toHaveCount(0);
 
-  await page.goto("/developers");
-  await expect(page.getByRole("heading", { name: "For agents" })).toBeVisible();
+  await page.goto("/agents");
+  await expect(page.getByRole("heading", { name: "For AI agents" })).toBeVisible();
   expect(await scoutTelegramHrefs(page)).toEqual([]);
 });
 
