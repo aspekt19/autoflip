@@ -6,6 +6,9 @@
  */
 import {
   boundaryRepairMessage,
+  honestNothingFitsReasonFromSearches,
+  searchesAllEmpty,
+  searchesDocumented,
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
@@ -475,7 +478,7 @@ Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
 }
 
 const RESALE_TERMINAL_NUDGE =
-  "No terminal tool yet. Call submit_picks (chosen flips) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches.";
+  "No terminal tool yet. Call submit_picks (chosen flips) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches. If every search kept 0 listings, you MUST call submit_nothing_fits with a short written reason now.";
 
 const RESALE_COULD_NOT_FINISH =
   "We couldn't finish this flip search — SERV stopped without submit_picks or submit_nothing_fits after a repair turn.";
@@ -491,6 +494,15 @@ function nothingFitsResaleVerdictFromReason(
     picks: [],
     relaxedConditions: synthesizeRelaxedConditionsFromSearches(searches),
   };
+}
+
+/** After a failed terminal nudge: empty search journal → honest nothing-fits (not incomplete). */
+function honestEmptyNothingFitsFromResaleJournal(
+  journal: readonly ResaleAgentJournalEntry[],
+): import("@/domain/resale-agent").ResaleAgentVerdict | null {
+  const searches = searchesFromResaleJournal(journal);
+  if (!searchesAllEmpty(searches)) return null;
+  return nothingFitsResaleVerdictFromReason(honestNothingFitsReasonFromSearches(searches), journal);
 }
 
 function argumentText(value: unknown): string {
@@ -1077,6 +1089,25 @@ async function runToolsMode(input: {
         ];
         continue;
       }
+      const emptyTerminal = honestEmptyNothingFitsFromResaleJournal(input.journal);
+      if (emptyTerminal) {
+        return {
+          ok: true,
+          agentMode: "tools",
+          requestedMode,
+          toolRounds,
+          verdictReached: true,
+          verdict: emptyTerminal,
+          relaxedConditions: emptyTerminal.relaxedConditions,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+          listingsByVin: input.state.listingsByVin,
+          pnlByVin: input.state.pnlByVin,
+          droppedPicks: [],
+          ...resaleLoopMeta(bundle, rejections),
+        };
+      }
+      const searches = searchesFromResaleJournal(input.journal);
       return {
         ok: false,
         agentMode: "tools",
@@ -1084,7 +1115,9 @@ async function runToolsMode(input: {
         toolRounds,
         verdictReached: false,
         error: "missing_terminal",
-        message: RESALE_COULD_NOT_FINISH,
+        message: searchesDocumented(searches)
+          ? honestNothingFitsReasonFromSearches(searches)
+          : RESALE_COULD_NOT_FINISH,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         ...resaleLoopMeta(bundle, rejections),
@@ -1359,18 +1392,41 @@ async function runToolsMode(input: {
     }
   }
 
-  return {
-    ok: false,
-    agentMode: "tools",
-    requestedMode,
-    toolRounds,
-    verdictReached: false,
-    error: "missing_terminal",
-    message: RESALE_COULD_NOT_FINISH,
-    journal: input.journal,
-    knownVins: [...input.state.knownVins],
-    ...resaleLoopMeta(bundle, rejections),
-  };
+  {
+    const emptyTerminal = honestEmptyNothingFitsFromResaleJournal(input.journal);
+    if (emptyTerminal) {
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: emptyTerminal,
+        relaxedConditions: emptyTerminal.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        pnlByVin: input.state.pnlByVin,
+        droppedPicks: [],
+        ...resaleLoopMeta(bundle, rejections),
+      };
+    }
+    const searches = searchesFromResaleJournal(input.journal);
+    return {
+      ok: false,
+      agentMode: "tools",
+      requestedMode,
+      toolRounds,
+      verdictReached: false,
+      error: "missing_terminal",
+      message: searchesDocumented(searches)
+        ? honestNothingFitsReasonFromSearches(searches)
+        : RESALE_COULD_NOT_FINISH,
+      journal: input.journal,
+      knownVins: [...input.state.knownVins],
+      ...resaleLoopMeta(bundle, rejections),
+    };
+  }
 }
 
 async function runNextActionMode(input: {

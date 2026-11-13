@@ -15,6 +15,7 @@ import type { Kv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import {
   runFindAgentLoop,
+  searchesFromFindJournal,
   summarizeFindAgentJournal,
   type FindAgentLoopResult,
 } from "@/server/find-agent/loop";
@@ -323,6 +324,9 @@ export async function runFindChatTurn(input: {
     });
     session.updatedAt = new Date().toISOString();
     const journalMeta = summarizeFindAgentJournal(agent.journal ?? []);
+    const searchRows = searchesFromFindJournal(agent.journal ?? []);
+    const carsFoundFromJournal =
+      searchRows.length > 0 ? Math.max(...searchRows.map((row) => row.resultCount)) : 0;
     const rawFacts =
       "shopperFacts" in agent && agent.shopperFacts && typeof agent.shopperFacts === "object"
         ? (agent.shopperFacts as {
@@ -350,7 +354,7 @@ export async function runFindChatTurn(input: {
         relaxedConditions: [],
         journalServCalls: journalMeta.servCalls,
         journalToolCalls: journalMeta.toolCalls,
-        carsFound: 0,
+        carsFound: carsFoundFromJournal,
         passReason: null,
       },
       honesty,

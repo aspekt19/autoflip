@@ -18,6 +18,7 @@ import {
 import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
+import { buyerListingHref } from "@/domain/find-listing-link";
 import type { Listing } from "@/domain/types";
 import type { ListingQuery } from "@/io/marketcheck";
 import {
@@ -130,6 +131,8 @@ export type ListingCard = {
   city: string | null;
   state: string | null;
   createdAt: string | null;
+  /** Listing detail-page URL from stored auto.dev data when present. */
+  listingUrl: string | null;
 };
 
 export type FindAgentShopperFacts = {
@@ -587,6 +590,8 @@ export function listingToCard(listing: Listing): ListingCard | null {
   const vin = listing.vin?.trim().toUpperCase();
   if (!vin) return null;
   const distance = listing.distanceMiles ?? null;
+  // Prefer the feed's own detail-page URL (vdp); fall back to dealerUrl when present.
+  const listingUrl = buyerListingHref(listing.vdp) ?? buyerListingHref(listing.dealerUrl);
   return {
     vin,
     year: listing.year,
@@ -604,6 +609,7 @@ export function listingToCard(listing: Listing): ListingCard | null {
     city: listing.city,
     state: listing.state,
     createdAt: listing.createdAt ?? null,
+    listingUrl,
   };
 }
 

@@ -3,17 +3,25 @@
  * A) boundary failures → repair message (never silent 502 substitution)
  * B) typed terminal required (submit_picks | submit_nothing_fits)
  * C) no search without confirmed brief
+ * D) confirmed-brief budget: listing asking ≤ maxUsd at terminal
+ * E) empty-search terminal → honest nothing-fits (not incomplete_verdict)
  */
 import { describe, expect, it } from "vitest";
 import {
   boundaryRepairMessage,
+  honestNothingFitsReasonFromSearches,
+  searchesAllEmpty,
   scoringVerdictComplete,
 } from "@/domain/agent-verdict-complete";
-import { findAgentChatTools, createFindAgentToolState, executeFindAgentTool } from "./tools";
+import { validateFindSubmitPicks } from "@/domain/find-agent";
+import { validateResaleSubmitPicks } from "@/domain/resale-agent";
+import { listingPriceBudgetIssue } from "@/domain/serv-boundary";
+import { findAgentChatTools, createFindAgentToolState, executeFindAgentTool, listingToCard } from "./tools";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { Listing } from "@/domain/types";
 
 describe("A) boundary checks repair with journal evidence", () => {
   it("repair message names the exact problem and attaches code journal evidence", () => {
@@ -111,5 +119,114 @@ describe("C) brief gate — no search without confirm", () => {
     expect(resaleChat).toMatch(/never 502|couldn't finish/i);
     expect(findChat).not.toMatch(/status:\s*502/);
     expect(resaleChat).not.toMatch(/status:\s*502/);
+  });
+});
+
+describe("D) confirmed-brief budget — listing asking ≤ maxUsd", () => {
+  const vin = "4T1DAACK0TU295949";
+  const listings = new Map([[vin, { vin, priceUsd: 25_835, miles: 5_173 }]]);
+
+  it("shared helper flags asking above maxUsd", () => {
+    const issue = listingPriceBudgetIssue({
+      listingPriceUsd: 25_835,
+      budgetUsd: 25_000,
+      vin,
+    });
+    expect(issue).not.toBeNull();
+    expect(issue?.message).toMatch(/25,?835/);
+    expect(issue?.message).toMatch(/25,?000/);
+  });
+
+  it("Find + Resale submit_picks reject over-budget listing asking (repair)", () => {
+    const find = validateFindSubmitPicks(
+      {
+        summary: "Camry pick.",
+        confidence: "high",
+        picks: [{ vin, label: "Camry", action: "buy", offerUsd: 25_000, why: "Under offer cap." }],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      { listingsByVin: listings, budgetUsd: 25_000 },
+    );
+    expect(find.ok).toBe(false);
+
+    const resale = validateResaleSubmitPicks(
+      {
+        summary: "Camry flip.",
+        confidence: "high",
+        picks: [{ vin, action: "buy", offerUsd: 25_000, why: "Quick flip." }],
+        relaxedConditions: [],
+      },
+      { listingsByVin: listings, budgetUsd: 25_000 },
+    );
+    expect(resale.ok).toBe(false);
+  });
+
+  it("Radar hardReject already gates priceMax (source invariant)", () => {
+    const radarWatch = readFileSync(path.join(__dirname, "../../domain/radar-watch.ts"), "utf8");
+    expect(radarWatch).toMatch(/listing\.priceUsd > criteria\.priceMax/);
+    expect(radarWatch).toMatch(/over budget/);
+  });
+});
+
+describe("E) empty-search terminal → honest nothing-fits", () => {
+  it("all-empty journal becomes a complete nothing-fits reason", () => {
+    const searches = [
+      { params: { zip: "33101", priceMaxUsd: 18_000 }, resultCount: 0, providerStatus: 200 },
+    ];
+    expect(searchesAllEmpty(searches)).toBe(true);
+    const reason = honestNothingFitsReasonFromSearches(searches);
+    expect(scoringVerdictComplete({ verdict: { picks: [], nothingFitsReason: reason }, searches })).toEqual({
+      complete: true,
+      kind: "nothing_fits",
+    });
+  });
+
+  it("Find/Resale loops promote empty journal to honest nothing-fits after nudge (source)", () => {
+    const findLoop = readFileSync(path.join(__dirname, "loop.ts"), "utf8");
+    const resaleLoop = readFileSync(path.join(__dirname, "../resale-agent/loop.ts"), "utf8");
+    expect(findLoop).toMatch(/honestEmptyNothingFitsFromJournal/);
+    expect(findLoop).toMatch(/submit_nothing_fits with a short written reason now/);
+    expect(resaleLoop).toMatch(/honestEmptyNothingFitsFromResaleJournal/);
+    expect(resaleLoop).toMatch(/submit_nothing_fits with a short written reason now/);
+  });
+
+  it("listing cards carry the feed detail-page URL when present", () => {
+    const card = listingToCard({
+      vin: "JTMRWRFV0KJ123456",
+      year: 2018,
+      make: "Toyota",
+      model: "Camry",
+      trim: "LE",
+      miles: 62_000,
+      priceUsd: 14_500,
+      city: "Columbus",
+      state: "OH",
+      zip: "43215",
+      dealer: "Test",
+      vdp: "https://dealer.example/inventory/used-2018-toyota-camry/JTMRWRFV0KJ123456",
+      dealerUrl: "https://dealer.example/",
+      primaryImage: null,
+      carfaxUrl: null,
+      used: true,
+      cpo: false,
+      accidentCount: 0,
+      oneOwner: true,
+      ownerCount: 1,
+      usageType: null,
+      fuel: "Gasoline",
+      engine: null,
+      drivetrain: "FWD",
+      transmission: "Automatic",
+      bodyStyle: "Car",
+      style: "Sedan",
+      distanceMiles: 10,
+      createdAt: null,
+      latitude: null,
+      longitude: null,
+      removedAt: null,
+      source: "autodev",
+    } satisfies Listing);
+    expect(card?.listingUrl).toContain("/inventory/used-2018-toyota-camry/");
   });
 });

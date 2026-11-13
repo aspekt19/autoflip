@@ -8,6 +8,7 @@ import {
   scoringVerdictComplete,
   type AgentSearchJournalRow,
 } from "./agent-verdict-complete";
+import { listingPriceBudgetIssue } from "./serv-boundary";
 
 export const RESALE_AGENT_MODES = ["tools", "next_action", "auto"] as const;
 export type ResaleAgentMode = (typeof RESALE_AGENT_MODES)[number];
@@ -388,6 +389,16 @@ export function validateResaleSubmitPicks(
         message: `VIN ${vin} was not returned by search_listings / comps tools. Copy a real VIN from tool results.`,
       });
       continue;
+    }
+    // Confirmed-brief budget: actionable picks must have listing asking ≤ maxUsd.
+    if (pick.action !== "pass") {
+      const overBudget = listingPriceBudgetIssue({
+        listingPriceUsd: listing.priceUsd,
+        budgetUsd: budget,
+        vin,
+        field: `picks[${index}].price`,
+      });
+      if (overBudget) issues.push(overBudget);
     }
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({

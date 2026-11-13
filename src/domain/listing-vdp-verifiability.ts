@@ -169,8 +169,11 @@ export function listingVdpVerifiability(input: {
   year?: number | null;
   trim?: string | null;
 }): ListingVdpVerifiability {
+  // Prefer the listing's own detail page (vdp) when present. Use dealerUrl only when
+  // vdp is missing or a Carfax/history page — never overwrite a real VDP with a homepage.
+  const vdpHref = absoluteHttp(input.vdp);
   const dealerPage = absoluteHttp(input.dealerUrl);
-  if (dealerPage && !isCarfaxHref(dealerPage)) {
+  if (dealerPage && !isCarfaxHref(dealerPage) && (!vdpHref || isCarfaxHref(vdpHref))) {
     return listingVdpVerifiability({ ...input, vdp: dealerPage, dealerUrl: null });
   }
   const seller = sellerLinkHonesty({ dealer: input.dealer, vdp: input.vdp });

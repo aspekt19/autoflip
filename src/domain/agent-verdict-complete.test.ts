@@ -3,8 +3,10 @@ import {
   boundaryRepairMessage,
   filterRealRelaxedConditions,
   formatSearchJournalEvidence,
+  honestNothingFitsReasonFromSearches,
   isRealRelaxationText,
   liveEvalOutcomeOk,
+  searchesAllEmpty,
   scoringVerdictComplete,
   synthesizeRelaxedConditionsFromSearches,
 } from "./agent-verdict-complete";
@@ -136,6 +138,26 @@ describe("boundary repair + journal evidence", () => {
       ],
     });
     expect(result).toEqual({ complete: true, kind: "nothing_fits" });
+  });
+});
+
+describe("honest nothing-fits from empty search journal", () => {
+  it("detects all-empty journaled searches and builds an honest reason", () => {
+    const searches = [
+      { params: { zip: "33101", priceMaxUsd: 18_000, bodyFamily: "suv" }, resultCount: 0, providerStatus: 200 },
+      { params: { zip: "33101", radiusMi: 100, priceMaxUsd: 18_000 }, resultCount: 0, providerStatus: 200 },
+    ];
+    expect(searchesAllEmpty(searches)).toBe(true);
+    const reason = honestNothingFitsReasonFromSearches(searches);
+    expect(reason).toMatch(/no listings that fit/i);
+    expect(reason).toMatch(/zip=33101/);
+    expect(reason).toMatch(/http=200/);
+    expect(
+      scoringVerdictComplete({
+        verdict: { picks: [], nothingFitsReason: reason },
+        searches,
+      }),
+    ).toEqual({ complete: true, kind: "nothing_fits" });
   });
 });
 
