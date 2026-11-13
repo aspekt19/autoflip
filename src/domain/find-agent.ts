@@ -60,7 +60,7 @@ export function findAgentLoopEnabled(
 }
 
 /**
- * Default is auto: try /v1/responses tools first (gpt-6.1-sol chat cannot pair
+ * Default is auto: try /v1/responses tools first (BASE_MODEL chat cannot pair
  * function tools with a supported reasoning_effort). On tools_unsupported_or_empty
  * only, fall back to schema-only next_action chat (reasoning_effort=low, no tools).
  */

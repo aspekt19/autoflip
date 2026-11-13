@@ -13,7 +13,7 @@
  */
 
 /** Production default for all SERV steps. Override with env `SERV_MODEL` (or per-profile `SERV_PROFILE_MODEL_*`). */
-export const BASE_MODEL = "gpt-6.1-sol";
+export const BASE_MODEL = "gpt-6-luna";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 /** True when the base id (suffixes stripped) is a Gemini model (chat/completions only). */
@@ -70,8 +70,8 @@ export type ServProfile = {
   fallback: string;
   system: string;
   /**
-   * gpt-6.1-sol-supported effort. Never "none" — function tools use /v1/responses
-   * with a real effort (see endpointForProfile).
+   * SERV-supported effort (OpenServ: none|low|medium|high). Never "none" —
+   * function tools use /v1/responses with a real effort (see endpointForProfile).
    */
   reasoningEffort: "low" | "medium";
   /** Default SERV prompt cache. System text is stable; the opt-out is not used. */
@@ -574,7 +574,7 @@ export const PROFILES = {
   verdict_decide: {
     id: "verdict_decide",
     purpose: "Choose buy, negotiate, pass, or needs_inspection from code-computed facts.",
-    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard and shadow returned no usable choice on the live review.",
+    reason: "Strict JSON on the shared BASE_MODEL. Multipath plus prompt-guard and shadow returned no usable choice on the live review.",
     feature: "none",
     tools: [],
     shadowHint:
@@ -622,7 +622,7 @@ export const PROFILES = {
   verdict_challenge: {
     id: "verdict_challenge",
     purpose: "Challenge the primary shopper verdict using only supplied evidence ids.",
-    reason: "Strict JSON on gpt-6.1-sol. A prompt-guard tool beside this schema does not return a usable second check.",
+    reason: "Strict JSON on the shared BASE_MODEL. A prompt-guard tool beside this schema does not return a usable second check.",
     feature: "none",
     tools: [],
     // Decision step floor is 90s. A shorter call is an honest stop, not a clipped challenge.
@@ -669,7 +669,7 @@ export const PROFILES = {
   find_close_call_multipath: {
     id: "find_close_call_multipath",
     purpose: "Evaluate close Find candidates on price-first, risk-first, and total-cost-first paths, then reconcile.",
-    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard returned no usable close-call choice.",
+    reason: "Strict JSON on the shared BASE_MODEL. Multipath plus prompt-guard returned no usable close-call choice.",
     feature: "none",
     tools: [],
     timeoutMs: 90_000,
@@ -726,7 +726,7 @@ export const PROFILES = {
   find_pick: {
     id: "find_pick",
     purpose: "Pick the best Find shortlist car from allowlisted finalists using code-computed facts.",
-    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard and shadow returned no usable pick.",
+    reason: "Strict JSON on the shared BASE_MODEL. Multipath plus prompt-guard and shadow returned no usable pick.",
     feature: "none",
     tools: [],
     shadowHint:
@@ -1077,7 +1077,7 @@ export const PROFILES = {
   resale_plan_search: {
     id: "resale_plan_search",
     purpose: "Choose which allowlisted search segments to run for a budget-first resale flip search.",
-    reason: "Strict JSON on gpt-6.1-sol. Prompt-guard and multipath returned no usable choice on the live resale review.",
+    reason: "Strict JSON on the shared BASE_MODEL. Prompt-guard and multipath returned no usable choice on the live resale review.",
     feature: "none",
     tools: [],
     shadowHint:
@@ -1120,7 +1120,7 @@ export const PROFILES = {
   resale_triage: {
     id: "resale_triage",
     purpose: "Choose which flip shortlist VINs to deep-check and which allowlisted checks to run.",
-    reason: "Strict JSON on gpt-6.1-sol. A tool call beside the schema does not return a usable triage decision.",
+    reason: "Strict JSON on the shared BASE_MODEL. A tool call beside the schema does not return a usable triage decision.",
     feature: "none",
     tools: [],
     shadowHint:
@@ -1175,7 +1175,7 @@ export const PROFILES = {
   resale_pick: {
     id: "resale_pick",
     purpose: "Pick the best flip VIN from an allowlisted shortlist using code-computed profit facts.",
-    reason: "Strict JSON on gpt-6.1-sol. The live shopper review failed when this step also sent prompt-guard and a multipath suffix.",
+    reason: "Strict JSON on the shared BASE_MODEL. The live shopper review failed when this step also sent prompt-guard and a multipath suffix.",
     feature: "none",
     tools: [],
     shadowHint: "pickVin must be one of allowedVins. Note may only repeat numbers from facts. Never invent a price.",
@@ -1217,7 +1217,7 @@ export const PROFILES = {
   resale_challenge: {
     id: "resale_challenge",
     purpose: "Challenge the Resale pick using only supplied evidence ids; may revise the pick VIN.",
-    reason: "Strict JSON on gpt-6.1-sol. The second check must return schema JSON, not a prompt-guard tool call.",
+    reason: "Strict JSON on the shared BASE_MODEL. The second check must return schema JSON, not a prompt-guard tool call.",
     feature: "none",
     tools: [],
     // Own job step under the 300s route cap. Do not start this call with less than 90s.

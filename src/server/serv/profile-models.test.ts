@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BASE_MODEL } from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 
-describe("resolveProfileBaseModel (production gpt-6.1-sol)", () => {
-  it("defaults to production BASE_MODEL (gpt-6.1-sol) with no override", () => {
+describe("resolveProfileBaseModel (production BASE_MODEL)", () => {
+  it("defaults to production BASE_MODEL with no override", () => {
     const r = resolveProfileBaseModel("find_plan", { env: {} });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -36,7 +36,7 @@ describe("resolveProfileBaseModel (production gpt-6.1-sol)", () => {
 
   it("fails closed on unlisted model without ALLOW_UNLISTED", () => {
     const r = resolveProfileBaseModel("find_plan", {
-      env: { SERV_PROFILE_MODEL_FIND_PLAN: "gpt-6-luna-secret" },
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "gpt-6-astra-secret" },
     });
     expect(r.ok).toBe(false);
     if (r.ok) return;

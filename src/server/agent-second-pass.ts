@@ -98,7 +98,7 @@ export async function runReportVerdictChallenge(input: {
   transportPolicy?: ServDeps["transportPolicy"];
   /** Clamped wall-clock timeout for this challenge call (AbortSignal via runServ). */
   timeoutMs?: number;
-  /** Resale: bare gpt-6.1-sol, no prompt-guard tool and no feature suffix. */
+  /** Resale: bare BASE_MODEL, no prompt-guard tool and no feature suffix. */
   bareModel?: boolean;
 }): Promise<{ result: AgentSecondPassResult; proof: ServProof | null; rawText: string | null }> {
   if (!input.hasBudget) {

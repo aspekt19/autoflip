@@ -10,9 +10,9 @@ import { resolveServCompareModelIds, listServFlipDecisionShortlist } from "./mod
 import { resolveProfileBaseModel } from "./profile-models";
 import { BASE_MODEL } from "./profiles";
 
-describe("Flip decision shortlist (production = gpt-6.1-sol only)", () => {
-  it("uses gpt-6.1-sol only (Fable excluded; no Sonnet-first order)", () => {
-    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual(["gpt-6.1-sol"]);
+describe("Flip decision shortlist (production = BASE_MODEL only)", () => {
+  it("uses BASE_MODEL only (Fable excluded; no Sonnet-first order)", () => {
+    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual([BASE_MODEL]);
     expect(SERV_FLIP_DECISION_SHORTLIST.map((e) => e.flipOrder)).toEqual([1]);
     expect(SERV_FLIP_DECISION_SHORTLIST[0]!.modelId).toBe(BASE_MODEL);
     expect([...SERV_FLIP_EXCLUDED_FROM_PAID]).toEqual(["claude-fable-5"]);
@@ -34,11 +34,11 @@ describe("Flip decision shortlist (production = gpt-6.1-sol only)", () => {
     expect(r.models.every((m) => m.kind === "flip_decision_shortlist")).toBe(true);
   });
 
-  it("production profile resolve is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED", () => {
+  it("production profile resolve is BASE_MODEL; Sonnet needs ALLOW_UNLISTED", () => {
     const sol = resolveProfileBaseModel("find_plan", { env: {} });
     expect(sol.ok).toBe(true);
     if (!sol.ok) return;
-    expect(sol.baseId).toBe("gpt-6.1-sol");
+    expect(sol.baseId).toBe(BASE_MODEL);
 
     const sonnetBlocked = resolveProfileBaseModel("find_plan", {
       env: { SERV_PROFILE_MODEL_FIND_PLAN: "claude-sonnet-5.5" },

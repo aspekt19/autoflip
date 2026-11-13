@@ -1,10 +1,12 @@
 /**
- * Flip production model shortlist — gpt-6.1-sol only (shared BASE_MODEL).
+ * Flip production model shortlist — BASE_MODEL only (shared production default).
  *
  * Production SERV calls do not try Sonnet / Mini / prior Sol first.
  * Compare peers belong in the fair-slate / ALLOW_UNLISTED compare harness, not here.
  * claude-fable-5 remains EXCLUDED from paid Flip / production selection (owner t321).
  */
+
+import { BASE_MODEL } from "./profiles";
 
 export type FlipDecisionShortlistEntry = {
   /** Exact console Model ID column. */
@@ -25,8 +27,8 @@ export type FlipDecisionShortlistEntry = {
 
 export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[] = [
   {
-    modelId: "gpt-6.1-sol",
-    displayName: "GPT-6.1 Sol",
+    modelId: BASE_MODEL,
+    displayName: "GPT-6 Luna",
     providerLogoAlt: "OpenAI",
     contextWindow: "1M",
     inputPerMDisplay: "confirm console",
@@ -61,7 +63,7 @@ export function isFlipDecisionShortlistId(id: string): boolean {
 
 export function flipDecisionShortlistNote(): string {
   return [
-    "Flip production shortlist (gpt-6.1-sol only — shared BASE_MODEL):",
+    "Flip production shortlist (BASE_MODEL only):",
     ...SERV_FLIP_DECISION_SHORTLIST.map(
       (e) =>
         `  ${e.flipOrder}. ${e.modelId} (${e.displayName}) [${e.providerLogoAlt}] context=${e.contextWindow} in=${e.inputPerMDisplay} cached=${e.cachedPerMDisplay} out=${e.outputPerMDisplay} — role=${e.flipRole}${e.overviewHypothesis ? ` hypothesis=${e.overviewHypothesis}` : ""}`,

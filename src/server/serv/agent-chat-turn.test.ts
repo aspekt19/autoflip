@@ -6,10 +6,11 @@ import {
 } from "./agent-chat-turn";
 
 describe("agent chat/responses reasoning_effort", () => {
-  it("never normalizes to none", () => {
+  it("never normalizes to none; clamps legacy xhigh to high", () => {
     expect(normalizeServAgentReasoningEffort("none")).toBe("low");
     expect(normalizeServAgentReasoningEffort(null)).toBe("low");
     expect(normalizeServAgentReasoningEffort("high")).toBe("high");
+    expect(normalizeServAgentReasoningEffort("xhigh")).toBe("high");
   });
 
   it("chat body never sends reasoning_effort none", () => {

@@ -47,15 +47,20 @@ export {
 export type { AgentSearchJournalRow };
 export type { ConstraintOrigin, Provenanced, UserProvenanced };
 
-/** gpt-6.1-sol-supported efforts. Never "none". */
-export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+/**
+ * SERV-supported efforts (OpenServ docs: none|low|medium|high).
+ * Never "none" on agent builders. Unknown / legacy "xhigh" → "high".
+ */
+export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high"] as const;
 export type ServAgentReasoningEffort = (typeof SERV_AGENT_REASONING_EFFORTS)[number];
 
 export function normalizeServAgentReasoningEffort(
   effort: string | null | undefined,
 ): ServAgentReasoningEffort {
   const raw = (effort ?? "").trim().toLowerCase();
-  if (raw === "medium" || raw === "high" || raw === "xhigh") return raw;
+  if (raw === "medium" || raw === "high") return raw;
+  // Legacy sol "xhigh" is not in the OpenServ catalog for luna — clamp to high.
+  if (raw === "xhigh") return "high";
   return "low";
 }
 
@@ -693,7 +698,7 @@ export function assertReasoningEffortNotNone(
   if (effort === "none" || effort === null) {
     return {
       ok: false,
-      detail: `reasoning_effort must not be ${JSON.stringify(effort)} — use low|medium|high|xhigh.`,
+      detail: `reasoning_effort must not be ${JSON.stringify(effort)} — use low|medium|high.`,
     };
   }
   if (typeof effort !== "string") {

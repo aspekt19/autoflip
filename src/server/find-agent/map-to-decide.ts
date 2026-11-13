@@ -6,6 +6,7 @@ import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal"
 import { joinChosenListing } from "@/domain/join-chosen-listing";
 import type { FindAgentLoopResult } from "./loop";
 import type { Listing } from "@/domain/types";
+import { BASE_MODEL } from "@/server/serv";
 
 function candidateFromListing(listing: Listing, key: string): BestDealCandidate {
   return {
@@ -155,7 +156,7 @@ export function mapFindAgentLoopToDecide(input: {
         decided: "Agentic Find loop",
         why: `mode=${input.agent.agentMode}; toolRounds=${input.agent.toolRounds}`,
         changed: null,
-        model: "gpt-6.1-sol",
+        model: BASE_MODEL,
         responseId:
           [...input.agent.journal].reverse().find((e) => e.kind === "serv")?.responseId ?? null,
       },

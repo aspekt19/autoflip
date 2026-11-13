@@ -2,10 +2,10 @@
  * Multi-turn agent SERV posts (chat next_action / Responses tools). Kept inside
  * serv/ so every model HTTP still goes through the SERV layer (bypass.test).
  *
- * gpt-6.1-sol: never send reasoning_effort "none" (unsupported; supported
- * low/medium/high/xhigh). Chat + function tools is not a workable path for this
- * model — Prefer /v1/responses tools mode. Chat fallback is json_schema only
- * (no function tools) with reasoning_effort "low" or omitted.
+ * Production BASE_MODEL (OpenServ): reasoning_effort none|low|medium|high. Never
+ * send "none" on agent builders. Prefer /v1/responses for function tools. Chat
+ * fallback is json_schema only (no function tools) with effort "low" or omitted.
+ * Legacy "xhigh" is clamped to "high".
  *
  * Agent turns omit max_output_tokens / max_completion_tokens (no SERV token
  * caps on the agent loop). HTTP still uses a platform deadline so Hobby
@@ -14,15 +14,16 @@
 import { SERV_HTTP_DEADLINE_MS, servApiBase } from "./run";
 import { BASE_MODEL } from "./profiles";
 
-/** gpt-6.1-sol-supported efforts. Never "none". */
-export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+/** SERV-supported efforts for production BASE_MODEL. Never "none". */
+export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high"] as const;
 export type ServAgentReasoningEffort = (typeof SERV_AGENT_REASONING_EFFORTS)[number];
 
 export function normalizeServAgentReasoningEffort(
   effort: string | null | undefined,
 ): ServAgentReasoningEffort {
   const raw = (effort ?? "").trim().toLowerCase();
-  if (raw === "medium" || raw === "high" || raw === "xhigh") return raw;
+  if (raw === "medium" || raw === "high") return raw;
+  if (raw === "xhigh") return "high";
   return "low";
 }
 
@@ -64,8 +65,8 @@ export type ServChatTurnBody = {
   maxTokens?: number;
   model?: string;
   /**
-   * Chat reasoning effort. Never send "none" for gpt-6.1-sol.
-   * Pass null/undefined to omit the field; otherwise normalize to low|medium|high|xhigh.
+   * Chat reasoning effort. Never send "none" for the production BASE_MODEL.
+   * Pass null/undefined to omit the field; otherwise normalize to low|medium|high.
    */
   reasoningEffort?: ServAgentReasoningEffort | "none" | null;
   /** When true (default), omit reasoning_effort entirely rather than sending a value. */
@@ -73,12 +74,12 @@ export type ServChatTurnBody = {
 };
 
 export type ServResponsesTurnBody = {
-  /** System / developer instructions (Responses `instructions`) — required for gpt-6.1-sol. */
+  /** System / developer instructions (Responses `instructions`) — required for the production BASE_MODEL. */
   instructions: string;
   /**
    * Responses `input`: string (simple) or item array (agentic multi-turn).
    * Agentic turns must keep prior input + reasoning/function_call items +
-   * function_call_output for every call_id (live gpt-6.1-sol contract).
+   * function_call_output for every call_id (live BASE_MODEL contract).
    */
   input: string | Array<Record<string, unknown>>;
   tools?: ServResponsesToolDef[];
@@ -130,7 +131,7 @@ export function buildServChatTurnBody(input: ServChatTurnBody): Record<string, u
     stream: false,
     messages: input.messages,
   };
-  // Never send reasoning_effort "none" (gpt-6.1-sol rejects it). Omit only when asked.
+  // Never send reasoning_effort "none" (unsupported on agent builders). Omit only when asked.
   if (input.omitReasoningEffort !== true) {
     bare.reasoning_effort = normalizeServAgentReasoningEffort(
       input.reasoningEffort === "none" ? "low" : (input.reasoningEffort ?? "low"),

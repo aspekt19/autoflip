@@ -1,7 +1,7 @@
 /**
  * Production SERV model resolution.
  *
- * Every profile resolves to BASE_MODEL (`gpt-6.1-sol`) unless the caller passes an
+ * Every profile resolves to BASE_MODEL unless the caller passes an
  * explicit `requested` model (typically `SERV_MODEL` / deps.model) or a per-profile
  * `SERV_PROFILE_MODEL_<PROFILE>` env override. Non-BASE_MODEL ids fail closed unless
  * `SERV_PROFILE_MODEL_ALLOW_UNLISTED=1` (compare / Flip console validation only).
@@ -9,13 +9,13 @@
  * Priority for the base id (before modelFor feature suffixes):
  *   1. SERV_PROFILE_MODEL_<PROFILE>
  *   2. Explicit caller `requested` (deps.model / SERV_MODEL)
- *   3. BASE_MODEL (shared production default — gpt-6.1-sol)
+ *   3. BASE_MODEL (shared production default)
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
- * Production allowlist: gpt-6.1-sol only (including Find C2–C4 decide profiles).
+ * Production allowlist: BASE_MODEL only (including Find C2–C4 decide profiles).
  * Compare peers (Sonnet, Mini, prior Sol, Gemini, …) require ALLOW_UNLISTED —
  * they are not tried first and are not production defaults.
  */

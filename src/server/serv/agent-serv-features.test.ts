@@ -7,11 +7,12 @@ import {
   resaleAgentServFeatureBundle,
   servModelWithFeature,
 } from "./agent-serv-features";
+import { BASE_MODEL } from "./profiles";
 
 describe("agent-serv-features", () => {
   it("Find bundle requests kronos-multipath + prompt_guard + shadow", () => {
-    const bundle = findAgentServFeatureBundle("gpt-6.1-sol");
-    expect(bundle.model).toBe("gpt-6.1-sol-serv-kronos-multipath");
+    const bundle = findAgentServFeatureBundle(BASE_MODEL);
+    expect(bundle.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
     expect(bundle.features).toEqual(
       expect.arrayContaining([
         "serv_prompt_guard",
@@ -42,8 +43,8 @@ describe("agent-serv-features", () => {
   });
 
   it("Resale bundle matches flip_judge multipath + guard + shadow", () => {
-    const bundle = resaleAgentServFeatureBundle("gpt-6.1-sol");
-    expect(bundle.model).toBe("gpt-6.1-sol-serv-multipath");
+    const bundle = resaleAgentServFeatureBundle(BASE_MODEL);
+    expect(bundle.model).toBe(`${BASE_MODEL}-serv-multipath`);
     expect(bundle.features).toContain("multipath");
     expect(bundle.features).toContain("serv_shadow_agent");
     expect(bundle.features).not.toContain("kronos");
@@ -55,7 +56,7 @@ describe("agent-serv-features", () => {
       payload: {
         error: {
           message:
-            "Function tools with reasoning_effort are not supported for gpt-6.1-sol in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+            `${BASE_MODEL} function tools with reasoning_effort are not supported in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.`,
         },
       },
       endpoint: "chat",
@@ -67,8 +68,8 @@ describe("agent-serv-features", () => {
   });
 
   it("servModelWithFeature strips prior suffixes before re-appending", () => {
-    expect(servModelWithFeature("gpt-6.1-sol-serv-multipath", "kronos-multipath")).toBe(
-      "gpt-6.1-sol-serv-kronos-multipath",
+    expect(servModelWithFeature(`${BASE_MODEL}-serv-multipath`, "kronos-multipath")).toBe(
+      `${BASE_MODEL}-serv-kronos-multipath`,
     );
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BestDealCandidate } from "@/domain/find-best-deal";
+import { BASE_MODEL } from "@/server/serv";
 import { runFindCloseCallMultipathServ } from "./find-close-call-serv";
 
 function car(partial: Partial<BestDealCandidate> & { key: string; score: number }): BestDealCandidate {
@@ -111,7 +112,7 @@ describe("runFindCloseCallMultipathServ", () => {
     expect(fetchImpl).toHaveBeenCalled();
     const [, init] = fetchImpl.mock.calls[0]! as unknown as [unknown, { body?: string }];
     const body = JSON.parse(String(init?.body ?? "{}"));
-    expect(body.model).toBe("gpt-6.1-sol");
+    expect(body.model).toBe(BASE_MODEL);
     expect(body.tools ?? []).toEqual([]);
   });
 

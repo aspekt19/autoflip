@@ -1,7 +1,7 @@
 /**
  * OpenServ /v1/responses multi-turn tool protocol for agentic Find/Resale.
  *
- * Live gpt-6.1-sol contract (owner probe):
+ * Live BASE_MODEL Responses tool-loop contract:
  * - Chat + function tools → 400 (reasoning_effort catch-22). Use /v1/responses.
  * - System/developer content is required (via `instructions` and/or input messages).
  * - Turn N+1 input = prior input + output items of type `reasoning` and
