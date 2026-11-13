@@ -1,143 +1,158 @@
 # Lemonless
 
-**A tool-using AI agent for buying and evaluating used cars in the United States.** Start with a short buyer brief. Lemonless searches live listings, checks available vehicle data, and returns an evidence-backed next step — including when nothing fits.
+**An AI agent that helps people buy, evaluate, and resell used cars — with OpenServ SERV as its reasoning layer.** Lemonless turns a buyer's brief into live inventory searches, vehicle-data checks, a specific recommendation, and a structured offer. It can also explain when no candidate fits.
 
-[**Open the app**](https://autoflip-umber.vercel.app/) · [**See the live comparison**](https://autoflip-umber.vercel.app/proof) · [Architecture](docs/ARCHITECTURE.md) · [Agent API](https://autoflip-umber.vercel.app/developers)
+[**Live app**](https://autoflip-umber.vercel.app/) · [**Proof**](https://autoflip-umber.vercel.app/proof) · [Architecture](docs/ARCHITECTURE.md) · [Agent API](https://autoflip-umber.vercel.app/developers) · [OpenAPI](https://autoflip-umber.vercel.app/openapi.json)
 
 [![CI](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml/badge.svg)](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml)
 
 Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 
-## Try the product
+## Try Lemonless
 
-- **Find** — describe the car you need in ordinary language, confirm the brief, and let the agent search current inventory. It can return a shortlist or explicitly say that no car meets the request.
-- **Check** — submit a VIN, listing URL, or pasted listing. Lemonless calculates price context in code and gathers available VIN, safety, recall, complaint, fuel-economy, and market evidence before producing a review.
-- **Resale** — search within a budget and evaluate candidate flips using code-calculated costs and risk-adjusted profit. The agent cannot turn a negative-profit candidate into a buy.
-- **Deal Radar** — save watches and receive in-app alerts when matching inventory changes. Optional Telegram delivery sends a copy of the alert.
+- **Find** — describe the vehicle you need in natural language. SERV clarifies the brief, asks you to confirm it, searches live listings, checks available evidence, and returns a shortlist or a reasoned nothing-fits result.
+- **Check** — evaluate a VIN, listing URL, or pasted listing. Code calculates price context; the agent reviews available VIN, safety, recall, complaint, fuel-economy, and market evidence.
+- **Resale** — search within a budget and assess potential flips using code-calculated costs and risk-adjusted profit. A negative-profit candidate cannot become a buy recommendation.
+- **Deal Radar** — save vehicle watches and receive in-app alerts when matching inventory changes. Telegram can send an optional copy.
 
-The main human user flow is behind verified sign-in. Find and Resale reserve one report credit before the agent runs and commit only when a qualifying result is delivered. Check includes three free VIN-scoped checks per verified account per UTC month, then uses one report credit.
+The human product uses verified sign-in. Find and Resale reserve one report credit before the agent runs and commit it only when a qualifying result is delivered. Check includes three free VIN-scoped checks per verified account per UTC month, then uses one report credit.
+
+## Why SERV matters
+
+Lemonless is not a chat wrapper around a car-search API. **SERV reasons over the shopper's intent and the evidence returned by tools. TypeScript owns deterministic facts, arithmetic, and hard limits.**
+
+```mermaid
+flowchart TD
+  A[Buyer describes the need] --> B[SERV builds a brief]
+  B --> C[Shopper confirms]
+  C --> D[SERV chooses live-search and evidence tools]
+  D --> E[SERV evaluates candidates]
+  E --> F{Terminal decision}
+  F -->|Candidate| G[Code validates VIN, budget, radius and offer]
+  F -->|Nothing fits| H[Code validates candidate rejection reasons]
+  G --> I[Decision journal and report]
+  H --> I
+```
+
+- **SERV** interprets the request, chooses search filters and evidence tools, decides which candidates deserve consideration, and explains its recommendation.
+- **Code** owns listing identifiers, source provenance, VIN allow-lists, distance calculations, price arithmetic, structured offers, resale profit, credit settlement, and safety gates.
+- **Hard constraints stay hard.** A candidate outside a known radius, above the confirmed budget, or in conflict with a shopper's explicit constraint is rejected or sent back for repair.
+- **No invented winner.** A nothing-fits result is a valid terminal decision. The agent must explain the overall outcome and provide candidate-specific reasons for vehicles it considered and rejected.
+- **Unknown is not silently converted into a pass.** The UI and decision journal preserve which sources were actually checked and what each source returned.
+
+Every delivered run can include a decision journal that separates SERV calls, tool calls, code-enforced checks, and the evidence behind the result. See [Architecture](docs/ARCHITECTURE.md) and [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs).
+
+## Proof: one real buyer request
+
+The public [Proof page](https://autoflip-umber.vercel.app/proof) presents one recorded comparison between Gemini Chat and Lemonless Find using the same request:
+
+> I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
+
+**Gemini Chat · Auto mode** gave model-level advice: it recommended 2022–2023 Subaru Forester and 2023 Mazda CX-5 model families and suggested opening at $24,200 out the door. The original [Gemini conversation](https://share.gemini.google/zr44XVFu8UNW) is linked from Proof. Auto mode selected the underlying model; this README does not assign it a specific model version.
+
+**Lemonless Find · SERV** searched live inventory and selected a specific **2021 Subaru Forester Premium AWD**:
+
+| Field | Recorded result |
+|---|---|
+| VIN | `JF2SKAJC5MH423912` |
+| Asking price | $20,197 |
+| Mileage | 89,215 miles |
+| Location | Longmont, Colorado |
+| Distance | About 28 miles from ZIP 80202 |
+| Recommendation | Needs inspection; medium confidence |
+| Opening offer | $19,000 before taxes and fees |
+| Vehicle-price walk-away | $20,000 |
+| Shopper's all-in ceiling | $25,000 |
+
+The run requested VIN decoding, vehicle-safety data, fuel-economy evidence, and local asking-price comparisons. The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
+
+**Run record:** 13 November 2026, 20:29:50 UTC · 47.5 seconds · 8 SERV calls · 13 tool calls · 12 tool rounds · 88,084 reported tokens. Find ran through the same server-side function used by `/api/find/chat`, with isolated in-memory state. No customer credit was charged and no production data was changed. The [GitHub Actions run](https://github.com/aspekt19/autoflip/actions/runs/43502039509) and the source links are available from Proof.
+
+This is one case study, not a statistically representative benchmark and not a claim that Find always selects the best vehicle. The full captured Gemini answer, Find reasoning, comparison, and test disclosures are on [/proof](https://autoflip-umber.vercel.app/proof).
 
 ## External AI-agent access and payments
 
-External agents can discover Lemonless through [agent.json](https://autoflip-umber.vercel.app/.well-known/agent.json), [OpenAPI](https://autoflip-umber.vercel.app/openapi.json), [llms.txt](https://autoflip-umber.vercel.app/llms.txt), or the free MCP tool `get_payment_info`.
+Agents can discover Lemonless through:
 
-Lemonless supports **x402 v2 exact payments in USDC on Base Mainnet**. The public treasury address is:
+- [Agent card](https://autoflip-umber.vercel.app/.well-known/agent.json)
+- [OpenAPI](https://autoflip-umber.vercel.app/openapi.json)
+- [llms.txt](https://autoflip-umber.vercel.app/llms.txt)
+- The free MCP discovery tool `get_payment_info`
 
-`0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79`
+Lemonless implements **x402 v2 exact payments in USDC on Base Mainnet**. Paid access is enabled when the Coinbase CDP facilitator credentials are configured in the deployment environment.
 
 | Agent action | Endpoint | Price |
 |---|---|---:|
 | Register an autonomous agent and receive an `af_` key | `POST /api/agents/register` | $0.01 USDC |
 | Run one direct vehicle report | `POST /api/v1/report` | $3.00 USDC |
-| Buy 3 report credits | `POST /api/agents/billing/credits`, `pack_3` | $9 USDC |
-| Buy 10 report credits | Same, `pack_10` | $25 USDC |
-| Radar — 1 saved watch / up to 300 reviews | `POST /api/agents/billing/plans`, `radar` | $100 USDC / 30 days |
-| Radar Pro — 3 saved watches / up to 900 reviews | Same, `radar_pro` | $250 USDC / 30 days |
+| Buy 3 report credits | `POST /api/agents/billing/credits` · `pack_3` | $9 USDC |
+| Buy 10 report credits | Same endpoint · `pack_10` | $25 USDC |
+| Radar · 1 saved watch / up to 300 reviews | `POST /api/agents/billing/plans` · `radar` | $100 USDC / 30 days |
+| Radar Pro · 3 saved watches / up to 900 reviews | Same endpoint · `radar_pro` | $250 USDC / 30 days |
 
-The protocol uses network `eip155:8453`, USDC contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, and the `exact` scheme. Agents send the signed payload in `PAYMENT-SIGNATURE`; successful settlement returns `PAYMENT-RESPONSE`. The initial 402 response advertises the required amount and machine-readable Bazaar input/output schema.
+Payment network: `eip155:8453`. Token: Base USDC at `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Scheme: `exact`. The published treasury is:
 
-Registration binds a new `af_` key to the payer wallet. The key is returned once and must be stored securely by the agent. After registration, the agent can use the existing REST/MCP API; credit top-ups and plan purchases require that key. Find and Resale continue to use credits so that payment is committed only when a qualifying result is delivered. Radar x402 plans are prepaid 30-day access, renew manually, and do not auto-charge.
+```
+0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79
+```
 
-**Operational requirement:** x402 is enabled only when `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` for the Coinbase CDP facilitator are configured in the deployment environment. The app reports current readiness from `GET /api/agents/payment-info`. No wallet private key for the receiver is stored in the application. Human browser billing remains Stripe **test mode only**.
+The initial 402 response advertises the amount and machine-readable Bazaar input/output schema. Agents send the signed payload in `PAYMENT-SIGNATURE`; successful settlement returns `PAYMENT-RESPONSE`. Registration binds an `af_` key to the payer wallet. The key is returned once and must be stored securely by the agent. Credit packs and Radar plans require that key; Radar plans are prepaid for 30 days and do not auto-renew.
 
-## What makes Lemonless different
+**Operational configuration:** x402 requires `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. Current readiness is exposed by `GET /api/agents/payment-info`. The receiving wallet's private key is not stored in the application. Human browser checkout is separate and remains in **Stripe test mode**.
 
-SERV reasons over the buyer's brief and the evidence returned by tools. **TypeScript owns the facts, arithmetic, and hard limits.** The model does not calculate a fair price, invent a VIN, or create a profit figure.
+## Agent API
 
-~~~mermaid
-flowchart TD
-  A[Buyer brief] --> B[Confirm the brief]
-  B --> C[SERV agent loop]
-  C --> D[Live listings and vehicle-data tools]
-  D --> E[SERV selects a candidate or says none fit]
-  E --> F[Code validates VIN and hard constraints]
-  F --> G[Code computes distance, offers, and money]
-  G --> H[Decision journal and report]
-~~~
-
-- **SERV** interprets the request, chooses which tools to use, evaluates candidates, and explains its decision.
-- **Code** owns listing identifiers, source provenance, distance calculations, comparable-price math, offer fields, resale profit, billing, and safety checks.
-- **Guardrails** reject unsupported VINs, budget or known-radius violations, reported accidents or title brands when the brief forbids them, malformed offers, and non-positive Resale buy/negotiate decisions.
-- **Unknown is not clean.** Missing history, unavailable pages, and unverified distance are labeled as unknown rather than silently treated as passed checks.
-- **Nothing-fits is a valid result.** The system does not have to manufacture a winner to finish a search.
-
-Every delivered run can carry a decision journal showing which steps were performed by SERV, which were computed by code, and where a safety rule constrained the result.
-
-## Evidence: a live Denver search
-
-The public [Proof page](https://autoflip-umber.vercel.app/proof) now shows one recorded case comparing Gemini Chat in **Auto** mode with Lemonless Find on the same buyer request:
-
-> I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
-
-Gemini returned general model-level advice, recommending 2022–2023 Subaru Forester and 2023 Mazda CX-5 families, with an opening negotiation target of $24,200 out the door.
-
-Lemonless Find searched live inventory and selected a specific **2021 Subaru Forester Premium AWD** in Longmont, Colorado: VIN `JF2SKAJC5MH423912`, listed at $20,197 with 89,215 miles. Its structured offer was $19,000 to open, with a $20,000 vehicle-price walk-away point and a $25,000 all-in ceiling. The run included VIN decode, safety, fuel-economy and local asking-price evidence checks.
-
-The Find result was produced by the same server-side chat function used by `/api/find/chat`, in an isolated evaluation run that did not charge a customer credit or modify production data. This is one case study, not a statistically representative benchmark or a claim that Find always selects the best vehicle. The Proof page links the original Gemini conversation, the vehicle listing and the test record.
-
-## What the product does not claim
-
-- Lemonless does **not** currently provide a complete CARFAX, AutoCheck, or NMVTIS vehicle-history report.
-- A model-year recall or complaint record does not establish the open/closed recall status of an individual VIN.
-- Comparable listing prices are asking prices, not verified completed-sale prices.
-- Estimated fair value, offers, and resale margins are decision support, not guaranteed market outcomes.
-- Confirm the seller, availability, title, fees, and history yourself, and get an independent inspection before buying.
-
-## Agent access
-
-Create an API key from [Developers](https://autoflip-umber.vercel.app/developers) or use paid x402 registration at `POST /api/agents/register`. Send `Authorization: Bearer af_…` on every REST or MCP request.
+Create an API key from [Developers](https://autoflip-umber.vercel.app/developers) or use the paid x402 registration endpoint. Send `Authorization: Bearer af_…` on REST and MCP requests.
 
 - MCP: `POST /api/mcp`
-- REST: `/api/v1/check`, `/api/v1/find`, `/api/v1/resale`, `/api/v1/radar/*`, and `/api/v1/report`
-- Agent payments: `GET /api/agents/payment-info`, `POST /api/agents/register`, `POST /api/agents/billing/credits`, `POST /api/agents/billing/plans`
-- Transparency: [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) · [Proof](https://autoflip-umber.vercel.app/proof) · [Verify](https://autoflip-umber.vercel.app/verify)
-
-The same decision logic is exposed through the site, REST, and MCP. Agent reports use the same evidence and decision journal as the browser product.
+- REST: `/api/v1/check`, `/api/v1/find`, `/api/v1/resale`, `/api/v1/radar/*`, `/api/v1/report`
+- Payments: `GET /api/agents/payment-info`, `POST /api/agents/register`, `POST /api/agents/billing/credits`, `POST /api/agents/billing/plans`
+- Transparency: [Proof](https://autoflip-umber.vercel.app/proof) · [Verify](https://autoflip-umber.vercel.app/verify) · [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs)
 
 ## Run locally
 
 Requires Node.js 22.
 
-~~~bash
+```bash
 npm ci
 cp .env.example .env.local
 npm run dev
-~~~
+```
 
 For a local report without Stripe, set `AUTOFLIP_DEV_CREDITS=3` in `.env.local` and restart.
 
-Run the same core checks used by CI:
+Core checks:
 
-~~~bash
+```bash
 npm run typecheck
 npm test
 npm run golden
 npm run test:e2e
 npm run build
-~~~
+```
 
-Model and provider-backed evaluations can make paid requests. Review their explicit opt-in gates before running them.
+Model and provider-backed evaluations can make paid requests. Read their explicit opt-in gates before running them.
 
-### Environment
+### Environment variables
 
 | Variable | Purpose |
-| --- | --- |
+|---|---|
 | `AUTODEV_API_KEY` | Live listing search |
 | `SERV_API_KEY` | SERV inference |
-| `SERV_MODEL` / `SERV_BASE_URL` | Optional model and endpoint |
+| `SERV_MODEL` / `SERV_BASE_URL` | Optional model and endpoint overrides |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Durable production storage |
-| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js / Google sign-in |
+| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js and Google sign-in |
 | `NEXT_PUBLIC_FIREBASE_*` | Firebase email-link sign-in |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Human checkout; test keys only |
-| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Optional CDP facilitator auth for x402 |
-| `X402_PAY_TO_ADDRESS` | Optional USDC receiver override; defaults to the published treasury |
-| `X402_FACILITATOR_URL` | Optional CDP facilitator URL override |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Coinbase CDP facilitator for x402 |
+| `X402_PAY_TO_ADDRESS` | Optional USDC receiver override |
+| `X402_FACILITATOR_URL` | Optional facilitator URL override |
 
 Never commit `.env.local` or facilitator credentials.
 
 ## Release notes
 
 - Stripe remains in **test mode**. The test card is `4242 4242 4242 4242`; purchases are not real revenue.
-- External agent x402 payments use Base USDC. Credit packs and prepaid Radar terms are separate from the human Stripe flow.
-- Legacy repository, Vercel, cookie, and AUTOFLIP-prefixed environment names remain for compatibility. The product name is Lemonless.
+- External-agent x402 payments use Base USDC and are separate from the human Stripe checkout.
+- Legacy repository, Vercel, cookie, and `AUTOFLIP_*` environment names remain for compatibility. The product name is **Lemonless**.
 - The daily Deal Radar cron is configured in `vercel.json`.
