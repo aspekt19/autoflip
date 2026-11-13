@@ -152,7 +152,7 @@ function failureOutcome(input: {
  * One SERV failure policy.
  * 1. First call
  * 2. Timeout or 5xx/network → retry once on the same profile
- * 3. Refusal or empty → retry once on bare gpt-6.1-sol
+ * 3. Refusal or empty → retry once on bare BASE_MODEL
  * 4. HTTP 200 but validate fails → log full reject + ONE repair with validationError
  * 5. Still failing → critical stops; optional degrades (confidence Low)
  */

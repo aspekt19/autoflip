@@ -2,7 +2,7 @@
  * POST /api/internal/serv-tool-probe
  *
  * Auth: Bearer CRON_SECRET or RADAR_CRON_SECRET.
- * One cheap gpt-6.1-sol chat.completions call with tools + tool_choice=required
+ * One cheap BASE_MODEL chat.completions call with tools + tool_choice=required
  * to verify OpenServ returns tool_calls. Never charges report credits.
  */
 import { BASE_MODEL, SERV_OUTPUT_TOKEN_DEFAULT } from "@/server/serv";

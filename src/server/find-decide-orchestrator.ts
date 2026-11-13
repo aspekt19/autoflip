@@ -34,7 +34,7 @@ import {
 } from "@/server/find-search-context";
 import { counterStore } from "@/io/store";
 import { reserveTotalCall } from "@/io/persistent-quota";
-import type { ServDeps } from "@/server/serv";
+import { BASE_MODEL, type ServDeps } from "@/server/serv";
 import { buildDecisionProofRecord, type DecisionProofRecord } from "@/domain/decision-proof-record";
 import { readRun } from "@/io/run-store";
 
@@ -353,7 +353,7 @@ export async function runFindDecideOrchestrator(
           rubricId: "find_agent_loop",
           status: "ok",
           servResponseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
-          model: "gpt-6.1-sol",
+          model: BASE_MODEL,
           inputs: {
             agentMode: agent.agentMode,
             toolRounds: agent.toolRounds,

@@ -170,7 +170,7 @@ export async function runShopperVerdictServ(input: {
    */
   maxAdditionalServCalls?: number;
   /**
-   * Resale only. Call gpt-6.1-sol with no feature suffix and no prompt-guard or shadow tool.
+   * Resale only. Call bare BASE_MODEL with no feature suffix and no prompt-guard or shadow tool.
    * Those extras made the live review return no usable JSON, and code then published High confidence.
    */
   bareModel?: boolean;

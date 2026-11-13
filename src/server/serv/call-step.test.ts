@@ -7,6 +7,7 @@ import {
   PLAN_STOP_MESSAGE,
   SECOND_CHECK_MISSED,
 } from "./call-step";
+import { BASE_MODEL } from "./profiles";
 import type { ServResult } from "./run";
 
 function failed(over: Partial<Extract<ServResult, { ok: false }>> = {}): ServResult {
@@ -28,7 +29,7 @@ function ok(text = "{\"ok\":true}"): ServResult {
   return {
     ok: true,
     text,
-    model: "gpt-6.1-sol",
+    model: BASE_MODEL,
     shadowOutcome: "not_used",
     rawStatus: 200,
     proof: { purpose: "find_plan" } as ServResult extends { proof: infer P } ? P : never,
@@ -59,7 +60,7 @@ describe("callStep", () => {
     });
     expect(models).toHaveLength(2);
     expect(bare).toEqual([false, true]);
-    expect(models[1]).toBe("gpt-6.1-sol");
+    expect(models[1]).toBe(BASE_MODEL);
     expect(outcome.status).toBe("stopped");
     expect(outcome.message).toBe(PLAN_STOP_MESSAGE);
     expect(outcome.reasonCode).toBe("message_content_null_refusal_field");

@@ -5,7 +5,7 @@
  * - Chat completions: `max_completion_tokens` (includes reasoning tokens)
  * - Responses: `max_output_tokens`
  *
- * gpt-6.1-sol spends this budget on reasoning before it writes an answer.
+ * BASE_MODEL spends this budget on reasoning before it writes an answer.
  * A 4096 cap was exhausted by `usage.completion_tokens_details.reasoning_tokens`
  * and came back as finish_reason "length" with empty content. The default is
  * large enough for that reasoning plus the JSON answer. A length or empty

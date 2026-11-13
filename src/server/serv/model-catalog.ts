@@ -3,7 +3,7 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-6.1-sol`
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` (shared production default)
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
  *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`) — historical Mini
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
@@ -11,7 +11,7 @@
  *
  * ## Fair cross-provider slate (docs-sourced; Flip live only)
  * Public SERV Models page API IDs (https://docs.openserv.ai/serv-reasoning/models):
- *   - `gpt-6.1-sol` (OpenAI — production BASE_MODEL)
+ *   - production BASE_MODEL (OpenAI — shared default for all SERV steps)
  *   - `gpt-5.6-sol` (OpenAI — prior Sol peer)
  *   - `gpt-5.4-mini` (OpenAI — historical peer)
  *   - `claude-sonnet-4.6` (Anthropic Sonnet peer)
@@ -22,7 +22,7 @@
  * billing account already has them enabled. Flip confirms console match before spend.
  *
  * ## Console vs catalog (do not conflate)
- * OpenServ console Available-models may be broader (e.g. `gpt-6-luna`) with $/M rates.
+ * OpenServ console Available-models may include other IDs with $/M rates.
  * This module does **not** scrape console. Other unlisted IDs need
  * `SCOUT_COMPARE_ALLOW_UNLISTED=1`. Budget-conscious ≠ cheapest.
  *
@@ -56,7 +56,7 @@ export type ServCompareBaseModelId = (typeof SERV_COMPARE_BASE_MODEL_IDS)[number
  */
 export const SERV_COMPARE_FAIR_SLATE = [
   {
-    id: "gpt-6.1-sol",
+    id: BASE_MODEL,
     provider: "openai" as const,
     role: "baseline_production_default" as const,
     /** scout_plan profile endpoint. */
@@ -287,7 +287,7 @@ export function servCompareCatalogNote(): string {
         `  - ${m.id} [${m.provider}] (${m.source}); scout_plan effective=${m.effectiveForScoutPlan}`,
     ),
     flipDecisionShortlistNote(),
-    "Console vs catalog: OpenServ console Available-models table may be broader (e.g. gpt-6-luna). Those IDs are NOT auto-allowlisted — no scrape, no cheapest-forced pick.",
+    "Console vs catalog: OpenServ console Available-models table may be broader than this allowlist. Those IDs are NOT auto-allowlisted — no scrape, no cheapest-forced pick.",
     "Unlisted IDs outside fair slate / Flip shortlist: SERV_COMPARE_MODELS=… + SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip console/contract validation.",
     "Budget-conscious ≠ cheapest-at-expense-of-quality — compare recovery/groundedness/refusals/latency, not rate-table shopping.",
     "Model-only swap is NOT the demonstrated fix for the PR63 placeholder-price reject deadlock.",

@@ -4,6 +4,7 @@ import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import type { Listing } from "@/domain/types";
 import { isServChatCompletionsUrl, isServResponsesUrl } from "@/server/serv/agent-chat-turn";
+import { BASE_MODEL } from "@/server/serv";
 import { runResaleAgentLoop } from "./loop";
 
 const VIN = "JTMRWRFV0KJ123456";
@@ -130,7 +131,7 @@ describe("runResaleAgentLoop", () => {
           input?: unknown;
         };
         expect(typeof body.instructions).toBe("string");
-        expect(body.model).toBe("gpt-6.1-sol-serv-multipath");
+        expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
         expect(body.tools?.map((t) => t.name).slice(0, 2)).toEqual([
           "serv_prompt_guard",
           "serv_shadow_agent",

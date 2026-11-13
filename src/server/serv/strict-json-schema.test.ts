@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROFILES } from "./profiles";
+import { BASE_MODEL, PROFILES } from "./profiles";
 import { requestFor } from "./run";
 import { assertEnumTypeReconciled, assertStrictJsonSchemaSubset } from "./strict-json-schema";
 
@@ -90,9 +90,9 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
     expect(failures).toEqual([]);
   });
 
-  it("verdict_decide is bare gpt-6.1-sol with a strict schema and no prompt-guard tools", () => {
+  it("verdict_decide is bare BASE_MODEL with a strict schema and no prompt-guard tools", () => {
     const req = requestFor("verdict_decide", JSON.stringify({ facts: {} }), undefined, {});
-    expect(req.model).toBe("gpt-6.1-sol");
+    expect(req.model).toBe(BASE_MODEL);
     expect(toolParameterSchemas(req).map((tool) => tool.name)).toEqual([]);
     const rf = (req as { response_format: { json_schema: { strict: boolean; schema: unknown } } }).response_format;
     expect(rf.json_schema.strict).toBe(true);

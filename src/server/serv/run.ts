@@ -40,7 +40,7 @@ import {
 } from "./transport-error";
 
 /** Never emit reasoning_effort "none" on any SERV request body. */
-export function servReasoningEffort(effort: string | null | undefined): "low" | "medium" | "high" | "xhigh" {
+export function servReasoningEffort(effort: string | null | undefined): "low" | "medium" | "high" {
   return normalizeServAgentReasoningEffort(effort === "none" ? "low" : effort);
 }
 
@@ -69,7 +69,7 @@ export type ServDeps = {
    */
   disableFeatureSuffix?: boolean;
   /**
-   * Refusal retry: bare gpt-6.1-sol, no kronos/multipath suffix and no prompt-guard tool.
+   * Refusal retry: bare BASE_MODEL, no kronos/multipath suffix and no prompt-guard tool.
    */
   bareRetry?: boolean;
   /**

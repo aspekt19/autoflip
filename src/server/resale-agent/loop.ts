@@ -1,6 +1,6 @@
 /**
  * Agentic Resale SERV loop — tools mode (preferred) or next_action fallback.
- * Model: gpt-6.1-sol only. Code owns PnL; SERV picks flips with justification.
+ * Model: shared BASE_MODEL only. Code owns PnL; SERV picks flips with justification.
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
  */
@@ -458,7 +458,7 @@ User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.
 Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
-    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV.",
     SERV_TOPIC_SCOPE_RULE,
     "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
     "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
@@ -625,16 +625,16 @@ function chatBody(input: {
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
   model?: string;
-  /** Chat fallback must not attach function tools for gpt-6.1-sol. */
+  /** Chat fallback must not attach function tools for the production BASE_MODEL. */
   tools?: ServChatToolDef[];
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort?: "low" | "medium" | "high";
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
     model: input.model,
-    // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
+    // Never attach function tools on chat — chat cannot pair function tools with a
     // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
     tools: undefined,
     reasoningEffort: input.reasoningEffort ?? "low",

@@ -21,12 +21,12 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
     expect(servCompareCatalogNote()).toMatch(/BASE_MODEL/);
     expect(servCompareCatalogNote()).toMatch(/Model-only swap is NOT the demonstrated fix/i);
     expect(servCompareCatalogNote()).toMatch(/Budget-conscious/);
-    expect(servCompareCatalogNote()).toMatch(/gpt-6-luna|Console vs catalog/i);
+    expect(servCompareCatalogNote()).toMatch(/Console vs catalog/i);
   });
 
-  it("docs fair slate pins 6.1 Sol / 5.6 Sol / Mini / Sonnet / Gemini IDs without live calls", () => {
+  it("docs fair slate pins BASE_MODEL / 5.6 Sol / Mini / Sonnet / Gemini IDs without live calls", () => {
     expect(SERV_COMPARE_FAIR_SLATE.map((m) => m.id)).toEqual([
-      "gpt-6.1-sol",
+      BASE_MODEL,
       "gpt-5.6-sol",
       "gpt-5.4-mini",
       "claude-sonnet-4.6",
@@ -39,7 +39,7 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
     if (viaFlag.ok) expect(viaFlag.models.map((m) => m.id)).toEqual(SERV_COMPARE_FAIR_SLATE.map((m) => m.id));
     // Explicit fair IDs allowed without ALLOW_UNLISTED.
     const explicit = resolveServCompareModelIds(
-      "gpt-6.1-sol,gpt-5.6-sol,gpt-5.4-mini,claude-sonnet-4.6,gemini-2.5-flash",
+      [BASE_MODEL, "gpt-5.6-sol", "gpt-5.4-mini", "claude-sonnet-4.6", "gemini-2.5-flash"].join(","),
     );
     expect(explicit.ok).toBe(true);
     expect(servCompareProtocolIssues().some((i) => i.id === "gemini_endpoint" && i.class === "integration")).toBe(
@@ -49,7 +49,7 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
   });
 
   it("rejects unknown model ids fail-closed without ALLOW_UNLISTED", () => {
-    const bad = resolveServCompareModelIds("gpt-6-luna");
+    const bad = resolveServCompareModelIds("gpt-6-astra");
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
       expect(bad.message).toMatch(/Unsupported|ALLOW_UNLISTED|fair slate/i);
@@ -60,13 +60,13 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
   });
 
   it("accepts parent-supplied unlisted IDs only with allowUnlisted opt-in", () => {
-    const denied = resolveServCompareModelIds("gpt-6-luna", { allowUnlisted: false });
+    const denied = resolveServCompareModelIds("gpt-6-astra", { allowUnlisted: false });
     expect(denied.ok).toBe(false);
 
-    const ok = resolveServCompareModelIds("gpt-6-luna,gpt-5.4-mini", { allowUnlisted: true });
+    const ok = resolveServCompareModelIds("gpt-6-astra,gpt-5.4-mini", { allowUnlisted: true });
     expect(ok.ok).toBe(true);
     if (ok.ok) {
-      expect(ok.models.map((m) => m.id)).toEqual(["gpt-6-luna", "gpt-5.4-mini"]);
+      expect(ok.models.map((m) => m.id)).toEqual(["gpt-6-astra", "gpt-5.4-mini"]);
       expect(ok.models[0]!.kind).toBe("parent_supplied_unlisted");
       expect(ok.models[0]!.unlistedOptIn).toBe(true);
       expect(ok.models[1]!.unlistedOptIn).toBe(false);
@@ -74,7 +74,7 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
 
     const garbage = resolveServCompareModelIds("../etc/passwd", { allowUnlisted: true });
     expect(garbage.ok).toBe(false);
-    expect(isPlausibleServModelId("gpt-6-luna")).toBe(true);
+    expect(isPlausibleServModelId("gpt-6-astra")).toBe(true);
     expect(isPlausibleServModelId("")).toBe(false);
   });
 

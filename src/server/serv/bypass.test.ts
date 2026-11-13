@@ -44,7 +44,7 @@ describe("SERV layer", () => {
     expect(findPlan.endpoint).toBe("chat");
     if (findPlan.endpoint !== "chat") return;
     expect(findPlan.stream).toBe(false);
-    expect(findPlan.model).toBe("gpt-6.1-sol-serv-kronos-multipath");
+    expect(findPlan.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
     expect(toolNames(findPlan.tools)).toEqual(["serv_prompt_guard"]);
     expect(findPlan.response_format?.json_schema.strict).toBe(true);
     expect(findPlan.response_format?.json_schema.name).toBe("find_plan");

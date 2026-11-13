@@ -1,6 +1,6 @@
 /**
  * Agentic Find SERV loop — tools mode (preferred) or next_action fallback.
- * Model: gpt-6.1-sol only. No profile abort; SERV_HTTP_DEADLINE_MS on each HTTP.
+ * Model: shared BASE_MODEL only. No profile abort; SERV_HTTP_DEADLINE_MS on each HTTP.
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
  *
@@ -473,7 +473,7 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
       ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
   return [
-    "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Find's search agent on SERV.",
     "You chat with the shopper in this same conversation, then search live inventory with tools.",
     SERV_TOPIC_SCOPE_RULE,
     "If budget, location, or use/need is missing, call ask_shopper once for the missing fact. Do not invent answers.",
@@ -642,16 +642,16 @@ function chatBody(input: {
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
   model?: string;
-  /** Chat fallback must not attach function tools for gpt-6.1-sol. */
+  /** Chat fallback must not attach function tools for the production BASE_MODEL. */
   tools?: ServChatToolDef[];
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort?: "low" | "medium" | "high";
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
     model: input.model,
-    // Never attach function tools on chat — gpt-6.1-sol cannot pair tools with a
+    // Never attach function tools on chat — chat cannot pair function tools with a
     // supported reasoning_effort. Prompt Guard / Shadow live on /v1/responses.
     tools: undefined,
     reasoningEffort: input.reasoningEffort ?? "low",
