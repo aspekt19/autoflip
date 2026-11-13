@@ -1,7 +1,7 @@
 # Lemonless — for coding agents
 
 Buy smart. Stay lemonless. Used-car Check + Find + Resale + Deal Radar with a fixed JSON verdict.
-TypeScript owns the numbers; settle credits (or optional x402) only after success.
+TypeScript owns the numbers; report credits settle only after successful delivery.
 
 ## Auth
 - Create a key at /developers (signed-in browser).
@@ -38,12 +38,6 @@ Producers emit steps via proof records; see `src/server/serv/decision-step-produ
 - `GET /api/v1/receipts` and `GET /api/v1/receipts/{id}`
 - `POST /api/v1/report` — full report
 
-## x402 (optional, OFF by default)
-- Flag: `X402_AGENT_PAYMENTS_ENABLED` (must be explicitly on; keep off until Yura approves).
-- Protocol: x402 v2, USDC on Base (`eip155:8453`). Env: `X402_PAY_TO`, `X402_NETWORK`, `X402_ASSET`, `X402_FACILITATOR_URL`, `X402_PRICE_ATOMIC`, `X402_VERSION`.
-- Flow: HTTP 402 + `PAYMENT-REQUIRED` challenge → client pays → `PAYMENT-SIGNATURE` → verify → deliver → settle. Charge only when results are delivered.
-- Default path remains site report credits + free monthly Check allotment.
-
 ## Discovery
 - /.well-known/agent.json
 - /openapi.json
@@ -56,4 +50,3 @@ Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, an
 
 ## Costs
 - Primary: site report credits + free monthly Check allotment.
-- Optional x402 pay-per-check/find when the agent-payments flag is enabled (disabled by default).

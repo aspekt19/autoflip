@@ -89,4 +89,14 @@ Stripe test card: `4242 4242 4242 4242`. The daily Radar cron is `0 14 * * *` in
 
 Sign-in is required for Find, Resale, Check, Radar, and the agent API. The only free allotment is 3 Checks per account per UTC month. Find and Resale reserve 1 report credit before the model runs. The gate is `src/server/search-billing-gate.ts`.
 
-Agent API: `POST /api/v1/report` and `POST /api/mcp` with an `af_` key from [/developers](https://autoflip-umber.vercel.app/developers). `full_report` spends 1 credit.
+Agent API: `POST /api/v1/report` and `POST /api/mcp` with an `af_` key from [/developers](https://autoflip-umber.vercel.app/developers). `full_report` spends 1 credit.## Agent access
+
+Create an API key from [Developers](https://autoflip-umber.vercel.app/developers). Send **Authorization: Bearer af_…** on **every** REST or MCP request.
+
+- MCP: **POST /api/mcp**
+- REST: **/api/v1/check**, **/api/v1/find**, **/api/v1/resale**, **/api/v1/radar/watches**, **/api/v1/radar/check**, **/api/v1/radar/feed**, and **/api/v1/report**
+- API reference: [OpenAPI](https://autoflip-umber.vercel.app/openapi.json) · [LLM instructions](https://autoflip-umber.vercel.app/llms.txt)
+- Transparency: [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) · [Proof](https://autoflip-umber.vercel.app/proof) · [Verify](https://autoflip-umber.vercel.app/verify)
+
+The same decision logic is exposed through the site, REST, and MCP. Agent reports use the same evidence and decision journal as the browser product.
+

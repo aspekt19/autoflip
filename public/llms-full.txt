@@ -32,7 +32,7 @@ Body (one of):
 { "url": "https://dealer.example/listing" }
 { "text": "2014 Toyota Camry LE …" }
 ```
-Optional: `zip`, header `Idempotency-Key`, optional `payment` (x402) when agent payments are enabled.
+Optional: `zip`, header `Idempotency-Key`.
 Billing: free monthly Check allotment when available, else 1 report credit — **only after success**. Failures return `credit_spent: false`.
 
 ## find_cars (async)
@@ -80,20 +80,6 @@ Shared contract for site Find/Radar/Resale, MCP tools, and `af_` REST. Each row:
 | clampResult | `{ servChoice, finalAction, overridden, overrideReasons }` or null |
 | reason | required when not `ok` |
 | rawResponse | optional raw SERV body when recorded |
-
-## Optional x402 v2 (USDC on Base) — OFF by default
-Env (names only; never hardcode secrets):
-- `X402_AGENT_PAYMENTS_ENABLED` — must be `1`/`true` to enable (keep off until Yura approves)
-- `X402_PAY_TO`, `X402_NETWORK` (default `eip155:8453`), `X402_ASSET` (USDC on Base), `X402_FACILITATOR_URL`
-- `X402_PRICE_ATOMIC`, `X402_TIMEOUT_SECONDS`, `X402_DESCRIPTION`, `X402_VERSION` (default `2`), `X402_SCHEME` (default `exact` for v2)
-
-Flow for check/find when enabled:
-1. Missing payment + no credits → HTTP **402** with body + `PAYMENT-REQUIRED` (base64 PaymentRequired v2)
-2. Client pays USDC on Base and retries with `PAYMENT-SIGNATURE` (or `X-PAYMENT` / body `payment`)
-3. Server **verifies** via facilitator, runs the job, **settles only after results are delivered**
-4. Failures never settle. Tests use a mock facilitator — no real payments in CI.
-
-Primary billing remains site report credits + free monthly Check allotment.
 
 ## Visible decision step (`lemonless.serv_decision_step.v1`)
 Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), modelId, runId, timestamp, inputSummary, output, latencyMs, costUsd, status (`ran`|`skipped`|`failed`|`not_run`). Adapted from `proofRecords` until sibling producers emit steps directly (`src/server/serv/decision-step-producer.ts`).

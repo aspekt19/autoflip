@@ -3,9 +3,13 @@
   "info": {
     "title": "Lemonless Agent API",
     "version": "0.3.0",
-    "description": "Check, Find, Resale, and Deal Radar with af_ API keys. Same SERV plan/decide path as the site. Credits (or optional x402) settle after success only."
+    "description": "Check, Find, Resale, and Deal Radar with af_ API keys. Same SERV plan/decide path as the site. Report credits settle only after successful delivery."
   },
-  "servers": [{ "url": "/" }],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerAuth": {
@@ -17,23 +21,47 @@
     "schemas": {
       "AgentError": {
         "type": "object",
-        "required": ["error_code", "message", "credit_spent", "retry_safe", "next_steps"],
+        "required": [
+          "error_code",
+          "message",
+          "credit_spent",
+          "retry_safe",
+          "next_steps"
+        ],
         "properties": {
-          "error_code": { "type": "string" },
-          "message": { "type": "string" },
-          "credit_spent": { "type": "boolean" },
-          "retry_safe": { "type": "boolean" },
+          "error_code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "credit_spent": {
+            "type": "boolean"
+          },
+          "retry_safe": {
+            "type": "boolean"
+          },
           "next_steps": {
             "type": "object",
             "properties": {
-              "action": { "type": "string" },
-              "summary": { "type": "string" },
+              "action": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
               "request": {
                 "type": "object",
                 "properties": {
-                  "method": { "type": "string" },
-                  "url": { "type": "string" },
-                  "body": { "type": "object" }
+                  "method": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "object"
+                  }
                 }
               }
             }
@@ -57,25 +85,88 @@
           "reason"
         ],
         "properties": {
-          "schemaVersion": { "type": "string", "const": "lemonless.decision_proof.v1" },
-          "purpose": { "type": "string" },
-          "rubricId": { "type": "string" },
-          "status": { "type": "string", "enum": ["ok", "failed", "skipped"] },
-          "servResponseId": { "type": ["string", "null"] },
-          "model": { "type": ["string", "null"] },
-          "timestamp": { "type": "string", "format": "date-time" },
-          "inputsDigest": { "type": "string" },
-          "verdict": { "type": ["string", "null"] },
-          "clampResult": { "type": ["object", "null"] },
-          "reason": { "type": ["string", "null"] },
-          "rawResponse": { "type": ["string", "null"] },
-          "searchId": { "type": ["string", "null"] },
-          "ownerId": { "type": ["string", "null"] }
+          "schemaVersion": {
+            "type": "string",
+            "const": "lemonless.decision_proof.v1"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "rubricId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed",
+              "skipped"
+            ]
+          },
+          "servResponseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputsDigest": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clampResult": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawResponse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "searchId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     }
   },
-  "security": [{ "bearerAuth": [] }],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "paths": {
     "/api/v1/check": {
       "post": {
@@ -85,7 +176,9 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -95,10 +188,18 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "vin": { "type": "string" },
-                  "url": { "type": "string" },
-                  "text": { "type": "string" },
-                  "zip": { "type": "string" }
+                  "vin": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "zip": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -108,19 +209,89 @@
           "200": {
             "description": "Agent success wrapper: schema_version, tool, verdict, confidence, summary, reasons, risks, unknowns, subject, comparables_summary, serv.steps, proofRecords (lemonless.decision_proof.v1), code_computed, credit_spent, credits, free_check_spent, receipt_id, result.",
             "headers": {
-              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
-              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
             }
           },
-          "400": { "description": "Invalid input", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "401": { "description": "Missing or invalid af_ key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "403": { "description": "Key lacks the check scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "409": { "description": "Same Idempotency-Key is still running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid af_ key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the check scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same Idempotency-Key is still running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Per-key rate limit",
-            "headers": { "Retry-After": { "schema": { "type": "integer" } }, "X-RateLimit-Remaining": { "schema": { "type": "integer" } } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } }
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
           }
         }
       }
@@ -129,7 +300,13 @@
       "post": {
         "summary": "Start async find_cars",
         "parameters": [
-          { "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -137,12 +314,26 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["text"],
+                "required": [
+                  "text"
+                ],
                 "properties": {
-                  "text": { "type": "string" },
-                  "mode": { "type": "string", "enum": ["personal", "flip"] },
-                  "zip": { "type": "string" },
-                  "budgetUsd": { "type": "number" }
+                  "text": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "personal",
+                      "flip"
+                    ]
+                  },
+                  "zip": {
+                    "type": "string"
+                  },
+                  "budgetUsd": {
+                    "type": "number"
+                  }
                 }
               }
             }
@@ -152,28 +343,101 @@
           "202": {
             "description": "{ run_id, status, current_step, credit_spent, status_url, result_url, next_steps }. credit_spent is false until the run completes.",
             "headers": {
-              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
-              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
             }
           },
-          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "403": { "description": "Key lacks the find scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "429": { "description": "Rate limit", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
+          "401": {
+            "description": "Auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the find scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/find/{runId}/status": {
       "get": {
         "summary": "Find run status",
-        "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "{ run_id, status, current_step, completed_steps }" } }
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ run_id, status, current_step, completed_steps }"
+          }
+        }
       }
     },
     "/api/v1/find/{runId}": {
       "get": {
         "summary": "Find run result",
-        "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Fixed agent verdict wrapper when completed, including proofRecords (lemonless.decision_proof.v1)."
@@ -184,51 +448,130 @@
     "/api/v1/resale": {
       "post": {
         "summary": "Start async Resale (budget)",
-        "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["budgetUsd"],
+                "required": [
+                  "budgetUsd"
+                ],
                 "properties": {
-                  "budgetUsd": { "type": "number" },
-                  "zip": { "type": "string" },
-                  "distanceMiles": { "type": "number" },
-                  "bodyStyle": { "type": "string" },
-                  "targetProfitUsd": { "type": "number" }
+                  "budgetUsd": {
+                    "type": "number"
+                  },
+                  "zip": {
+                    "type": "string"
+                  },
+                  "distanceMiles": {
+                    "type": "number"
+                  },
+                  "bodyStyle": {
+                    "type": "string"
+                  },
+                  "targetProfitUsd": {
+                    "type": "number"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "202": { "description": "{ job_id, status, step_completed, credit_spent, status_url, result_url }" },
-          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "403": { "description": "Key lacks the find scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
+          "202": {
+            "description": "{ job_id, status, step_completed, credit_spent, status_url, result_url }"
+          },
+          "401": {
+            "description": "Auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the find scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentError"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/resale/{jobId}/status": {
       "get": {
         "summary": "Resale job status + journal",
-        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "{ job_id, status, step_completed, journal, proofRecords }" } }
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ job_id, status, step_completed, journal, proofRecords }"
+          }
+        }
       }
     },
     "/api/v1/resale/{jobId}": {
       "get": {
         "summary": "Resale job result (advances until done)",
-        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Delivery with journal, proofRecords, agentVerdict, best/alternatives" } }
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delivery with journal, proofRecords, agentVerdict, best/alternatives"
+          }
+        }
       }
     },
     "/api/v1/radar/watches": {
       "get": {
         "summary": "List saved Deal Radar watches",
-        "responses": { "200": { "description": "{ watches, alertCount, credit_spent }" } }
+        "responses": {
+          "200": {
+            "description": "{ watches, alertCount, credit_spent }"
+          }
+        }
       },
       "post": {
         "summary": "Save a Deal Radar watch (plan-gated)",
@@ -239,43 +582,82 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "mode": { "type": "string", "enum": ["personal", "flip"] },
-                  "criteria": { "type": "object" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "personal",
+                      "flip"
+                    ]
+                  },
+                  "criteria": {
+                    "type": "object"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "{ watch, credit_spent, plan }" },
-          "402": { "description": "Radar plan required" }
+          "201": {
+            "description": "{ watch, credit_spent, plan }"
+          },
+          "402": {
+            "description": "Radar plan required"
+          }
         }
       }
     },
     "/api/v1/radar/check": {
       "post": {
         "summary": "Deal Radar check-now for owner watches",
-        "responses": { "200": { "description": "{ runId, journal, proofRecords, servActivity, alertsSent }" } }
+        "responses": {
+          "200": {
+            "description": "{ runId, journal, proofRecords, servActivity, alertsSent }"
+          }
+        }
       }
     },
     "/api/v1/radar/feed": {
       "get": {
         "summary": "Recent Deal Radar alerts for owner",
-        "responses": { "200": { "description": "{ watches, alerts, credit_spent }" } }
+        "responses": {
+          "200": {
+            "description": "{ watches, alerts, credit_spent }"
+          }
+        }
       }
     },
     "/api/v1/receipts": {
       "get": {
         "summary": "List recent receipts",
-        "responses": { "200": { "description": "{ receipts: [...] }" } }
+        "responses": {
+          "200": {
+            "description": "{ receipts: [...] }"
+          }
+        }
       }
     },
     "/api/v1/receipts/{receiptId}": {
       "get": {
         "summary": "Get one receipt",
-        "parameters": [{ "name": "receiptId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Receipt" } }
+        "parameters": [
+          {
+            "name": "receiptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt"
+          }
+        }
       }
     },
     "/api/mcp": {
@@ -291,7 +673,11 @@
       "post": {
         "summary": "MCP JSON-RPC",
         "description": "initialize | tools/list | tools/call | ping. Successful payloads include proofRecords / journal where applicable.",
-        "responses": { "200": { "description": "JSON-RPC result" } }
+        "responses": {
+          "200": {
+            "description": "JSON-RPC result"
+          }
+        }
       }
     }
   }
