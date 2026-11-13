@@ -45,6 +45,8 @@ export type RunListingView = {
   drivetrain?: string | null;
   accidentCount?: number | null;
   bodyStyle?: string | null;
+  /** Miles from confirmed buyer-center ZIP when known. */
+  distanceMiles?: number | null;
   offerUsd?: number | null;
   offerLabel?: string | null;
   reason?: string | null;

@@ -31,6 +31,8 @@ export type AgentLoopCheckpointV1 = {
   /** Resale-only flip PnL rows keyed by VIN. */
   pnlByVin?: Array<[string, ResaleCandidatePnl]>;
   submitNudgeSent: boolean;
+  /** Dedicated final selection hop (Kronos/Multipath/Shadow). */
+  selectionHop?: boolean;
   firstTurn: boolean;
   featureRejections: Array<Record<string, unknown>>;
   /** SERV-extracted chat facts (budget/ZIP/radius) for anti-fab. */

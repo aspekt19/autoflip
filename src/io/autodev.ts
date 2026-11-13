@@ -97,9 +97,13 @@ export function listingByVinUrl(vin: string): string {
   return `${autodevOrigin()}/listings/${encodeURIComponent(vin)}`;
 }
 
-/** Auto.dev ZIP → lat/lon/city lookup (buyer-center geocode). */
+/**
+ * Auto.dev ZIP → lat/lon/city lookup (buyer-center geocode).
+ * Docs: https://docs.auto.dev/v1/reference/zip-lookup — route is `/api/zip/{zip}`
+ * (bare `/zip/{zip}` 404s with "route does not exist").
+ */
 export function zipLookupUrl(zip: string): string {
-  return `${autodevOrigin()}/zip/${encodeURIComponent(zip)}`;
+  return `${autodevOrigin()}/api/zip/${encodeURIComponent(zip)}`;
 }
 
 export type AutodevZipLocation = {

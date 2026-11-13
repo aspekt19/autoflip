@@ -109,6 +109,26 @@ describe("C) brief gate — no search without confirm", () => {
     }
   });
 
+  it("rejects repeated submit_brief after confirmation", async () => {
+    const state = createFindAgentToolState();
+    state.requireBriefConfirm = true;
+    state.briefConfirmed = true;
+    const blocked = await executeFindAgentTool(
+      "submit_brief",
+      {
+        summary: "already confirmed",
+        budget: { maxUsd: null, userQuote: null },
+        zip: "98101",
+        radiusMi: 50,
+        notes: null,
+      },
+      deps,
+      state,
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.result.error).toBe("brief_already_confirmed");
+  });
+
   it("chat routes always set requireBriefConfirm (source invariant)", () => {
     const findChat = readFileSync(path.join(__dirname, "../find-chat.ts"), "utf8");
     const resaleChat = readFileSync(path.join(__dirname, "../resale-chat.ts"), "utf8");

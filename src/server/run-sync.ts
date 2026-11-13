@@ -182,6 +182,7 @@ export function listingFromCar(car: {
   drivetrain?: string | null;
   accidentCount?: number | null;
   bodyStyle?: string | null;
+  distanceMiles?: number | null;
   offerUsd?: number | null;
   offerLabel?: string | null;
   reason?: string | null;
@@ -204,6 +205,7 @@ export function listingFromCar(car: {
     drivetrain: car.drivetrain?.trim() || null,
     accidentCount: typeof car.accidentCount === "number" ? car.accidentCount : null,
     bodyStyle: car.bodyStyle?.trim() || null,
+    distanceMiles: typeof car.distanceMiles === "number" ? car.distanceMiles : null,
     offerUsd: typeof car.offerUsd === "number" ? car.offerUsd : null,
     offerLabel: car.offerLabel?.trim() || null,
     reason: car.reason?.trim() || null,

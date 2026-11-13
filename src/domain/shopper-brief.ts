@@ -9,12 +9,24 @@ export type ShopperBriefBudget = {
   userQuote: string | null;
 };
 
+/** Structured constraint row SERV may emit on submit_brief (no chat parsing). */
+export type ShopperBriefConstraint = {
+  key: string;
+  value: string;
+};
+
 export type ShopperBrief = {
   summary: string;
   budget: ShopperBriefBudget;
   zip: string | null;
   radiusMi: number | null;
   notes: string | null;
+  /** Hard constraints SERV already structured on submit_brief. */
+  hardConstraints?: ShopperBriefConstraint[];
+  /** Soft / preference constraints SERV already structured on submit_brief. */
+  softConstraints?: ShopperBriefConstraint[];
+  /** Relaxations the shopper already agreed to (from SERV, not code inference). */
+  agreedRelaxations?: ShopperBriefConstraint[];
 };
 
 export type BudgetQuoteCheckStatus = "valid" | "null" | "fabricated" | "mismatch";
@@ -126,6 +138,9 @@ export function parseShopperBrief(raw: unknown):
     radiusMi = null;
   }
   const notes = typeof row.notes === "string" ? row.notes.trim().slice(0, 400) || null : null;
+  const hardConstraints = parseBriefConstraintList(row.hardConstraints);
+  const softConstraints = parseBriefConstraintList(row.softConstraints);
+  const agreedRelaxations = parseBriefConstraintList(row.agreedRelaxations);
   if (issues.length > 0) return { ok: false, issues };
 
   return {
@@ -136,8 +151,24 @@ export function parseShopperBrief(raw: unknown):
       zip,
       radiusMi,
       notes,
+      ...(hardConstraints.length ? { hardConstraints } : {}),
+      ...(softConstraints.length ? { softConstraints } : {}),
+      ...(agreedRelaxations.length ? { agreedRelaxations } : {}),
     },
   };
+}
+
+function parseBriefConstraintList(raw: unknown): ShopperBriefConstraint[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ShopperBriefConstraint[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const key = typeof row.key === "string" ? row.key.trim().slice(0, 80) : "";
+    const value = typeof row.value === "string" ? row.value.trim().slice(0, 200) : "";
+    if (key && value) out.push({ key, value });
+  }
+  return out.slice(0, 24);
 }
 
 export function formatShopperBriefCard(brief: ShopperBrief): string {
@@ -153,6 +184,21 @@ export function formatShopperBriefCard(brief: ShopperBrief): string {
     lines.push(`Location: ${brief.zip}${r}`);
   } else if (brief.radiusMi != null) {
     lines.push(`Radius: ${brief.radiusMi} mi`);
+  }
+  if (brief.hardConstraints?.length) {
+    lines.push(
+      `Hard: ${brief.hardConstraints.map((c) => `${c.key}=${c.value}`).join("; ")}`,
+    );
+  }
+  if (brief.softConstraints?.length) {
+    lines.push(
+      `Soft: ${brief.softConstraints.map((c) => `${c.key}=${c.value}`).join("; ")}`,
+    );
+  }
+  if (brief.agreedRelaxations?.length) {
+    lines.push(
+      `Agreed relaxations: ${brief.agreedRelaxations.map((c) => `${c.key}=${c.value}`).join("; ")}`,
+    );
   }
   if (brief.notes) lines.push(brief.notes);
   return lines.join("\n");

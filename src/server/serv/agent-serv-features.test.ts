@@ -102,12 +102,30 @@ describe("agent-serv-features", () => {
         submitNudgeSent: false,
       }),
     ).toBe("search");
+    // searchCount alone must NOT flip to verdict (keeps Kronos/Multipath/Shadow off re-search hops).
     expect(
       resolveAgentServStep({
         requireBriefConfirm: false,
         briefConfirmed: false,
         searchCount: 1,
         submitNudgeSent: false,
+      }),
+    ).toBe("search");
+    expect(
+      resolveAgentServStep({
+        requireBriefConfirm: false,
+        briefConfirmed: true,
+        searchCount: 3,
+        submitNudgeSent: false,
+        selectionHop: true,
+      }),
+    ).toBe("verdict");
+    expect(
+      resolveAgentServStep({
+        requireBriefConfirm: false,
+        briefConfirmed: true,
+        searchCount: 1,
+        submitNudgeSent: true,
       }),
     ).toBe("verdict");
   });

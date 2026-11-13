@@ -189,17 +189,21 @@ function featuresFor(bundle: {
 
 /**
  * Resolve which agent step this SERV call is.
- * Chat path: intake until brief confirmed. After journaled searches or a
- * terminal nudge → verdict (quality features). Otherwise search.
+ * Chat path: intake until brief confirmed. Search hops stay bare (even after
+ * searchCount > 0). Kronos/Multipath/Shadow only on the dedicated final
+ * selection hop (submit_picks / submit_nothing_fits) or after a terminal nudge.
  */
 export function resolveAgentServStep(input: {
   requireBriefConfirm: boolean;
   briefConfirmed: boolean;
+  /** Kept for call-site compatibility; does not flip to verdict by itself. */
   searchCount: number;
   submitNudgeSent: boolean;
+  /** True only on the dedicated final selection hop. */
+  selectionHop?: boolean;
 }): AgentServStep {
   if (input.requireBriefConfirm && !input.briefConfirmed) return "intake";
-  if (input.searchCount > 0 || input.submitNudgeSent) return "verdict";
+  if (input.selectionHop === true || input.submitNudgeSent) return "verdict";
   return "search";
 }
 

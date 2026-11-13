@@ -109,6 +109,7 @@ export function settleFindChatCaseResult(input: {
             model?: string;
             priceUsd?: number;
             miles?: number;
+            distanceMiles?: number | null;
           };
           confidence?: unknown;
         })
@@ -166,6 +167,7 @@ export function settleFindChatCaseResult(input: {
     confidence,
     priceUsd: joined?.priceUsd ?? bestDeal?.pick?.priceUsd ?? null,
     miles: joined?.miles ?? bestDeal?.pick?.miles ?? null,
+    distanceMiles: listing?.distanceMiles ?? bestDeal?.pick?.distanceMiles ?? null,
     vdp: listingVdp(listing),
   };
 
@@ -313,7 +315,13 @@ export function settleResaleChatCaseResult(input: {
         confidence: typeof best?.confidence === "string" ? best.confidence : null,
         priceUsd: joined?.priceUsd ?? listing?.priceUsd ?? null,
         miles: joined?.miles ?? listing?.miles ?? null,
+        distanceMiles: listing?.distanceMiles ?? null,
         vdp: listingVdp(listing),
+        askingUsd: typeof best?.askingUsd === "number" ? best.askingUsd : null,
+        profitMidUsd: typeof best?.profitMidUsd === "number" ? best.profitMidUsd : null,
+        profitLowUsd: typeof best?.profitLowUsd === "number" ? best.profitLowUsd : null,
+        profitHighUsd: typeof best?.profitHighUsd === "number" ? best.profitHighUsd : null,
+        resaleMidUsd: typeof best?.resaleMidUsd === "number" ? best.resaleMidUsd : null,
       }
     : {
         vin: null,
@@ -322,6 +330,7 @@ export function settleResaleChatCaseResult(input: {
         confidence: typeof best?.confidence === "string" ? best.confidence : null,
         priceUsd: null,
         miles: null,
+        distanceMiles: null,
         vdp: null,
       };
   const confirmedBrief =

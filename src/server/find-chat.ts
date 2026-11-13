@@ -25,7 +25,9 @@ import {
   findSearchSpendKey,
   storeFindSearchDelivery,
 } from "@/server/find-search-credit";
+import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
+import { formatShopperBriefCard } from "@/domain/shopper-brief";
 
 export type FindChatSession = {
   sessionId: string;
@@ -417,6 +419,78 @@ export async function runFindChatTurn(input: {
       : "Here are the cars SERV chose from live listings.");
   session.messages.push({ role: "assistant", content: assistantSummary, at: new Date().toISOString() });
 
+  const briefCard = session.confirmedBrief ? formatShopperBriefCard(session.confirmedBrief) : "";
+  const pickWhyByVin = new Map(
+    agent.verdict.picks.map((p) => [p.vin.toUpperCase(), p.why] as const),
+  );
+  const listings = listingsFromBestDeal(
+    {
+      ...mapped.bestDeal,
+      ranked: mapped.bestDeal.ranked.map((car) => ({
+        ...car,
+        excludedReason: car.vin ? pickWhyByVin.get(car.vin.toUpperCase()) ?? car.excludedReason : car.excludedReason,
+      })),
+    },
+    mapped.agentVerdict.verdict,
+    mapped.offerPool,
+  ).map((row) => {
+    const listing = mapped.offerPool.find((l) => l.vin?.toUpperCase() === row.vin.toUpperCase());
+    return {
+      ...row,
+      distanceMiles: listing?.distanceMiles ?? row.distanceMiles ?? null,
+      bodyStyle: listing?.bodyStyle ?? row.bodyStyle ?? null,
+      drivetrain: listing?.drivetrain ?? row.drivetrain ?? null,
+      reason: pickWhyByVin.get(row.vin.toUpperCase()) ?? row.reason ?? null,
+    };
+  });
+  const runId = await syncRunSafely(input.kv, {
+    ownerId: input.userId,
+    kind: "find",
+    note: briefCard || transcript,
+    clarifications: session.confirmedBrief
+      ? [
+          session.confirmedBrief.budget.maxUsd != null
+            ? `Budget $${session.confirmedBrief.budget.maxUsd.toLocaleString("en-US")}${
+                session.confirmedBrief.budget.userQuote
+                  ? ` (“${session.confirmedBrief.budget.userQuote}”)`
+                  : ""
+              }`
+            : null,
+          session.confirmedBrief.zip
+            ? `Location ${session.confirmedBrief.zip}${
+                session.confirmedBrief.radiusMi != null
+                  ? ` · ${session.confirmedBrief.radiusMi} mi`
+                  : ""
+              }`
+            : null,
+          ...(session.confirmedBrief.hardConstraints ?? []).map((c) => `Hard ${c.key}=${c.value}`),
+          ...(session.confirmedBrief.softConstraints ?? []).map((c) => `Soft ${c.key}=${c.value}`),
+          ...(session.confirmedBrief.agreedRelaxations ?? []).map(
+            (c) => `Agreed ${c.key}=${c.value}`,
+          ),
+        ].filter((line): line is string => Boolean(line))
+      : [],
+    listings,
+    picks: chosenVin ? [chosenVin] : [],
+    sources: journalMeta.toolCalls > 0 ? ["cars_for_sale"] : [],
+    queryCount: journalMeta.toolCalls,
+    verdict: mapped.agentVerdict.verdict,
+    confidence: mapped.agentVerdict.confidence,
+    buyerMessage: assistantSummary,
+    creditsCharged: charged ? 1 : 0,
+    spendKey: session.spendKey,
+    proofs: proofsFromRecords(
+      mapped.agentVerdict.serv_steps?.map((step) => ({
+        purpose: "find_chat",
+        status: "ok",
+        responseId: step.responseId,
+        model: step.model,
+        detail: step.why,
+      })) ?? [],
+    ),
+    terminal: true,
+  });
+
   const result: Record<string, unknown> = {
     ok: true,
     need,
@@ -445,6 +519,7 @@ export async function runFindChatTurn(input: {
     balance,
     transcript: session.messages,
     confirmedBrief: session.confirmedBrief,
+    runId,
   };
 
   session.result = result;

@@ -332,6 +332,7 @@ export type FindSubmitPicksListingFact = {
   vin: string;
   priceUsd: number | null;
   miles?: number | null;
+  distanceMiles?: number | null;
 };
 
 /**
@@ -344,6 +345,10 @@ export function validateFindSubmitPicks(
   opts: {
     listingsByVin: ReadonlyMap<string, FindSubmitPicksListingFact>;
     budgetUsd: number | null;
+    /** Confirmed brief radius in miles; null/undefined = nationwide OK. */
+    maxRadiusMi?: number | null;
+    /** True when the shopper already agreed to widen beyond the confirmed radius. */
+    radiusWidenAgreed?: boolean;
     /** Documented search_listings rows from the agent journal (params + counts). */
     searches?: readonly AgentSearchJournalRow[];
   },
@@ -358,6 +363,12 @@ export function validateFindSubmitPicks(
     opts.budgetUsd != null && Number.isFinite(opts.budgetUsd) && opts.budgetUsd > 0
       ? Math.round(opts.budgetUsd)
       : null;
+  const maxRadius =
+    opts.maxRadiusMi != null && Number.isFinite(opts.maxRadiusMi) && opts.maxRadiusMi > 0
+      ? Math.round(opts.maxRadiusMi)
+      : null;
+  /** Only shopper-agreed widens count — never invent from SERV prose alone. */
+  const radiusWidenAgreed = opts.radiusWidenAgreed === true;
 
   for (const [index, pick] of validated.verdict.picks.entries()) {
     const vin = pick.vin.toUpperCase();
@@ -378,6 +389,18 @@ export function validateFindSubmitPicks(
         field: `picks[${index}].price`,
       });
       if (overBudget) issues.push(overBudget);
+      if (
+        maxRadius != null &&
+        !radiusWidenAgreed &&
+        listing.distanceMiles != null &&
+        Number.isFinite(listing.distanceMiles) &&
+        listing.distanceMiles > maxRadius
+      ) {
+        issues.push({
+          field: `picks[${index}].distanceMiles`,
+          message: `VIN ${vin} is ${Math.round(listing.distanceMiles)} mi away — outside confirmed radius ${maxRadius} mi. Pick a closer car, call submit_nothing_fits, or document an agreed radius widen in relaxedConditions.`,
+        });
+      }
     }
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({
