@@ -266,9 +266,10 @@ jobs:
 
 
   # Manual head-to-head mode: set max_queries=0 in the dispatch form.
-  # This does NOT run the normal live-eval batch or touch Resale.
+  # It runs Find locally through runFindChatTurn and Gemini; it does not run Resale,
+  # does not use production KV, and never charges Lemonless report credits.
   find-gemini-head-to-head:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_queries == '0' }}
+    if: \${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_queries == '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -277,15 +278,20 @@ jobs:
 
       - name: Require comparison secrets
         env:
-          EVAL_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SERV_API_KEY: \${{ secrets.SERV_API_KEY }}
+          AUTODEV_API_KEY: \${{ secrets.AUTODEV_API_KEY }}
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
         run: |
           missing=0
-          if [ -z "${EVAL_SECRET}" ]; then
-            echo "::error::Repository secret CRON_SECRET or RADAR_CRON_SECRET is missing."
+          if [ -z "\${SERV_API_KEY}" ]; then
+            echo "::error::Repository secret SERV_API_KEY is missing."
             missing=1
           fi
-          if [ -z "${GEMINI_API_KEY}" ]; then
+          if [ -z "\${AUTODEV_API_KEY}" ]; then
+            echo "::error::Repository secret AUTODEV_API_KEY is missing."
+            missing=1
+          fi
+          if [ -z "\${GEMINI_API_KEY}" ]; then
             echo "::error::Repository secret GEMINI_API_KEY is missing."
             missing=1
           fi
@@ -295,15 +301,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run two-round Find vs Gemini comparison
         env:
-          EVAL_LIVE_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
-          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SERV_API_KEY: \${{ secrets.SERV_API_KEY }}
+          AUTODEV_API_KEY: \${{ secrets.AUTODEV_API_KEY }}
+          SERV_BASE_URL: \${{ secrets.SERV_BASE_URL }}
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-2.5-flash
           OUTPUT_DIR: eval/results/find-gemini-head-to-head-2026-11-13
-        run: node eval/comparison/find-gemini-head-to-head.mjs
+        run: npx tsx eval/comparison/find-gemini-head-to-head.mjs
 
       - name: Upload comparison evidence
         if: always()
