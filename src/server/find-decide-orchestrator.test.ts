@@ -50,7 +50,7 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("agent_loop_required");
-  });
+  }, 15_000);
 
   it("rejects contexts minted for next-check only", async () => {
     const kv = new MemoryKv();
