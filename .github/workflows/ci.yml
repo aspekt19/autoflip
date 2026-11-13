@@ -39,9 +39,8 @@ jobs:
             fi
             echo "OK: $pkg not in production tree"
           done
-          # zod is still forbidden as a direct production dependency. The pinned
-          # x402 protocol packages use it internally; allow only those transitive
-          # paths, and fail closed if any unrelated runtime dependency pulls it in.
+          # Zod is not a direct application dependency. x402/viem use it as
+          # an optional schema peer; force all runtime copies to the patched 4.6.7.
           npm ls --omit=dev --all --json > .production-dependency-tree.json
           node <<'NODE'
           const fs = require("node:fs");
@@ -49,29 +48,31 @@ jobs:
           if (Object.hasOwn(manifest.dependencies ?? {}, "zod")) {
             throw new Error("zod must not be a direct production dependency");
           }
-          const allowed = new Set(["@x402/core", "@x402/evm", "@x402/extensions"]);
+          if (manifest.overrides?.zod !== "4.6.7") {
+            throw new Error("Runtime zod must stay overridden to patched 4.6.7");
+          }
           const tree = JSON.parse(fs.readFileSync(".production-dependency-tree.json", "utf8"));
-          const violations = [];
+          const vulnerable = [];
+          const versions = new Set();
           function walk(dependencies, ancestors = []) {
             for (const [name, node] of Object.entries(dependencies ?? {})) {
               const next = [...ancestors, name];
-              if (name === "zod" && !ancestors.some((parent) => allowed.has(parent))) {
-                violations.push(next.join(" -> "));
+              if (name === "zod") {
+                const version = String(node.version ?? "0");
+                versions.add(version);
+                const parts = version.split(".").map((x) => Number(x) || 0);
+                const patched = parts[0] > 4 || (parts[0] === 4 && (parts[1] > 6 || (parts[1] === 6 && parts[2] >= 6)));
+                if (!patched) vulnerable.push(next.join(" -> ") + "@" + version);
               }
               walk(node.dependencies, next);
             }
           }
           walk(tree.dependencies);
           fs.unlinkSync(".production-dependency-tree.json");
-          if (violations.length) {
-            throw new Error("Unexpected production zod dependency path(s): " + violations.join("; "));
+          if (vulnerable.length) {
+            throw new Error("Vulnerable zod runtime path(s): " + vulnerable.join("; "));
           }
-          for (const name of allowed) {
-            if (manifest.dependencies?.[name] !== "2.31.0") {
-              throw new Error(name + " must remain pinned to the audited 2.31.0 release");
-            }
-          }
-          console.log("OK: zod is transitive only beneath pinned @x402 packages; no direct zod dependency");
+          console.log("OK: zod is not direct; runtime versions are patched: " + [...versions].join(", "));
           NODE
           echo "::endgroup::"
           npm audit --omit=dev --audit-level=high

@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { importPKCS8, SignJWT } from "jose";
+import { importJWK, importPKCS8, SignJWT } from "jose";
 import {
   HTTPFacilitatorClient,
   x402ResourceServer,
@@ -60,22 +60,34 @@ async function cdpJwt(method: "GET" | "POST", path: string): Promise<string> {
   if (!apiKeyId || !keySecret) throw new Error("Missing CDP_API_KEY_ID or CDP_API_KEY_SECRET.");
   const base = new URL(facilitatorBase());
   const now = Math.floor(Date.now() / 1000);
-  const key = await importPKCS8(keySecret, "ES256");
-  return new SignJWT({
+  const claims = {
     iss: "cdp",
     sub: apiKeyId,
     uris: [`${method} ${base.host}${path}`],
-  })
-    .setProtectedHeader({
-      alg: "ES256",
-      kid: apiKeyId,
-      typ: "JWT",
-      nonce: randomBytes(16).toString("hex"),
-    })
+  };
+  const nonce = randomBytes(16).toString("hex");
+  const decoded = Buffer.from(keySecret, "base64");
+  if (!keySecret.includes("BEGIN") && decoded.length === 64) {
+    const signingKey = await importJWK({
+      kty: "OKP",
+      crv: "Ed25519",
+      d: decoded.subarray(0, 32).toString("base64url"),
+      x: decoded.subarray(32).toString("base64url"),
+    }, "EdDSA");
+    return new SignJWT(claims)
+      .setProtectedHeader({ alg: "EdDSA", kid: apiKeyId, typ: "JWT", nonce })
+      .setIssuedAt(now)
+      .setNotBefore(now)
+      .setExpirationTime(now + 120)
+      .sign(signingKey);
+  }
+  const signingKey = await importPKCS8(keySecret, "ES256");
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: "ES256", kid: apiKeyId, typ: "JWT", nonce })
     .setIssuedAt(now)
     .setNotBefore(now)
     .setExpirationTime(now + 120)
-    .sign(key);
+    .sign(signingKey);
 }
 
 async function createFacilitator(): Promise<HTTPFacilitatorClient> {
