@@ -1,95 +1,72 @@
 # Lemonless
 
-A US used-car shopper describes what they need. Lemonless searches live listings, checks public records, and returns a buy, negotiate, inspect, or pass — or says nothing fits. Every dollar in the answer comes from code. The model chooses the car and the offer; it does not invent the numbers.
+**A tool-using AI agent for buying and evaluating used cars in the United States.** Start with a short buyer brief. Lemonless searches live listings, checks available vehicle data, and returns an evidence-backed next step — including when nothing fits.
 
-**Live:** [autoflip-umber.vercel.app](https://autoflip-umber.vercel.app/)  
-**Evidence:** [/proof](https://autoflip-umber.vercel.app/proof) — the recorded comparison, with a link on each cell. This README does not add a score on top of that page.
+[**Open the app**](https://autoflip-umber.vercel.app/) · [**See the live comparison**](https://autoflip-umber.vercel.app/proof) · [Architecture](docs/ARCHITECTURE.md) · [Agent API](https://autoflip-umber.vercel.app/developers)
 
-Legacy names (`AUTOFLIP_*`, cookie `af_uid`, the GitHub repo, the Vercel host) stay so existing config keeps working. The product name is Lemonless.
+[![CI](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml/badge.svg)](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml)
 
-## What it does
+Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 
-- **Find** — one chat. The model writes a brief, you confirm it, then it searches and either picks cars or says nothing fits.
-- **Check** — a listing URL, pasted text, or a VIN. Price math stays in code. A review step runs when a key is set and the safety checks allow it.
-- **Resale** — the same chat shape, ranked by code profit, not by a model-invented margin.
-- **Deal Radar** — paid watches. Radar is $100/month for 1 search (up to 300 reviews) and Radar Pro is $250/month for 3 searches (up to 900). Plans do not include report credits. Alerts stay in the app, with an optional Telegram copy.
-- **Report** — one credit after a result is delivered. Nothing-fits, errors, and empty searches release the credit.
+## Try the product
 
-A missing source never blocks a decision. Unknown accident history and unknown distance are shown as unverified.
+- **Find** — describe the car you need in ordinary language, confirm the brief, and let the agent search current inventory. It can return a shortlist or explicitly say that no car meets the request.
+- **Check** — submit a VIN, listing URL, or pasted listing. Lemonless calculates price context in code and gathers available VIN, safety, recall, complaint, fuel-economy, and market evidence before producing a review.
+- **Resale** — search within a budget and evaluate candidate flips using code-calculated costs and risk-adjusted profit. The agent cannot turn a negative-profit candidate into a buy.
+- **Deal Radar** — save watches and receive in-app alerts when matching inventory changes. Optional Telegram delivery sends a copy of the alert.
 
-## How it works
+The main user flow is behind verified sign-in. Find and Resale reserve one report credit before the agent runs and charge only when a result is delivered. Check includes three free VIN-scoped checks per verified account per UTC month, then uses one report credit.
 
-SERV decides. Code validates, enforces hard constraints, does the math, and keeps the journal.
+## What makes Lemonless different
 
-```mermaid
+SERV reasons over the buyer's brief and the evidence returned by tools. **TypeScript owns the facts, arithmetic, and hard limits.** The model does not calculate a fair price, invent a VIN, or create a profit figure.
+
+~~~mermaid
 flowchart TD
-  chat[Intake chat] --> brief[submit_brief]
-  brief --> confirm[Confirm gate]
-  confirm --> loop[Agent loop: tools and checkpoints]
-  loop --> terminal{submit_picks or submit_nothing_fits}
-  terminal --> checks[Code: budget, radius, no-accident, offer fields]
-  checks -->|repair| loop
-  checks --> record[VIN record with provenance]
-  record --> bill[Billing]
-  record --> radar[Deal Radar]
-  radar --> telegram[Telegram copy]
-```
+  A[Buyer brief] --> B[Confirm the brief]
+  B --> C[SERV agent loop]
+  C --> D[Live listings and vehicle-data tools]
+  D --> E[SERV selects a candidate or says none fit]
+  E --> F[Code validates VIN and hard constraints]
+  F --> G[Code computes distance, offers, and money]
+  G --> H[Decision journal and report]
+~~~
 
-1. The chat collects the brief (`submit_brief`) and stops until you confirm. It does not search before that.
-2. After confirm, the loop calls listing search and public-record tools. Checkpoints let a long run continue on the next request.
-3. The loop ends with `submit_picks` or `submit_nothing_fits`.
-4. Code rejects a pick that breaks a confirmed rule (budget, a known radius, a no-accident brief when a source reports an accident or a title brand) and sends it back for repair. If nothing clean fits, the finish is `submit_nothing_fits` naming the near misses.
-5. Distance is miles from your ZIP to the dealer ZIP or coordinates. When that cannot be computed, the record says unverified.
-6. The offer you see is `openingOffer` and `walkAway` from `submit_picks`. The report, Radar, and Telegram read those fields.
-7. Each car is stored by VIN with where every field came from. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The boundary is deliberate:
 
-## Proof
+- **SERV** interprets the request, chooses which tools to use, evaluates candidates, and explains its decision.
+- **Code** owns listing identifiers, source provenance, distance calculations, comparable-price math, offer fields, resale profit, billing, and safety checks.
+- **Guardrails** reject unsupported VINs, budget or known-radius violations, reported accidents or title brands when the brief forbids them, malformed offers, and non-positive Resale buy/negotiate decisions.
+- **Unknown is not clean.** Missing history, unavailable pages, and unverified distance are labeled as unknown rather than silently treated as passed checks.
+- **Nothing-fits is a valid result.** The system does not have to manufacture a winner to finish a search.
 
-Open [/proof](https://autoflip-umber.vercel.app/proof). That page is the comparison. It links the runs it measured. A frozen-snapshot harness in `eval/snapshot/` can replay one captured candidate set with verdict features off and on, without a second live search. The paid replay is not part of this commit (`npm run eval:snapshot` records the arms as not run).
+Every delivered run can carry a decision journal showing which steps were performed by SERV, which were computed by code, and where a safety rule constrained the result.
 
-## Run it
+## Evidence: a real Denver search
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+The public [Proof page](https://autoflip-umber.vercel.app/proof) contains the recorded answers, run links, source links, and a criterion-by-criterion comparison for this request:
 
-Open http://localhost:3000. For a local report without Stripe, set `AUTOFLIP_DEV_CREDITS=3` and restart.
+> I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
 
-```bash
-npm run typecheck
-npm test
-npm run golden
-npm run test:e2e
-npm run build
-```
+The capture shows the distinction between advice and an actual inventory result:
 
-`npm run eval:serv` and `npm run eval:verdict` call the model and spend credits. They exit without inventing scores when `SERV_API_KEY` is unset.
+- A plain chat answer named a vehicle to shop for, but had no live listing or VIN.
+- The captured Perplexity answer also declined to claim it had found a qualifying live listing.
+- Both Lemonless runs returned real VINs from live inventory. The features-on run also returned a dealer listing URL that was reachable when checked.
 
-| Variable | Purpose |
-| --- | --- |
-| `AUTODEV_API_KEY` | Listing search |
-| `SERV_API_KEY` | Model reviews |
-| `SERV_MODEL` | Default model id for SERV steps |
-| `SERV_BASE_URL` | Default `https://inference-api.openserv.ai/v1` |
-| `STRIPE_SECRET_KEY` | Test key (`sk_test_`) |
-| `STRIPE_WEBHOOK_SECRET` | Webhook signature |
-| `NEXT_PUBLIC_APP_URL` | Checkout return URL |
-| `AUTOFLIP_DEV_CREDITS` | Optional local starting balance |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Durable store on Vercel |
-| `AUTH_SECRET` | Sign-in |
-| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google sign-in |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID` / `NEXT_PUBLIC_FIREBASE_APP_ID` | Email link sign-in. All four, or the option stays hidden. |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` / `TELEGRAM_WEBHOOK_SECRET` | Optional Radar Telegram copy |
+**Important evaluation limits:** the two Lemonless runs each performed their own live search. They did not receive the same frozen candidate set, so the different picks do not prove that turning SERV features on caused a better decision. A same-snapshot comparison is a separate experiment and is not claimed as a completed result here.
 
-Do not commit `.env.local`.
+The capture was recorded at **2026-11-13 14:29:45 UTC**, before the later no-accident and radius hardening merged in [PR #207](https://github.com/aspekt19/autoflip/pull/207) at 16:18 UTC. The historical output includes a listing record with one reported accident; it must not be read as proof that the current hard gate passed that car. The [Proof page](https://autoflip-umber.vercel.app/proof) now carries this disclosure alongside the original evidence. The recorded responses and their source links are preserved unchanged.
 
-Stripe test card: `4242 4242 4242 4242`. The daily Radar cron is `0 14 * * *` in `vercel.json`. Telegram username: `@autoflip_radar_bot`.
+## What the product does not claim
 
-Sign-in is required for Find, Resale, Check, Radar, and the agent API. The only free allotment is 3 Checks per account per UTC month. Find and Resale reserve 1 report credit before the model runs. The gate is `src/server/search-billing-gate.ts`.
+- Lemonless does **not** currently provide a complete CARFAX, AutoCheck, or NMVTIS vehicle-history report.
+- A model-year recall or complaint record does not establish the open/closed recall status of an individual VIN.
+- Comparable listing prices are **asking prices**, not verified completed-sale prices.
+- Estimated fair value, offers, and resale margins are decision support, not guaranteed market outcomes.
+- A listing page can disappear or be blocked. Confirm the seller, availability, title, fees, and history yourself, and get an independent inspection before buying.
 
-Agent API: `POST /api/v1/report` and `POST /api/mcp` with an `af_` key from [/developers](https://autoflip-umber.vercel.app/developers). `full_report` spends 1 credit.## Agent access
+## Agent access
 
 Create an API key from [Developers](https://autoflip-umber.vercel.app/developers). Send **Authorization: Bearer af_…** on **every** REST or MCP request.
 
@@ -100,3 +77,51 @@ Create an API key from [Developers](https://autoflip-umber.vercel.app/developers
 
 The same decision logic is exposed through the site, REST, and MCP. Agent reports use the same evidence and decision journal as the browser product.
 
+## Run locally
+
+Requires Node.js 22.
+
+~~~bash
+npm ci
+cp .env.example .env.local
+npm run dev
+~~~
+
+For a local report without Stripe, set **AUTOFLIP_DEV_CREDITS=3** in **.env.local** and restart.
+
+Run the same core checks used by CI:
+
+~~~bash
+npm run typecheck
+npm test
+npm run golden
+npm run test:e2e
+npm run build
+~~~
+
+Model and provider-backed evaluation commands can make paid requests. Review the script's explicit opt-in gates before running them.
+
+### Environment
+
+| Variable | Purpose |
+| --- | --- |
+| **AUTODEV_API_KEY** | Live listing search |
+| **SERV_API_KEY** | SERV inference |
+| **SERV_MODEL** | Optional default model id for SERV steps |
+| **SERV_BASE_URL** | Optional inference endpoint; defaults to OpenServ |
+| **UPSTASH_REDIS_REST_URL** / **UPSTASH_REDIS_REST_TOKEN** | Durable production storage |
+| **AUTH_SECRET** | Auth.js session signing |
+| **AUTH_GOOGLE_ID** / **AUTH_GOOGLE_SECRET** | Google sign-in |
+| **NEXT_PUBLIC_FIREBASE_API_KEY**, **NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN**, **NEXT_PUBLIC_FIREBASE_PROJECT_ID**, **NEXT_PUBLIC_FIREBASE_APP_ID** | Firebase email-link sign-in; all four are required to show the option |
+| **STRIPE_SECRET_KEY** / **STRIPE_WEBHOOK_SECRET** | Stripe checkout and webhook; currently **test mode only** |
+| **NEXT_PUBLIC_APP_URL** | Checkout and auth callback origin |
+| **AUTOFLIP_DEV_CREDITS** | Optional local starting credit balance |
+| **TELEGRAM_BOT_TOKEN** / **TELEGRAM_BOT_USERNAME** / **TELEGRAM_WEBHOOK_SECRET** | Optional Deal Radar Telegram copy |
+
+Do not commit **.env.local**.
+
+## Release notes
+
+- Stripe remains in **test mode**. The test card is **4242 4242 4242 4242**; purchases are not real revenue.
+- Legacy repository, Vercel, cookie, and AUTOFLIP-prefixed environment names remain for compatibility. The product name is **Lemonless**.
+- The daily Deal Radar cron is configured in **vercel.json**.
