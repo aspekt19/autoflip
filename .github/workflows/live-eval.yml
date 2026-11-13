@@ -28,7 +28,7 @@ on:
         required: false
         type: string
       max_queries:
-        description: "Max queries (1–4; default 4 = 2 Find + 2 Resale)"
+        description: "Max queries (0–4; 0 = checks only; default 4 = 2 Find + 2 Resale)"
         required: false
         default: "4"
         type: string
@@ -115,10 +115,10 @@ jobs:
             process.exit(1);
           }
 
-          const maxQueries = Math.max(
-            1,
-            Math.min(4, Number(process.env.INPUT_MAX_QUERIES || "4") || 4),
-          );
+          const parsedMax = Number(process.env.INPUT_MAX_QUERIES || "4");
+          const maxQueries = Number.isFinite(parsedMax)
+            ? Math.max(0, Math.min(4, parsedMax))
+            : 4;
           const seedInput = String(process.env.INPUT_SEED || "").trim();
           const seed = /^\d+$/.test(seedInput)
             ? Number(seedInput)
@@ -170,28 +170,37 @@ jobs:
             const maxHopsPerQuery = 40;
             const maxHops = maxQueries * maxHopsPerQuery + 4;
             console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} notes=${notes ? notes.length : 0} url=${url}`);
-            let report = await post({ action: "start", seed, maxQueries, notes });
-            const batchId = report.batchId;
-            if (!batchId) throw new Error("start did not return batchId");
-            let hops = 0;
-            while (!report.done && hops < maxHops) {
-              hops += 1;
-              report = await post({ action: "step", batchId });
-              const hopStatus = report.hopStatus || report.lastHop?.status || "—";
-              const queryId = report.queryId || "—";
-              const product = report.product || "—";
-              console.log(
-                `hop=${hops} query=${queryId} product=${product} status=${hopStatus} session=${report.sessionId || "—"} asked=${report.asked ?? false} brief=${report.briefConfirmed ?? false}`,
-              );
-              const last = report.lastResult;
-              if (last) {
-                console.log(
-                  `[${last.id}] product=${last.product} ok=${last.ok} mode=${last.agentMode ?? "—"} rounds=${last.toolRounds ?? 0} verdictReached=${last.verdictReached ?? false} durationMs=${last.durationMs ?? last.elapsedMs ?? 0}`,
-                );
+            let report;
+            if (maxQueries === 0) {
+              if (!listingUrl && !vin) {
+                throw new Error("max_queries=0 requires listingUrl and/or vin (checks only)");
               }
-            }
-            if (!report.done) {
-              throw new Error(`live-eval hit hop ceiling (${maxHops}) before batch done`);
+              report = { ok: true, done: true, results: [], seed, maxQueries, mode: "live" };
+              console.log("checks-only: skipping Find/Resale queries");
+            } else {
+              report = await post({ action: "start", seed, maxQueries, notes });
+              const batchId = report.batchId;
+              if (!batchId) throw new Error("start did not return batchId");
+              let hops = 0;
+              while (!report.done && hops < maxHops) {
+                hops += 1;
+                report = await post({ action: "step", batchId });
+                const hopStatus = report.hopStatus || report.lastHop?.status || "—";
+                const queryId = report.queryId || "—";
+                const product = report.product || "—";
+                console.log(
+                  `hop=${hops} query=${queryId} product=${product} status=${hopStatus} session=${report.sessionId || "—"} asked=${report.asked ?? false} brief=${report.briefConfirmed ?? false}`,
+                );
+                const last = report.lastResult;
+                if (last) {
+                  console.log(
+                    `[${last.id}] product=${last.product} ok=${last.ok} mode=${last.agentMode ?? "—"} rounds=${last.toolRounds ?? 0} verdictReached=${last.verdictReached ?? false} durationMs=${last.durationMs ?? last.elapsedMs ?? 0}`,
+                  );
+                }
+              }
+              if (!report.done) {
+                throw new Error(`live-eval hit hop ceiling (${maxHops}) before batch done`);
+              }
             }
 
             const checks = [];
