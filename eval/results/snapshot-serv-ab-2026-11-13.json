@@ -185,7 +185,8 @@
       "Safety equipment, exact crash ratings, recalls, fuel economy, maintenance, tire condition and child-seat fit were not checked in this isolated snapshot test.",
       "No dealer listing URLs were returned in the saved snapshot, so no live listing links are asserted.",
       "The offer figures are model-generated negotiation suggestions, not verified dealer quotes or appraisals. The features-off rationale describes them as out-the-door amounts but also says the actual out-the-door cost is unverified; treat that wording as internally inconsistent and do not present either figure as a confirmed OTD price.",
-      "The features-on request used the gpt-6.1-sol-serv-kronos-multipath alias, but the response metadata returned gpt-6.1-sol. The run records both values; it does not independently prove billing or execution of each internal SERV transformation."
+      "The features-on request used the gpt-6.1-sol-serv-kronos-multipath alias, but the response metadata returned gpt-6.1-sol. The run records both values; it does not independently prove billing or execution of each internal SERV transformation.",
+      "The workflow preserved parsed submit_picks decisions, response IDs, token usage, latency and estimated cost, but did not persist the complete raw provider response payloads. The evidence is therefore auditable at the parsed-decision level, not a byte-for-byte raw-response replay."
     ]
   },
   "arms": {
