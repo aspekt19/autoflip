@@ -8,6 +8,13 @@ const PROTOCOL = "2025-06-18";
 export function toolList() {
   return [
     {
+      name: "get_payment_info",
+      description:
+        "Free public payment and onboarding instructions for external agents. Returns Base USDC x402 details, agent registration, report-credit packs, Radar plans, and the direct report price. Does not require an API key.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
       name: "check_car",
       description:
         "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check (SERV plan/decide/second-check + decision journal in proofRecords). Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1).",
