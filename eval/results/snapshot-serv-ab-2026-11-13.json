@@ -275,7 +275,7 @@
     "totalListingSearches": 4,
     "totalServCalls": 8,
     "completedRunsHarnessEstimateUsd": 0.24,
-    "repeatability": "Across all four completed runs, each search returned the same 12 VINs with the same asking prices and mileages. Features-on selected VIN 3GNAXSEV4LS557854 in all four runs. Features-off selected two different 2024/2020 Equinox VINs across the four runs. All 12 scored criterion outcomes were ties; no criterion winner. Runs 2–4 were unintentionally triggered by PR synchronization before the workflow was switched to manual dispatch only."
+    "repeatability": "Across all four completed runs, each search returned the same 12 VINs with the same asking prices and mileages. Features-on selected VIN 3GNAXSEV4LS557854 in all four runs. Features-off selected three distinct VINs: two different 2024 Equinox listings and one 2020 Equinox listing. All 12 scored criterion outcomes were ties; no criterion winner. Runs 2–4 were unintentionally triggered by PR synchronization before the workflow was switched to manual dispatch only."
   },
   "repeatRun": {
     "metadata": {
