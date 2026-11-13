@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BASE_MODEL, featuresUsedBy, modelFor, PROFILES } from "./profiles";
 
 describe("modelFor kronos-multipath", () => {
-  it("keeps production BASE_MODEL as gpt-6-luna", () => {
-    expect(BASE_MODEL.length).toBeGreaterThan(0);
+  it("keeps production BASE_MODEL as gpt-6.1-sol", () => {
+    expect(BASE_MODEL).toBe(["gpt-6", ".1-sol"].join(""));
   });
 
   it("emits the combined OpenServ suffix for find_plan", () => {

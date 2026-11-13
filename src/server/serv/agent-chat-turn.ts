@@ -7,9 +7,9 @@
  * fallback is json_schema only (no function tools) with effort "low" or omitted.
  * Legacy "xhigh" is clamped to "high".
  *
- * Agent turns omit max_output_tokens / max_completion_tokens (no SERV token
- * caps on the agent loop). HTTP still uses a platform deadline so Hobby
- * requests can step; that is not a model token budget.
+ * Agent turns set a sane max_output_tokens / max_completion_tokens per step
+ * (OpenServ billing uses the ceiling for balance checks). HTTP still uses a
+ * platform deadline so Hobby requests can step; that is not a model token budget.
  */
 import { SERV_HTTP_DEADLINE_MS, servApiBase } from "./run";
 import { BASE_MODEL } from "./profiles";
@@ -61,7 +61,7 @@ export type ServChatTurnBody = {
   tools?: ServChatToolDef[];
   toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } };
   jsonSchema?: { name: string; schema: Record<string, unknown> };
-  /** Ignored on agent turns — no token caps. Kept for call-site compatibility. */
+  /** Chat `max_completion_tokens` ceiling when set. */
   maxTokens?: number;
   model?: string;
   /**
@@ -84,7 +84,7 @@ export type ServResponsesTurnBody = {
   input: string | Array<Record<string, unknown>>;
   tools?: ServResponsesToolDef[];
   toolChoice?: "auto" | "required" | "none" | { type: "function"; name: string };
-  /** Ignored on agent turns — no token caps. */
+  /** Responses `max_output_tokens` ceiling when set. */
   maxTokens?: number;
   model?: string;
   /** Live probe: effort low works with tools; default low. Never "none". */
@@ -151,7 +151,9 @@ export function buildServChatTurnBody(input: ServChatTurnBody): Record<string, u
       },
     };
   }
-  // Agent turns: no max_completion_tokens (architecture: no SERV token caps).
+  if (typeof input.maxTokens === "number" && Number.isFinite(input.maxTokens) && input.maxTokens > 0) {
+    bare.max_completion_tokens = Math.floor(input.maxTokens);
+  }
   return bare;
 }
 
@@ -184,7 +186,9 @@ export function buildServResponsesTurnBody(input: ServResponsesTurnBody): Record
       },
     };
   }
-  // Agent turns: no max_output_tokens (architecture: no SERV token caps).
+  if (typeof input.maxTokens === "number" && Number.isFinite(input.maxTokens) && input.maxTokens > 0) {
+    bare.max_output_tokens = Math.floor(input.maxTokens);
+  }
   return bare;
 }
 

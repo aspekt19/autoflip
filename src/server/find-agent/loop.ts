@@ -66,11 +66,12 @@ import {
   type AgentLoopCheckpoint,
 } from "@/server/serv/agent-loop-checkpoint";
 import {
+  buildAgentServFeatureBundle,
   classifyAgentFeatureRejection,
-  findAgentServFeatureBundle,
   formatFeatureRejectionFlags,
   journalFromBundle,
   mergeResponsesTools,
+  resolveAgentServStep,
   shadowOutcomeForAgentTurn,
   type AgentServFeatureBundle,
   type AgentServFeatureJournal,
@@ -84,7 +85,13 @@ import {
   type ResponsesInputItem,
 } from "@/server/serv/agent-tool-loop-protocol";
 import { servApiBase, toolCall } from "@/server/serv/run";
-import { servFinishReason } from "@/server/serv/response-failure";
+import {
+  extractAgentServCallUsage,
+  servFinishReason,
+  sumAgentServUsage,
+  type AgentServCallUsage,
+  type AgentServUsageTotals,
+} from "@/server/serv/response-failure";
 import {
   createFindAgentToolState,
   executeFindAgentTool,
@@ -112,6 +119,10 @@ export type FindAgentJournalServCall = {
   shadowOutcome: string | null;
   featureRejections: AgentServFeatureRejection[];
   featureFlags: string[];
+  step?: AgentServFeatureJournal["step"];
+  maxOutputTokens?: number;
+  /** Tokens / cost / cache fields returned by the API for this call. */
+  usage?: AgentServCallUsage | null;
 };
 
 export type FindAgentJournalToolCall = {
@@ -460,18 +471,12 @@ function constraintsFromFormEdits(
   return { intent, constraints: serializeUserIntentConstraints(intent) };
 }
 
-function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
-  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
-  const gate = assertNoNonUserSetConstraints(constraints, intent);
-  if (!gate.ok) {
-    throw new Error(
-      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
-    );
-  }
-  const edits =
-    Object.keys(constraints).length > 0
-      ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
-      : "";
+/**
+ * Byte-stable Find system prompt / Responses `instructions`.
+ * OpenServ prompt cache keys on the system prompt (+ transform type) — never put
+ * transcript, brief, dates, ids, or other per-request data here.
+ */
+export function findAgentStableInstructions(): string {
   return [
     "You are Lemonless Find's search agent on SERV.",
     "You chat with the shopper in this same conversation, then search live inventory with tools.",
@@ -489,8 +494,33 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
     "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
-    `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`,
+    "Per-request shopper conversation, confirmed brief, and form constraints arrive in input messages — not in these instructions.",
   ].join(" ");
+}
+
+/** Per-request shopper/context payload for Responses `input` (not instructions). */
+export function findAgentRequestContextMessage(
+  note: string,
+  formEdits?: Record<string, unknown> | null,
+): string {
+  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
+  const gate = assertNoNonUserSetConstraints(constraints, intent);
+  if (!gate.ok) {
+    throw new Error(
+      `UserIntent boundary violation: ${gate.hits.map((h) => h.detail).join("; ")}`,
+    );
+  }
+  const edits =
+    Object.keys(constraints).length > 0
+      ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
+      : "";
+  return `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`;
+}
+
+function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
+  // Validate form boundary; context still moves to input messages for Responses.
+  void findAgentRequestContextMessage(note, formEdits);
+  return findAgentStableInstructions();
 }
 
 const FIND_TERMINAL_NUDGE =
@@ -671,6 +701,7 @@ function responsesBody(input: {
     tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
     toolChoice: "auto",
     reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
+    maxTokens: input.bundle.maxOutputTokens,
   });
 }
 
@@ -718,6 +749,9 @@ function pushServJournal(input: {
     shadowOutcome: base.shadowOutcome,
     featureRejections: turnRejections,
     featureFlags: flags,
+    step: base.step,
+    maxOutputTokens: base.maxOutputTokens,
+    usage: extractAgentServCallUsage(input.turn.payload),
   });
 }
 
@@ -787,6 +821,7 @@ async function finalizeVerdict(input: {
     model: input.bundle.model,
     jsonSchema: { name: "find_agent_result", schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown> },
     reasoningEffort: "low",
+    maxTokens: input.bundle.maxOutputTokens,
   });
   let turn = await postChat({
     apiKey: input.apiKey,
@@ -1035,9 +1070,9 @@ async function runToolsMode(input: {
   } | null;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
-  const bundle = findAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
   const instructions = systemPrompt(input.note, input.formEdits);
+  const requestContext = findAgentRequestContextMessage(input.note, input.formEdits);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
   // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
@@ -1045,16 +1080,27 @@ async function runToolsMode(input: {
     ? [...input.resume.messages]
     : [
         { role: "system", content: instructions },
+        { role: "user", content: requestContext },
         { role: "user", content: seedUser },
       ];
   const applicationTools = findAgentResponsesTools();
   let responsesInput: ResponsesInputItem[] = input.resume?.responsesInput?.length
     ? [...input.resume.responsesInput]
-    : [responsesUserMessage(seedUser)];
+    : [responsesUserMessage(requestContext), responsesUserMessage(seedUser)];
   let toolRounds = input.resume?.toolRounds ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   const startRound = input.resume?.roundsCompleted ?? 0;
+  let latestBundle = buildAgentServFeatureBundle({
+    product: "find",
+    step: resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromFindJournal(input.journal).length,
+      submitNudgeSent,
+    }),
+    includePromptGuard: firstTurn,
+  });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
     if (!agentLoopMayStartServCall(input.deadline)) {
@@ -1084,9 +1130,21 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         checkpoint,
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
+    const step = resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromFindJournal(input.journal).length,
+      submitNudgeSent,
+    });
+    const bundle = buildAgentServFeatureBundle({
+      product: "find",
+      step,
+      includePromptGuard: firstTurn,
+    });
+    latestBundle = bundle;
     const body = responsesBody({
       instructions,
       input: responsesInput,
@@ -1125,7 +1183,7 @@ async function runToolsMode(input: {
         message: turn.error || `SERV tools call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1140,7 +1198,7 @@ async function runToolsMode(input: {
         message: "First tools-mode response had no function_call items.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
     firstTurn = false;
@@ -1175,7 +1233,7 @@ async function runToolsMode(input: {
           listingsByVin: input.state.listingsByVin,
           droppedPicks: [],
           shopperFacts: { ...input.state.shopperFacts },
-          ...findLoopMeta(bundle, rejections),
+          ...findLoopMeta(latestBundle, rejections),
         };
       }
       // Typed terminal required — never finish via chat schema without submit_picks / submit_nothing_fits.
@@ -1193,7 +1251,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1391,7 +1449,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         checkpoint,
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1430,7 +1488,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         checkpoint,
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1475,7 +1533,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         checkpoint,
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1508,7 +1566,7 @@ async function runToolsMode(input: {
         listingsByVin: input.state.listingsByVin,
         droppedPicks: [],
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
   }
@@ -1529,7 +1587,7 @@ async function runToolsMode(input: {
         listingsByVin: input.state.listingsByVin,
         droppedPicks: [],
         shopperFacts: { ...input.state.shopperFacts },
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
     const searches = searchesFromFindJournal(input.journal);
@@ -1546,7 +1604,7 @@ async function runToolsMode(input: {
       journal: input.journal,
       knownVins: [...input.state.knownVins],
       shopperFacts: { ...input.state.shopperFacts },
-      ...findLoopMeta(bundle, rejections),
+      ...findLoopMeta(latestBundle, rejections),
     };
   }
 }
@@ -1573,26 +1631,40 @@ async function runNextActionMode(input: {
   } | null;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
-  const bundle = findAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
+  const stable = findAgentStableInstructions();
+  const requestContext = findAgentRequestContextMessage(input.note, input.formEdits);
   const messages: ChatMessage[] = input.resume?.messages?.length
     ? [...input.resume.messages]
     : [
         {
           role: "system",
           content: [
-            systemPrompt(input.note, input.formEdits),
+            stable,
             "Each turn return JSON with action search or finish.",
             "search runs search_listings with the provided filters.",
             "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
           ].join(" "),
         },
+        { role: "user", content: requestContext },
         { role: "user", content: "Begin. Prefer a focused search first." },
       ];
   let toolRounds = input.resume?.toolRounds ?? 0;
   const startRound = input.resume?.roundsCompleted ?? 0;
+  let firstTurn = input.resume?.firstTurn ?? true;
+  let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let latestBundle = buildAgentServFeatureBundle({
+    product: "find",
+    step: resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromFindJournal(input.journal).length,
+      submitNudgeSent,
+    }),
+    includePromptGuard: firstTurn,
+  });
 
-  const nextActionBody = (msgs: ChatMessage[]) =>
+  const nextActionBody = (msgs: ChatMessage[], bundle: AgentServFeatureBundle) =>
     chatBody({
       messages: msgs,
       model: bundle.model,
@@ -1602,9 +1674,22 @@ async function runNextActionMode(input: {
         schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
       },
       reasoningEffort: "low",
+      maxTokens: bundle.maxOutputTokens,
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
+    const step = resolveAgentServStep({
+      requireBriefConfirm: input.state.requireBriefConfirm === true,
+      briefConfirmed: input.state.briefConfirmed === true,
+      searchCount: searchesFromFindJournal(input.journal).length,
+      submitNudgeSent,
+    });
+    const bundle = buildAgentServFeatureBundle({
+      product: "find",
+      step,
+      includePromptGuard: firstTurn,
+    });
+    latestBundle = bundle;
     if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildFindCheckpoint({
         phase: "next_action",
@@ -1614,8 +1699,8 @@ async function runNextActionMode(input: {
         messages,
         journal: input.journal,
         state: input.state,
-        submitNudgeSent: false,
-        firstTurn: false,
+        submitNudgeSent,
+        firstTurn,
         featureRejections: rejections,
       });
       return {
@@ -1631,10 +1716,10 @@ async function runNextActionMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
-    let body = nextActionBody(messages);
+    let body = nextActionBody(messages, bundle);
     let turn = await postChat({
       apiKey: input.deps.servKey,
       baseUrl: input.baseUrl,
@@ -1653,6 +1738,7 @@ async function runNextActionMode(input: {
       endpoint: "chat",
       turn,
     });
+    firstTurn = false;
     if (!turn.ok) {
       const flagged = classifyAgentFeatureRejection({
         status: turn.status,
@@ -1670,6 +1756,7 @@ async function runNextActionMode(input: {
             name: "find_agent_next_action",
             schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
           },
+          maxTokens: bundle.maxOutputTokens,
         });
         turn = await postChat({
           apiKey: input.deps.servKey,
@@ -1709,7 +1796,7 @@ async function runNextActionMode(input: {
         message: turn.error || `SERV next_action call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        ...findLoopMeta(bundle, rejections),
+        ...findLoopMeta(latestBundle, rejections),
       };
     }
 
@@ -1964,7 +2051,7 @@ async function runNextActionMode(input: {
     message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
-    ...findLoopMeta(bundle, rejections),
+    ...findLoopMeta(latestBundle, rejections),
   };
 }
 
@@ -2164,17 +2251,28 @@ export async function runFindAgentLoop(input: {
   });
 }
 
-/** Journal step counts for eval reports. */
+/** Journal step counts + per-request SERV usage total for eval reports. */
 export function summarizeFindAgentJournal(journal: readonly FindAgentJournalEntry[]): {
   servCalls: number;
   toolCalls: number;
   toolRounds: number;
+  servUsageTotal: AgentServUsageTotals;
 } {
   let servCalls = 0;
   let toolCalls = 0;
+  const usageRows: Array<AgentServCallUsage | null> = [];
   for (const entry of journal) {
-    if (entry.kind === "serv") servCalls += 1;
-    else if (entry.kind === "tool" && entry.name !== "_mode_fallback") toolCalls += 1;
+    if (entry.kind === "serv") {
+      servCalls += 1;
+      usageRows.push(entry.usage ?? null);
+    } else if (entry.kind === "tool" && entry.name !== "_mode_fallback") {
+      toolCalls += 1;
+    }
   }
-  return { servCalls, toolCalls, toolRounds: toolCalls };
+  return {
+    servCalls,
+    toolCalls,
+    toolRounds: toolCalls,
+    servUsageTotal: sumAgentServUsage(usageRows),
+  };
 }
