@@ -373,7 +373,7 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
 
       {comparison.repeatRun ? (
         <details className="decision">
-          <summary>Repeat run · same snapshot reproduced the same choices</summary>
+          <summary>Repeat runs · identical candidate set, same choices</summary>
           <div className="decision-body">
             <p>
               Three additional workflow runs were triggered unintentionally by pull-request synchronization
