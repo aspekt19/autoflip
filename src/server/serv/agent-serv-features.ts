@@ -30,6 +30,14 @@ export type ServFeatureKind = "none" | "multipath" | "kronos" | "kronos-multipat
 /** Per-hop role inside the agent loop. */
 export type AgentServStep = "intake" | "search" | "verdict";
 
+/** Verdict-hop quality features. "off" is eval-only (plain Lemonless+SERV). */
+export type ServVerdictFeatures = "on" | "off";
+
+export function parseServVerdictFeatures(value: unknown): ServVerdictFeatures {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return raw === "off" ? "off" : "on";
+}
+
 /**
  * Comfortable output ceilings per step (Responses `max_output_tokens`).
  * Docs: use a reasonable ceiling so balance checks pass; avoid tight caps that
@@ -216,6 +224,12 @@ export function buildAgentServFeatureBundle(input: {
   /** Prompt Guard only on the first SERV call of a chat. */
   includePromptGuard: boolean;
   baseModel?: string;
+  /**
+   * Eval-only. When "off", the verdict hop stays on the bare model —
+   * no Kronos, Multipath, or Shadow. Intake/search were already bare.
+   * Public Find/Resale routes never pass "off".
+   */
+  servVerdictFeatures?: ServVerdictFeatures;
 }): AgentServFeatureBundle {
   const baseModel = input.baseModel ?? BASE_MODEL;
   const shadowHint =
@@ -226,7 +240,8 @@ export function buildAgentServFeatureBundle(input: {
 
   let feature: ServFeatureKind = "none";
   let hasShadow = false;
-  if (input.step === "verdict") {
+  const verdictFeaturesOn = input.servVerdictFeatures !== "off";
+  if (input.step === "verdict" && verdictFeaturesOn) {
     hasShadow = true;
     feature = input.product === "find" ? "kronos-multipath" : "multipath";
   }

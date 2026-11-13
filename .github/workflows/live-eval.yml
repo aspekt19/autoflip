@@ -44,6 +44,11 @@ on:
         description: 'Optional JSON array of shopper notes, e.g. [{"product":"find","note":"...","zip":"80202"}]'
         required: false
         type: string
+      serv_verdict_features:
+        description: 'Find verdict features: on (default, Kronos/Multipath/Shadow) or off (bare model)'
+        required: false
+        default: "on"
+        type: string
 
 permissions:
   contents: read
@@ -96,6 +101,7 @@ jobs:
           INPUT_LISTING_URL: ${{ github.event.inputs.listingUrl }}
           INPUT_VIN: ${{ github.event.inputs.vin }}
           INPUT_NOTES: ${{ github.event.inputs.notes }}
+          INPUT_SERV_VERDICT_FEATURES: ${{ github.event.inputs.serv_verdict_features }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -137,6 +143,10 @@ jobs:
               throw new Error("INPUT_NOTES must be a JSON array of notes or {product,note,zip} objects");
             }
           }
+          const servVerdictFeatures =
+            String(process.env.INPUT_SERV_VERDICT_FEATURES || "on").trim().toLowerCase() === "off"
+              ? "off"
+              : "on";
 
           const url = `${origin}/api/internal/eval-live`;
           const headers = {
@@ -169,7 +179,7 @@ jobs:
             // Per-query chat hop ceiling matches eval/live/drive-chat.ts.
             const maxHopsPerQuery = 40;
             const maxHops = maxQueries * maxHopsPerQuery + 4;
-            console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} notes=${notes ? notes.length : 0} url=${url}`);
+            console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} notes=${notes ? notes.length : 0} servVerdictFeatures=${servVerdictFeatures} url=${url}`);
             let report;
             if (maxQueries === 0) {
               if (!listingUrl && !vin) {
@@ -178,7 +188,7 @@ jobs:
               report = { ok: true, done: true, results: [], seed, maxQueries, mode: "live" };
               console.log("checks-only: skipping Find/Resale queries");
             } else {
-              report = await post({ action: "start", seed, maxQueries, notes });
+              report = await post({ action: "start", seed, maxQueries, notes, servVerdictFeatures });
               const batchId = report.batchId;
               if (!batchId) throw new Error("start did not return batchId");
               let hops = 0;

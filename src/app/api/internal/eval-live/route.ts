@@ -7,7 +7,7 @@
  * /api/find/chat and /api/resale/chat. Never charges report credits.
  *
  * Body:
- *   { action: "start", seed?, maxQueries?, notes? } → create batch, return batchId (no turn yet)
+ *   { action: "start", seed?, maxQueries?, notes?, servVerdictFeatures? } → create batch, return batchId (no turn yet)
  *   { action: "step", batchId } → one chat hop for the current query
  *   { action: "check", kind: "link"|"vin", listingUrl?, vin? } → Check-by-link / Check-by-VIN
  *     (same auth; never free-check quota / credits; blocked link reported as blocked)
@@ -34,6 +34,7 @@ import {
 } from "@/server/eval-live-batch";
 import { runEvalLiveCheck } from "@/server/eval-live-check";
 import { bearer, secretMatch } from "@/server/secrets";
+import { parseServVerdictFeatures } from "@/server/serv/agent-serv-features";
 
 export const dynamic = "force-dynamic";
 /** One chat hop per request — must stay within Vercel Hobby maxDuration 300. */
@@ -49,12 +50,14 @@ type Body = {
   listingUrl?: unknown;
   vin?: unknown;
   optionalZip?: unknown;
+  servVerdictFeatures?: unknown;
 };
 
 function parseStart(raw: unknown): {
   seed: number;
   maxQueries: number;
   notes: ReturnType<typeof parseEvalNotes>;
+  servVerdictFeatures: "on" | "off";
 } {
   const body = raw && typeof raw === "object" ? (raw as Body) : {};
   const seed =
@@ -75,6 +78,7 @@ function parseStart(raw: unknown): {
     seed,
     maxQueries,
     notes: notes && notes.length > 0 ? notes.slice(0, maxQueries) : undefined,
+    servVerdictFeatures: parseServVerdictFeatures(body.servVerdictFeatures),
   };
 }
 
@@ -175,6 +179,7 @@ export async function POST(request: Request) {
       autodevKey: keys.autodevKey ?? runtime.autodevKey!,
       servModel: runtime.servModel,
       servBaseUrl: runtime.servBaseUrl,
+      servVerdictFeatures: batch.servVerdictFeatures === "off" ? ("off" as const) : ("on" as const),
     };
 
     const hop = await runEvalChatHop({ query, active, deps });
@@ -252,6 +257,7 @@ export async function POST(request: Request) {
   const batch = createEvalLiveBatch({
     seed: parsed.seed,
     maxQueries: parsed.maxQueries,
+    servVerdictFeatures: parsed.servVerdictFeatures,
     maxUsd,
     queries,
   });

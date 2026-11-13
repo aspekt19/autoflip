@@ -257,6 +257,8 @@ export type FindAgentLoopDeps = {
   budgetUsd?: number | null;
   /** Provenance label for the budget ceiling (user | note). */
   budgetProvenance?: "user" | "note" | "form" | string | null;
+  /** Eval-only: "off" disables Kronos/Multipath/Shadow on the verdict hop. */
+  servVerdictFeatures?: "on" | "off";
 };
 
 export type FindAgentLoopContinue = {
@@ -1205,6 +1207,7 @@ async function runToolsMode(input: {
       selectionHop,
     }),
     includePromptGuard: firstTurn,
+    servVerdictFeatures: input.deps.servVerdictFeatures ?? "on",
   });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
@@ -1251,6 +1254,7 @@ async function runToolsMode(input: {
       product: "find",
       step,
       includePromptGuard: firstTurn,
+      servVerdictFeatures: input.deps.servVerdictFeatures ?? "on",
     });
     latestBundle = bundle;
     const body = responsesBody({
@@ -1850,6 +1854,7 @@ async function runNextActionMode(input: {
       selectionHop,
     }),
     includePromptGuard: firstTurn,
+    servVerdictFeatures: input.deps.servVerdictFeatures ?? "on",
   });
 
   const nextActionBody = (msgs: ChatMessage[], bundle: AgentServFeatureBundle) =>
@@ -1877,6 +1882,7 @@ async function runNextActionMode(input: {
       product: "find",
       step,
       includePromptGuard: firstTurn,
+      servVerdictFeatures: input.deps.servVerdictFeatures ?? "on",
     });
     latestBundle = bundle;
     if (!agentLoopMayStartServCall(input.deadline)) {

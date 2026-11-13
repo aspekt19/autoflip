@@ -165,6 +165,8 @@ export type LiveEvalReport = {
   resaleCount: number;
   /** Optional Check-by-link / Check-by-VIN results (workflow params). */
   checks?: LiveEvalCheckResult[];
+  /** Eval-only verdict features flag recorded on the batch. Default on. */
+  servVerdictFeatures?: "on" | "off";
 };
 
 export type LiveEvalBatchOptions = {
