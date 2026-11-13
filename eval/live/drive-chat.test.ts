@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { driveServChatEval, planNextEvalChatTurn, type ChatTurnFn } from "./drive-chat";
+import {
+  driveServChatEval,
+  evalShopperReplyFromQuery,
+  planNextEvalChatTurn,
+  type ChatTurnFn,
+} from "./drive-chat";
 
 describe("planNextEvalChatTurn", () => {
   it("starts with the first message, then ask → reply → brief → confirm → continue", () => {
@@ -30,6 +35,46 @@ describe("planNextEvalChatTurn", () => {
     expect(
       planNextEvalChatTurn({ firstMessage: "Need a Camry", lastStatus: "done", sessionId: "s1" }),
     ).toEqual({ kind: "done" });
+  });
+});
+
+describe("evalShopperReplyFromQuery", () => {
+  it("answers budget, zip, and use from the query persona", () => {
+    const reply = evalShopperReplyFromQuery({
+      note: "lookin for a hatchback under $12k near Denver",
+      zip: "80202",
+      tags: {
+        product: "find",
+        city: "denver",
+        budget: "12k",
+        body: "hatch",
+        need: "cargo",
+        messy: true,
+      },
+    });
+    expect(reply).toMatch(/\$12000|\$12,000|12000/);
+    expect(reply).toMatch(/80202/);
+    expect(reply).toMatch(/cargo|gear/i);
+    expect(reply).toMatch(/brief/i);
+  });
+
+  it("falls back to no preference when tags are thin", () => {
+    const reply = evalShopperReplyFromQuery({
+      note: "need a car",
+      zip: null,
+      tags: { product: "find", city: "x", budget: "", body: "", need: "", messy: false },
+    });
+    expect(reply.toLowerCase()).toMatch(/no (budget|zip|other)/);
+  });
+
+  it("does not regex the free-text note for a budget when tags omit one", () => {
+    const reply = evalShopperReplyFromQuery({
+      note: "up to forty five thousand near me",
+      zip: null,
+      tags: { product: "find", city: "x", budget: "", body: "", need: "", messy: false },
+    });
+    expect(reply.toLowerCase()).not.toMatch(/forty/);
+    expect(reply.toLowerCase()).toMatch(/already wrote|no budget/);
   });
 });
 

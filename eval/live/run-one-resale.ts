@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { runResaleChatTurn } from "@/server/resale-chat";
 import { createGoldenFetch } from "../../test/golden/transport";
-import { driveServChatEval } from "./drive-chat";
+import { driveServChatEval, evalShopperReplyFromQuery } from "./drive-chat";
 import type { RunOneDeps } from "./run-one";
 import { ESTIMATED_USD_PER_QUERY } from "./spend";
 import { settleResaleChatCaseResult } from "./settle-chat-result";
@@ -61,6 +61,7 @@ export async function runOneResaleQuery(
 
   const driven = await driveServChatEval({
     firstMessage: query.note,
+    genericReply: evalShopperReplyFromQuery(query),
     turn: (turn) =>
       runResaleChatTurn({
         kv: deps.kv,

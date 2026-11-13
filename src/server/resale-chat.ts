@@ -219,13 +219,50 @@ export async function runResaleChatTurn(input: {
     };
   }
   if (!agent.ok) {
-    session.status = "failed";
-    session.messages.push({ role: "assistant", content: agent.message || "SERV could not finish.", at: new Date().toISOString() });
+    // Boundary / terminal failures never 502 — honest couldn't-finish after repairs.
+    const honesty = agent.message?.trim() || "We couldn't finish this flip search.";
+    session.status = "done";
+    session.messages.push({ role: "assistant", content: honesty, at: new Date().toISOString() });
+    const journalMeta = summarizeResaleAgentJournal(agent.journal ?? []);
+    const result = {
+      ok: false,
+      best: null,
+      alternatives: [],
+      agentVerdict: null,
+      message: honesty,
+      charged: false,
+      creditNote: "No report credit charged — incomplete chat stays free.",
+      transcript: session.messages,
+      journalMeta,
+      passReason: null,
+      confirmedBrief: session.confirmedBrief,
+      agentLoop: {
+        agentMode: "agentMode" in agent ? agent.agentMode : null,
+        toolRounds: "toolRounds" in agent ? agent.toolRounds : 0,
+        verdictReached: false,
+        relaxedConditions: [],
+        journalServCalls: journalMeta.servCalls,
+        journalToolCalls: journalMeta.toolCalls,
+        carsFound: "knownVins" in agent ? agent.knownVins.length : 0,
+        passReason: null,
+      },
+      error: "error" in agent ? agent.error : "could_not_finish",
+    };
+    session.result = result;
+    session.checkpoint = null;
     await save(input.kv, session);
     return {
-      ok: false,
-      status: 502,
-      body: { ok: false, status: "error", sessionId: session.sessionId, messages: session.messages, message: agent.message, charged: false },
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        status: "done",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        result,
+        charged: false,
+        message: honesty,
+      },
     };
   }
 

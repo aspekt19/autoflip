@@ -4,7 +4,10 @@
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
  */
-import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
+import {
+  boundaryRepairMessage,
+  synthesizeRelaxedConditionsFromSearches,
+} from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   formatShopperBriefCard,
@@ -145,6 +148,7 @@ export function searchesFromResaleJournal(
       params,
       resultCount: Number.isFinite(resultCount) ? resultCount : 0,
       funnel: entry.funnel ?? null,
+      providerStatus: entry.providerStatus ?? null,
     });
   }
   return out;
@@ -451,22 +455,42 @@ User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.
 Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
-    "You are Lemonless Resale. Use ask_shopper in this same chat when budget or material facts are missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search_listings / submit_picks. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
     SERV_TOPIC_SCOPE_RULE,
-    "When enough, call submit_brief with budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
+    "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
+    "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
     "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
-    "A pass/nothing-fits summary must state what you tried and why nothing fit — never pass silently without a written reason and journaled searches.",
+    "End ONLY with a terminal tool: submit_picks (chosen flips) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts/HTTP statuses.",
     "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
     "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
     "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
-    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
+    "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
     `Shopper note:\n${note.trim() || "(empty)"}${constraintLine}${rankingLine}`,
   ].join(" ");
+}
+
+const RESALE_TERMINAL_NUDGE =
+  "No terminal tool yet. Call submit_picks (chosen flips) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches.";
+
+const RESALE_COULD_NOT_FINISH =
+  "We couldn't finish this flip search — SERV stopped without submit_picks or submit_nothing_fits after a repair turn.";
+
+function nothingFitsResaleVerdictFromReason(
+  reason: string,
+  journal: readonly ResaleAgentJournalEntry[],
+): import("@/domain/resale-agent").ResaleAgentVerdict {
+  const searches = searchesFromResaleJournal(journal);
+  return {
+    summary: reason.trim(),
+    confidence: "low",
+    picks: [],
+    relaxedConditions: synthesizeRelaxedConditionsFromSearches(searches),
+  };
 }
 
 function argumentText(value: unknown): string {
@@ -824,18 +848,78 @@ async function finalizeVerdict(input: {
     }
   }
 
-  const gated = validateResaleSubmitPicks(validated.verdict, {
+  const searches = searchesFromResaleJournal(input.journal);
+  let gated = validateResaleSubmitPicks(validated.verdict, {
     listingsByVin: listingFactsFromState(input.state),
     budgetUsd: input.budgetUsd,
     pnlByVin: pnlFactsFromState(input.state),
-    searches: searchesFromResaleJournal(input.journal),
+    searches,
   });
   if (!gated.ok) {
-    return {
-      ok: false,
-      error: "verdict_incomplete",
-      message: gated.issues.map((i) => i.message).join("; "),
-    };
+    const repairBody = chatBody({
+      messages: [
+        ...messages,
+        { role: "assistant", content: text || "{}" },
+        {
+          role: "user",
+          content: boundaryRepairMessage({
+            issues: gated.issues,
+            searches,
+            hint: "Return corrected resale_agent_result JSON only. Prefer submit_picks / submit_nothing_fits on the tools path.",
+          }),
+        },
+      ],
+      jsonSchema: {
+        name: "resale_agent_result",
+        schema: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
+      },
+    });
+    const repair = await postChat({
+      apiKey: input.apiKey,
+      baseUrl: input.baseUrl,
+      fetch: input.fetch,
+      body: repairBody,
+    });
+    pushServJournal({
+      journal: input.journal,
+      rejections: input.rejections,
+      bundle: input.bundle,
+      responseId: responseIdOf(repair.payload),
+      latencyMs: repair.latencyMs,
+      mode: input.mode,
+      finishReason: repair.payload ? servFinishReason(repair.payload) : null,
+      hadToolCalls: false,
+      endpoint: "chat",
+      turn: repair,
+    });
+    if (!repair.ok) {
+      return {
+        ok: false,
+        error: "serv_repair_http",
+        message: repair.error || `SERV boundary repair failed (HTTP ${repair.status}).`,
+      };
+    }
+    const repaired = validateResaleAgentVerdict(parseJsonObject(messageText(repair.payload, "structured")));
+    if (!repaired.ok) {
+      return {
+        ok: false,
+        error: "verdict_validation_failed",
+        message: RESALE_COULD_NOT_FINISH,
+      };
+    }
+    gated = validateResaleSubmitPicks(repaired.verdict, {
+      listingsByVin: listingFactsFromState(input.state),
+      budgetUsd: input.budgetUsd,
+      pnlByVin: pnlFactsFromState(input.state),
+      searches: searchesFromResaleJournal(input.journal),
+    });
+    if (!gated.ok) {
+      return {
+        ok: false,
+        error: "verdict_incomplete",
+        message: RESALE_COULD_NOT_FINISH,
+      };
+    }
   }
   const guarded = applyResaleAgentGuardrails(gated.verdict, {
     allowedVins: input.state.knownVins,
@@ -985,52 +1069,24 @@ async function runToolsMode(input: {
         responsesInput = [
           ...responsesInput,
           responsesUserMessage(
-            "No tool calls received. Call submit_picks now with summary/confidence/picks/relaxedConditions using only VINs and code flipPnl from prior tool results.",
+            `${RESALE_TERMINAL_NUDGE}\n${boundaryRepairMessage({
+              issues: ["Missing terminal tool call."],
+              searches: searchesFromResaleJournal(input.journal),
+            })}`,
           ),
         ];
         continue;
       }
-      const finished = await finalizeVerdict({
-        apiKey: input.deps.servKey,
-        baseUrl: input.baseUrl,
-        fetch: input.fetchImpl,
-        note: input.note,
-        shopperContext: input.shopperContext,
-        state: input.state,
-        journal: input.journal,
-        priorMessages: finishMessages,
-        mode: "tools",
-        budgetUsd: input.deps.budgetUsd ?? null,
-        bundle,
-        rejections,
-      });
-      if (!finished.ok) {
-        return {
-          ok: false,
-          agentMode: "tools",
-          requestedMode,
-          toolRounds,
-          verdictReached: false,
-          error: finished.error,
-          message: finished.message,
-          journal: input.journal,
-          knownVins: [...input.state.knownVins],
-          ...resaleLoopMeta(bundle, rejections),
-        };
-      }
       return {
-        ok: true,
+        ok: false,
         agentMode: "tools",
         requestedMode,
         toolRounds,
-        verdictReached: true,
-        verdict: finished.verdict,
-        relaxedConditions: finished.verdict.relaxedConditions,
+        verdictReached: false,
+        error: "missing_terminal",
+        message: RESALE_COULD_NOT_FINISH,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        listingsByVin: input.state.listingsByVin,
-        pnlByVin: input.state.pnlByVin,
-        droppedPicks: finished.dropped,
         ...resaleLoopMeta(bundle, rejections),
       };
     }
@@ -1096,44 +1152,63 @@ async function runToolsMode(input: {
           };
         }
 
-        if (call.name === "submit_picks") {
-          const checked = validateResaleSubmitPicks(args, {
+        if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
+          const searches = searchesFromResaleJournal(input.journal);
+          const submitArgs =
+            call.name === "submit_nothing_fits"
+              ? nothingFitsResaleVerdictFromReason(
+                  typeof (args as { reason?: unknown }).reason === "string"
+                    ? String((args as { reason: string }).reason)
+                    : "",
+                  input.journal,
+                )
+              : args;
+          const checked = validateResaleSubmitPicks(submitArgs, {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd: input.deps.budgetUsd ?? null,
             pnlByVin: pnlFactsFromState(input.state),
-            searches: searchesFromResaleJournal(input.journal),
+            searches,
           });
           if (!checked.ok) {
+            const repair = boundaryRepairMessage({
+              issues: checked.issues,
+              searches,
+              hint:
+                call.name === "submit_nothing_fits"
+                  ? "Fix the reason (or run search_listings first), then call submit_nothing_fits again."
+                  : "Fix these issues and call submit_picks or submit_nothing_fits again.",
+            });
             input.journal.push({
               kind: "tool",
-              name: "submit_picks",
+              name: call.name,
               args,
-              summary: `submit_picks rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
+              summary: `${call.name} rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
               ok: false,
             });
             return {
               callId: call.callId,
-              name: "submit_picks" as const,
+              name: call.name as "submit_picks" | "submit_nothing_fits",
               accepted: false as const,
               output: {
                 ok: false,
                 error: "validation_failed",
                 issues: checked.issues,
-                message: "Fix these issues and call submit_picks again.",
+                message: repair,
+                searchJournalEvidence: searches,
               },
             };
           }
           const enriched = enrichResaleRelaxed(checked.verdict, input.journal);
           input.journal.push({
             kind: "tool",
-            name: "submit_picks",
+            name: call.name,
             args,
-            summary: `submit_picks accepted picks=${enriched.picks.length}`,
+            summary: `${call.name} accepted picks=${enriched.picks.length}`,
             ok: true,
           });
           return {
             callId: call.callId,
-            name: "submit_picks" as const,
+            name: call.name as "submit_picks" | "submit_nothing_fits",
             accepted: true as const,
             verdict: enriched,
             output: {
@@ -1251,9 +1326,19 @@ async function runToolsMode(input: {
     }
 
     const accepted = settled.find(
-      (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
+      (row) =>
+        (row.name === "submit_picks" || row.name === "submit_nothing_fits") &&
+        "accepted" in row &&
+        row.accepted === true &&
+        "verdict" in row,
     ) as
-      | { callId: string; name: "submit_picks"; accepted: true; verdict: ResaleAgentVerdict; output: unknown }
+      | {
+          callId: string;
+          name: "submit_picks" | "submit_nothing_fits";
+          accepted: true;
+          verdict: ResaleAgentVerdict;
+          output: unknown;
+        }
       | undefined;
     if (accepted) {
       return {
@@ -1280,8 +1365,8 @@ async function runToolsMode(input: {
     requestedMode,
     toolRounds,
     verdictReached: false,
-    error: "max_rounds",
-    message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
+    error: "missing_terminal",
+    message: RESALE_COULD_NOT_FINISH,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
     ...resaleLoopMeta(bundle, rejections),
@@ -1617,20 +1702,20 @@ async function runNextActionMode(input: {
         }
       }
 
+      const searches = searchesFromResaleJournal(input.journal);
       const gated = validateResaleSubmitPicks(validated.verdict, {
         listingsByVin: listingFactsFromState(input.state),
         budgetUsd: input.deps.budgetUsd ?? null,
         pnlByVin: pnlFactsFromState(input.state),
-        searches: searchesFromResaleJournal(input.journal),
+        searches,
       });
       if (!gated.ok) {
         messages.push({
           role: "user",
-          content: JSON.stringify({
-            validationError: {
-              message: "Finish verdict incomplete. Fix and return finish again.",
-              issues: gated.issues,
-            },
+          content: boundaryRepairMessage({
+            issues: gated.issues,
+            searches,
+            hint: "Finish verdict incomplete. Return a corrected finish action JSON (or keep searching).",
           }),
         });
         continue;
@@ -1704,6 +1789,7 @@ export async function runResaleAgentLoop(input: {
   const journal = restored.journal;
   const state = restored.state;
   state.requireBriefConfirm = input.requireBriefConfirm === true;
+  if (input.briefConfirmed === true) state.briefConfirmed = true;
   const shopperContext = input.shopperContext ?? input.deps.shopperContext;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(

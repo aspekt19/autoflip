@@ -33,6 +33,7 @@ export const RESALE_AGENT_TOOL_NAMES = [
   "get_market_comps",
   "get_flip_pnl",
   "submit_picks",
+  "submit_nothing_fits",
 ] as const;
 export type ResaleAgentToolName = (typeof RESALE_AGENT_TOOL_NAMES)[number];
 
@@ -152,8 +153,10 @@ export function resaleAgentChatTools(): Array<{
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }> {
-  // Drop Find's submit_picks; Resale has its own schema + get_flip_pnl.
-  const base = findAgentChatTools().filter((tool) => tool.function.name !== "submit_picks");
+  // Drop Find's submit_picks / submit_nothing_fits; Resale has its own schema + get_flip_pnl.
+  const base = findAgentChatTools().filter(
+    (tool) => tool.function.name !== "submit_picks" && tool.function.name !== "submit_nothing_fits",
+  );
   return [
     ...base,
     {
@@ -180,8 +183,28 @@ export function resaleAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final resale flip verdict. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is non-negative. On validation failure the tool returns issues — fix and call submit_picks again.",
+          "Submit the final resale flip verdict with chosen flips. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is non-negative. On validation failure the tool returns issues — fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
         parameters: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "submit_nothing_fits",
+        description:
+          "Terminal: no flip fits after searching. Pass a written reason only. Code attaches journaled search_listings evidence (params, counts, HTTP status) automatically — do not re-document searches.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            reason: {
+              type: "string",
+              description:
+                "Why nothing fits. Code already journals every search_listings call.",
+            },
+          },
+          required: ["reason"],
+        },
       },
     },
   ];

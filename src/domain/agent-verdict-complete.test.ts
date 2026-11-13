@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundaryRepairMessage,
   filterRealRelaxedConditions,
+  formatSearchJournalEvidence,
   isRealRelaxationText,
   liveEvalOutcomeOk,
   scoringVerdictComplete,
@@ -93,6 +95,47 @@ describe("relaxedConditions text", () => {
     expect(rows[0]?.why).toMatch(/zip=75201/);
     expect(rows[0]?.why).toMatch(/funnel/);
     expect(rows[0]?.why).not.toMatch(/redacted/i);
+  });
+});
+
+describe("boundary repair + journal evidence", () => {
+  it("formats code-journaled search rows with params, counts, and HTTP status", () => {
+    const evidence = formatSearchJournalEvidence([
+      {
+        params: { zip: "80202", priceMaxUsd: 12000, bodyFamily: "car" },
+        resultCount: 0,
+        providerStatus: 200,
+      },
+      {
+        params: { zip: "80202", radiusMi: 100 },
+        resultCount: 4,
+        providerStatus: 400,
+      },
+    ]);
+    expect(evidence).toMatch(/search_1:.*zip=80202/);
+    expect(evidence).toMatch(/kept=0/);
+    expect(evidence).toMatch(/http=200/);
+    expect(evidence).toMatch(/http=400/);
+    const repair = boundaryRepairMessage({
+      issues: ["Nothing-fits requires prior search_listings calls in the code journal."],
+      searches: [],
+    });
+    expect(repair).toMatch(/Boundary check failed/);
+    expect(repair).toMatch(/do not re-document/i);
+    expect(repair).toMatch(/no search_listings calls journaled yet/i);
+  });
+
+  it("treats journaled searches as documentation — SERV only supplies the reason", () => {
+    const result = scoringVerdictComplete({
+      verdict: {
+        picks: [],
+        nothingFitsReason: "Nothing cleared cargo + budget after the journaled searches.",
+      },
+      searches: [
+        { params: { zip: "80202", priceMaxUsd: 12000 }, resultCount: 0, providerStatus: 200 },
+      ],
+    });
+    expect(result).toEqual({ complete: true, kind: "nothing_fits" });
   });
 });
 

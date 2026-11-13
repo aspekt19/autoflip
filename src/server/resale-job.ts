@@ -965,6 +965,9 @@ export async function advanceResaleJob(
           },
           checkpoint: job.agentLoopCheckpoint ?? null,
           deadline,
+          // Job form already collected constraints — treat brief as confirmed.
+          requireBriefConfirm: true,
+          briefConfirmed: true,
           deps: {
             servKey,
             autodevKey,

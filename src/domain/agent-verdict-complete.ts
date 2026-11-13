@@ -22,6 +22,8 @@ export type AgentSearchJournalRow = {
   resultCount: number;
   /** Optional per-filter funnel steps from search_listings. */
   funnel?: Array<{ step: string; count: number }> | null;
+  /** Provider HTTP status when search_listings failed upstream (0 = network/timeout). */
+  providerStatus?: number | null;
 };
 
 export type AgentRejectReason = {
@@ -109,7 +111,66 @@ function searchesDocumented(searches: readonly AgentSearchJournalRow[]): boolean
 }
 
 /**
+ * Code-owned search_listings evidence for repair / nothing-fits.
+ * SERV must not re-document these rows — reference them in the reason only.
+ */
+export function formatSearchJournalEvidence(
+  searches: readonly AgentSearchJournalRow[],
+): string {
+  if (searches.length === 0) {
+    return "(no search_listings calls journaled yet — run search_listings before submit_nothing_fits / empty submit_picks)";
+  }
+  return searches
+    .map((row, i) => {
+      const params = row.params ?? {};
+      const label = [
+        params.zip != null ? `zip=${String(params.zip)}` : null,
+        params.radiusMi != null ? `radius=${String(params.radiusMi)}mi` : null,
+        params.priceMaxUsd != null ? `priceMax=$${String(params.priceMaxUsd)}` : null,
+        params.bodyStyle != null ? `body=${String(params.bodyStyle)}` : null,
+        params.bodyFamily != null ? `bodyFamily=${String(params.bodyFamily)}` : null,
+        params.yearMin != null ? `yearMin=${String(params.yearMin)}` : null,
+        params.make != null ? `make=${String(params.make)}` : null,
+        params.model != null ? `model=${String(params.model)}` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const http =
+        row.providerStatus != null && Number.isFinite(row.providerStatus)
+          ? ` http=${row.providerStatus}`
+          : "";
+      const funnel =
+        row.funnel && row.funnel.length > 0
+          ? `; funnel ${row.funnel.map((s) => `${s.step}=${s.count}`).join(" → ")}`
+          : "";
+      return `search_${i + 1}: ${label || "open filters"}; kept=${row.resultCount}${http}${funnel}`;
+    })
+    .join("\n");
+}
+
+/** Repair payload when a boundary check fails — exact problem + code journal evidence. */
+export function boundaryRepairMessage(input: {
+  issues: readonly string[] | readonly { message: string }[];
+  searches: readonly AgentSearchJournalRow[];
+  hint?: string;
+}): string {
+  const issues = input.issues.map((row) => (typeof row === "string" ? row : row.message));
+  const lines = [
+    "Boundary check failed — repair and call a terminal tool (submit_picks or submit_nothing_fits).",
+    input.hint?.trim() || null,
+    "Issues:",
+    ...issues.map((msg) => `- ${msg}`),
+    "Code-journaled search_listings evidence (do not re-document; use only in your reason):",
+    formatSearchJournalEvidence(input.searches),
+  ].filter((line): line is string => Boolean(line && line.trim()));
+  return lines.join("\n");
+}
+
+/**
  * Whether a verdict is complete for scoring / verdictReached.
+ *
+ * Nothing-fits evidence for searches comes from the code journal (params, counts,
+ * HTTP status). SERV supplies the written reason; it must not re-document searches.
  */
 export function scoringVerdictComplete(
   input: ScoringVerdictCompleteInput,
@@ -123,12 +184,12 @@ export function scoringVerdictComplete(
   const reason = (input.verdict.nothingFitsReason ?? "").trim();
   if (!reason) {
     issues.push(
-      "Empty picks require an explicit nothing-fits reason (passReason / summary) listing why no car was chosen and what searches were tried.",
+      "Empty picks require an explicit nothing-fits reason (passReason / summary). Code already journals search_listings — state why nothing fit; do not re-list search params.",
     );
   }
   if (!searchesDocumented(input.searches)) {
     issues.push(
-      "Nothing-fits requires documenting every search_listings call (params + result count) in the journal.",
+      "Nothing-fits requires prior search_listings calls in the code journal (params + result count + HTTP status when present). Run search_listings first; code attaches the evidence automatically.",
     );
   }
 

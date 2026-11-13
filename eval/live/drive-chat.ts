@@ -1,12 +1,14 @@
 /**
  * Drive Find/Resale SERV chat for live eval:
  * user message → answer questions → confirm brief → continue until verdict.
- * Replies are generic; code does not parse or invent shopper facts.
+ * Replies come from the query note/persona (budget, zip, use); otherwise
+ * "no preference". Code does not invent shopper facts beyond the query.
  *
  * HTTP eval-live uses planNextEvalChatTurn for one hop per request.
  * Local CLI may still loop hops in-process via driveServChatEval.
  */
 import { LIVE_EVAL_GENERIC_SHOPPER_REPLY } from "@/domain/serv-chat";
+import type { GeneratedQuery } from "./types";
 
 export const LIVE_EVAL_CHAT_MAX_HOPS = 40;
 
@@ -30,6 +32,49 @@ export type EvalChatTurnPlan =
   | { kind: "turn"; input: Parameters<ChatTurnFn>[0]; asked?: boolean; briefConfirmed?: boolean }
   | { kind: "done" }
   | { kind: "stop"; reason: string };
+
+const USE_LABEL: Record<string, string> = {
+  cargo: "weekend cargo / gear space",
+  commute: "daily commuting",
+  truck_flip: "flipping trucks or SUVs that turn faster",
+  family: "family use",
+  road_trip: "road trips",
+};
+
+/**
+ * Build a shopper reply from the generated query note/persona.
+ * Answers budget, zip, and use when present; otherwise "no preference".
+ */
+export function evalShopperReplyFromQuery(
+  query: Pick<GeneratedQuery, "note" | "zip" | "tags"> | null | undefined,
+): string {
+  if (!query) return LIVE_EVAL_GENERIC_SHOPPER_REPLY;
+  const parts: string[] = [];
+  const budgetTag = query.tags?.budget?.trim();
+  if (budgetTag) {
+    const k = /^(\d+)\s*k$/i.exec(budgetTag);
+    const dollars = k ? `$${Number(k[1]) * 1000}` : /^\d+$/.test(budgetTag) ? `$${budgetTag}` : budgetTag;
+    parts.push(`Budget is about ${dollars}.`);
+  } else {
+    // Do not regex the note — tags already carry the budget when the generator set one.
+    parts.push("No budget preference beyond what I already wrote.");
+  }
+  if (query.zip?.trim()) {
+    parts.push(`ZIP ${query.zip.trim()} is fine.`);
+  } else {
+    parts.push("No ZIP preference — nationwide is fine.");
+  }
+  const need = query.tags?.need?.trim();
+  if (need && USE_LABEL[need]) {
+    parts.push(`Use: ${USE_LABEL[need]}.`);
+  } else if (need) {
+    parts.push(`Use: ${need.replace(/_/g, " ")}.`);
+  } else {
+    parts.push("No other use preference.");
+  }
+  parts.push("No other preferences — go ahead with what you have. Please submit the brief card when ready.");
+  return parts.join(" ");
+}
 
 /**
  * Decide the next single chat turn from the prior response status.
