@@ -4,16 +4,15 @@ import { runFindChatTurn } from "../../src/server/find-chat";
 /**
  * Two-round, real Find vs Gemini Search-grounded comparison.
  * Run only from the manually dispatched live-eval workflow on the PR branch.
- * The Find side uses production /api/internal/eval-live (runFindChatTurn),
- * so it exercises the actual Find chat/search/verdict path while skipCredit=true.
+ * The Find side calls the same runFindChatTurn function used by /api/find/chat,
+ * with an in-memory KV and skipCredit=true; no report credits or production KV are used.
  *
- * Required env: EVAL_LIVE_URL, EVAL_LIVE_SECRET, GEMINI_API_KEY.
+ * Required env: SERV_API_KEY, AUTODEV_API_KEY, GEMINI_API_KEY.
  * Never prints secret values. Writes raw responses and metadata under OUTPUT_DIR.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const ORIGIN = (process.env.EVAL_LIVE_URL || "https://autoflip-umber.vercel.app").replace(/\/$/, "");
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || "").trim();
 const SERV_API_KEY = (process.env.SERV_API_KEY || "").trim();
 const AUTODEV_API_KEY = (process.env.AUTODEV_API_KEY || "").trim();
@@ -39,25 +38,6 @@ function writeJson(name, value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function postJson(url, headers, body, label) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { ...headers, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error(label + " returned non-JSON HTTP " + response.status + ": " + text.slice(0, 500));
-  }
-  if (!response.ok) {
-    throw new Error(label + " failed with HTTP " + response.status + ": " + JSON.stringify(json).slice(0, 1000));
-  }
-  return { json, status: response.status, requestId: response.headers.get("x-request-id") || response.headers.get("x-vercel-id") || null };
 }
 
 async function runFind(roundId) {
@@ -242,7 +222,7 @@ async function main() {
       "This is one use case repeated twice, not a statistically general benchmark.",
       "Search inventory can change between T0 and T+10; compare listing evidence and timestamps before calling answer changes inconsistent.",
       "Accident-free/salvage, AWD and out-the-door price require independent evidence; listing feed accidentCount=0 is not proof.",
-      "The public Find run record is retained when the endpoint returns a runId.",
+      "Find result, conversation turns, SERV response IDs, usage metadata and selected-run ID are saved as raw experiment evidence. The local MemoryKv run record is not publicly accessible after the job exits.",
       "For the selected gemini-2.5-flash model, Google lists Free Tier input/output tokens and Google Search grounding free up to 500 requests per day, shared with Gemini 2.5 Flash-Lite. The model is deprecated and scheduled to stop being selectable in AI Studio; direct API requests remain available through November 30, 2026, then route to Gemini 3.5 Flash-Lite from December 1. The test must run before that cutoff.",
       "Token usage and grounding-query count are provider telemetry, not a billing invoice. Exact cost is not asserted unless returned by the provider.",
     ],
