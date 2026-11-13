@@ -22,7 +22,7 @@ export const PROMPT =
 
 const CRITERIA = [
   { id: "hard_constraints", label: "Hard constraint satisfaction", weight: 25 },
-  { id: "vin_aw,history", label: "VIN, AWD and accident/title-history verification", weight: 20 },
+  { id: "vin_awd_history", label: "VIN, AWD and accident/title-history verification", weight: 20 },
   { id: "safety_children", label: "Safety and child passengers", weight: 20 },
   { id: "ownership_cost", label: "Ownership cost and fuel economy", weight: 15 },
   { id: "offer_rationale", label: "Offer and price rationale", weight: 15 },
