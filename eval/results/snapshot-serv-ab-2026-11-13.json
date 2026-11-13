@@ -271,11 +271,11 @@
     "notableDifference": "The features-on pick is $1,779 lower in asking price and has 12,602 fewer miles than the features-off pick, but is four model years older. No verified AWD, out-the-door cost, independent history, safety or fuel-economy evidence is available to declare either vehicle the better purchase.",
     "latency": "Features-on took 48.443 seconds versus 15.671 seconds for features-off (about 3.1× as long).",
     "cost": "Each SERV call is estimated at $0.03 by the harness; provider-reported cost was null. Combined harness estimate: $0.06, not an invoice.",
-    "totalCompletedRuns": 2,
-    "totalListingSearches": 2,
-    "totalServCalls": 4,
-    "completedRunsHarnessEstimateUsd": 0.12,
-    "repeatability": "A second complete run returned the identical 12 VINs in the identical order, and both feature arms selected the same VINs as the first run. This is a useful repeat observation but was triggered unintentionally by PR synchronization, not planned as a statistical replication."
+    "totalCompletedRuns": 4,
+    "totalListingSearches": 4,
+    "totalServCalls": 8,
+    "completedRunsHarnessEstimateUsd": 0.24,
+    "repeatability": "Across all four completed runs, each search returned the same 12 VINs with the same asking prices and mileages. Features-on selected VIN 3GNAXSEV4LS557854 in all four runs. Features-off selected two different 2024/2020 Equinox VINs across the four runs. All 12 scored criterion outcomes were ties; no criterion winner. Runs 2–4 were unintentionally triggered by PR synchronization before the workflow was switched to manual dispatch only."
   },
   "repeatRun": {
     "metadata": {
@@ -326,5 +326,71 @@
     },
     "criteriaResult": "3 ties; same two VINs selected again in the same feature arms.",
     "costEstimateUsd": 0.06
-  }
+  },
+  "additionalRuns": [
+    {
+      "metadata": {
+        "runId": 43489039840,
+        "runUrl": "https://github.com/aspekt19/autoflip/actions/runs/43489039840",
+        "artifactId": 14069341200,
+        "headSha": "cc85d2579e7a50365371a1719c39deefed5bdcc2",
+        "capturedAt": "2026-11-13T19:07:02.367Z",
+        "generatedAt": "2026-11-13T19:07:19.048Z"
+      },
+      "sameCandidateSet": true,
+      "arms": {
+        "features_off": {
+          "responseId": "resp_04bc9476fc87d02c016af75fd69df887d2b4619a05ca4baa6d",
+          "latencyMs": 10462,
+          "totalTokens": 2286,
+          "estimatedCostUsd": 0.03,
+          "pickVin": "3GNAXSEV4LS557854",
+          "openingOfferUsd": 18000,
+          "walkAwayUsd": 20000
+        },
+        "features_on": {
+          "responseId": "resp_01820cf6fe8ca382016af75fe2885087d2b37314a0b295e491",
+          "latencyMs": 6216,
+          "totalTokens": 2111,
+          "estimatedCostUsd": 0.03,
+          "pickVin": "3GNAXSEV4LS557854",
+          "openingOfferUsd": 18500,
+          "walkAwayUsd": 22000
+        }
+      },
+      "criteriaResult": "3 ties."
+    },
+    {
+      "metadata": {
+        "runId": 43489075503,
+        "runUrl": "https://github.com/aspekt19/autoflip/actions/runs/43489075503",
+        "artifactId": 14068717592,
+        "headSha": "7bbcac1357f30819b68aa5f3e88bc5d5a06f5e57",
+        "capturedAt": "2026-11-13T19:07:52.227Z",
+        "generatedAt": "2026-11-13T19:08:05.222Z"
+      },
+      "sameCandidateSet": true,
+      "arms": {
+        "features_off": {
+          "responseId": "resp_0773918de823691e016af760086db487d2a1c580c50a0a7831",
+          "latencyMs": 7822,
+          "totalTokens": 2207,
+          "estimatedCostUsd": 0.03,
+          "pickVin": "3GNAXUEGXRL351230",
+          "openingOfferUsd": 21000,
+          "walkAwayUsd": 22000
+        },
+        "features_on": {
+          "responseId": "resp_011794e196d8b7b8016af7601171ec87d286a130ad385bf042",
+          "latencyMs": 5169,
+          "totalTokens": 2097,
+          "estimatedCostUsd": 0.03,
+          "pickVin": "3GNAXSEV4LS557854",
+          "openingOfferUsd": 18500,
+          "walkAwayUsd": 22000
+        }
+      },
+      "criteriaResult": "3 ties."
+    }
+  ]
 }
