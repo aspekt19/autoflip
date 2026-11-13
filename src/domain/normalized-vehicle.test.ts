@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { matchFuelVehicles, buildFindFuelAssumptions } from "@/domain/find-fuel-match";
 import {
+  buildFindFuelAssumptions,
+  inferPowertrainKind,
+  matchFuelVehicles,
+  powertrainKindFromEpa,
+} from "@/domain/find-fuel-match";
+import {
+  CHECK_SOURCE_CHECKLIST,
   clipBuyerText,
+  ensureCheckSourceChecklist,
   formatSourceAttemptLine,
   listingFromNormalizedRecord,
   mergeVehicleSources,
@@ -153,7 +160,9 @@ describe("normalized VIN record — symptom golden cases", () => {
         make: "Toyota",
         model: "RAV4",
         drivetrain: "AWD",
-        fuelType: "Gasoline/Electric Hybrid",
+        fuelType: "Gasoline",
+        fuelTypeSecondary: "Electricity",
+        electrificationLevel: "Strong HEV (Hybrid Electric Vehicle)",
         strictVpicMatch: true,
       },
       vehicles: [gas2wd],
@@ -171,7 +180,9 @@ describe("normalized VIN record — symptom golden cases", () => {
         make: "Toyota",
         model: "RAV4",
         drivetrain: "AWD",
-        fuelType: "Gasoline/Electric Hybrid",
+        fuelType: "Gasoline",
+        fuelTypeSecondary: "Electricity",
+        electrificationLevel: "Strong HEV (Hybrid Electric Vehicle)",
         strictVpicMatch: true,
       },
       vehicles: [gas2wd, hybridAwd],
@@ -181,6 +192,111 @@ describe("normalized VIN record — symptom golden cases", () => {
     });
     expect(hit.match).toBe("exact");
     expect(hit.combMpgLow).toBe(40);
+  });
+
+  it("3b) 2018 RAV4 Hybrid Limited AWD (JTMDJREV1JD181661) never takes the gas AWD figure", () => {
+    // Real vPIC shape: FuelTypePrimary=Gasoline, Secondary=Electricity, ElectrificationLevel=HEV.
+    expect(
+      inferPowertrainKind({
+        fuelTypePrimary: "Gasoline",
+        fuelTypeSecondary: "Electricity",
+        electrificationLevel: "Strong HEV (Hybrid Electric Vehicle)",
+        model: "RAV4",
+        trim: "Limited",
+        title: "2018 Toyota RAV4 Hybrid Limited AWD",
+      }),
+    ).toBe("hev");
+    expect(
+      powertrainKindFromEpa({
+        fuelType: "Regular",
+        modelName: "RAV4",
+        optionText: "Auto, AWD",
+      }),
+    ).toBe("gas");
+    expect(
+      powertrainKindFromEpa({
+        fuelType: "Regular Gas and Electricity",
+        modelName: "RAV4 Hybrid",
+        optionText: "AWD",
+      }),
+    ).toBe("hev");
+
+    const assumptions = buildFindFuelAssumptions({
+      note: null,
+      usdPerGallon: 3.5,
+      priceSource: "labeled_fallback",
+    });
+    const gasAwd = {
+      detail: {
+        id: 10,
+        combMpg: 25,
+        cityMpg: 22,
+        highwayMpg: 28,
+        annualFuelCostUsd: 1650,
+        vehicleClass: "Small SUV",
+        engine: "2.5 L",
+        transmission: "Auto (AV-S6)",
+        drive: "All-Wheel Drive",
+        fuelType: "Regular",
+        make: "Toyota",
+        model: "RAV4",
+        year: 2018,
+      },
+      optionText: "Auto (AV-S6), 4 cyl, 2.5 L, AWD",
+      modelName: "RAV4",
+    };
+    const hybridAwd = {
+      detail: {
+        id: 11,
+        combMpg: 32,
+        cityMpg: 34,
+        highwayMpg: 30,
+        annualFuelCostUsd: 1150,
+        vehicleClass: "Small SUV",
+        engine: "2.5 L",
+        transmission: "Automatic (variable gear ratios)",
+        drive: "All-Wheel Drive",
+        fuelType: "Regular Gas and Electricity",
+        make: "Toyota",
+        model: "RAV4 Hybrid",
+        year: 2018,
+      },
+      optionText: "Automatic (variable gear ratios), 4 cyl, 2.5 L, AWD",
+      modelName: "RAV4 Hybrid",
+    };
+    const listing = {
+      year: 2018,
+      make: "Toyota",
+      model: "RAV4",
+      trim: "Limited",
+      drivetrain: "All-Wheel Drive (AWD)",
+      fuelType: "Gasoline", // FuelTypePrimary alone — the trap
+      fuelTypeSecondary: "Electricity",
+      electrificationLevel: "Strong HEV (Hybrid Electric Vehicle)",
+      title: "2018 Toyota RAV4 Hybrid Limited AWD",
+      strictVpicMatch: true,
+    };
+    // Gas AWD option exists in the menu — must NOT become the answer.
+    const gasOnly = matchFuelVehicles({
+      listing,
+      vehicles: [gasAwd],
+      assumptions,
+      modelNamesTried: ["RAV4", "RAV4 Hybrid"],
+      sourceUrl: "fixture://rav4-2018",
+    });
+    expect(gasOnly.match).toBe("no_match");
+    expect(gasOnly.combMpgLow).toBeNull();
+
+    const both = matchFuelVehicles({
+      listing,
+      vehicles: [gasAwd, hybridAwd],
+      assumptions,
+      modelNamesTried: ["RAV4", "RAV4 Hybrid"],
+      sourceUrl: "fixture://rav4-2018",
+    });
+    expect(both.match).toBe("exact");
+    expect(both.combMpgLow).toBe(32);
+    expect(both.combMpgLow).not.toBe(25);
   });
 
   it("4) Complaints attempt is recorded even when count is unavailable (null)", () => {
@@ -239,5 +355,48 @@ describe("normalized VIN record — symptom golden cases", () => {
     expect(line).toMatch(/Fuel economy \(unavailable\)/);
     expect(line).toMatch(/Market comps \(error\)/);
     expect(line).not.toMatch(/Cars for sale/i);
+  });
+
+  it("7) Check checklist always includes feed/page/vPIC/fuel/recalls/complaints/safety/comps", () => {
+    const partial = mergeVehicleSources({
+      vin: "JTMDJREV1JD181661",
+      vpic: {
+        year: 2018,
+        make: "TOYOTA",
+        model: "RAV4",
+        trim: "Limited",
+        driveType: "4WD/AWD",
+        fuel: "Gasoline",
+        fuelTypeSecondary: "Electricity",
+        electrificationLevel: "Strong HEV (Hybrid Electric Vehicle)",
+        engine: null,
+        bodyClass: null,
+        errorCode: "0",
+      },
+      vpicAttempted: true,
+      complaintsAttempted: true,
+      complaintsAvailable: true,
+      complaintCount: 12,
+      recallsAttempted: true,
+      recallsAvailable: true,
+      recallCount: 1,
+      fuelAttempted: true,
+      fuel: {
+        source: "fueleconomy.gov",
+        match: "closest_config",
+        combMpg: 32,
+        annualFuelCostUsd: 1150,
+        annualFuelCostLowUsd: 1150,
+        annualFuelCostHighUsd: 1150,
+        vehicleClass: "Small SUV",
+        configsConsidered: 1,
+      },
+    });
+    const checklist = ensureCheckSourceChecklist(partial.sourceAttempts);
+    expect(checklist.map((r) => r.source)).toEqual([...CHECK_SOURCE_CHECKLIST]);
+    expect(checklist.find((r) => r.source === "vin_decode")?.status).toBe("queried_with_data");
+    expect(checklist.find((r) => r.source === "complaints")?.status).toBe("queried_with_data");
+    expect(checklist.find((r) => r.source === "listing_page")?.status).toBe("not_attempted");
+    expect(checklist.find((r) => r.source === "market_comps")?.status).toBe("not_attempted");
   });
 });

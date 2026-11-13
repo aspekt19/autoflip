@@ -77,6 +77,12 @@ export type FindFuelEvidence = {
   honesty: string;
 };
 
+/**
+ * Powertrain identity used to match FuelEconomy.gov options.
+ * Built from ALL merged evidence — never FuelTypePrimary alone (hybrids often say Gasoline).
+ */
+export type PowertrainKind = "gas" | "diesel" | "hev" | "phev" | "ev" | "hydrogen" | "unknown" | "conflict";
+
 export type ListingFuelHints = {
   year: number;
   make: string;
@@ -84,14 +90,106 @@ export type ListingFuelHints = {
   trim?: string | null;
   engine?: string | null;
   drivetrain?: string | null;
-  /** Fuel type from vPIC / listing — used to avoid guessing hybrid vs gas. */
+  /** FuelTypePrimary from vPIC / listing — insufficient alone for hybrids. */
   fuelType?: string | null;
+  fuelTypeSecondary?: string | null;
+  electrificationLevel?: string | null;
+  /** Listing/page title when known (may contain "Hybrid"). */
+  title?: string | null;
   /**
-   * When true (vPIC published drivetrain and/or fuel type), a filter miss is
-   * unknown — never fall back to an incompatible 2WD/gas sibling config.
+   * When true (vPIC / merged evidence published drive or powertrain), a filter miss is
+   * unknown — never fall back to an incompatible sibling config.
    */
   strictVpicMatch?: boolean;
 };
+
+const HYBRID_TEXT_RE =
+  /\b(hybrid|hev|strong\s*hybrid|mild\s*hybrid|full\s*hybrid)\b/i;
+const PHEV_TEXT_RE = /\b(phev|plug[\s-]?in(\s*hybrid)?|prime)\b/i;
+/** Pure BEV tokens — not "Hybrid Electric Vehicle" (that is HEV). */
+const EV_TEXT_RE =
+  /\b(b\.?e\.?v\.?|battery\s*electric|\bev\b|e-?tron)\b/i;
+const DIESEL_TEXT_RE = /\bdiesel\b/i;
+const HYDROGEN_TEXT_RE = /\b(hydrogen|fuel\s*cell)\b/i;
+
+function blobHas(re: RegExp, ...parts: Array<string | null | undefined>): boolean {
+  return re.test(parts.filter(Boolean).join(" "));
+}
+
+/**
+ * Infer powertrain from merged vPIC + listing evidence.
+ * FuelTypePrimary "Gasoline" alone is NOT enough to call a car gas when
+ * ElectrificationLevel / FuelTypeSecondary / trim / title say hybrid.
+ */
+export function inferPowertrainKind(evidence: {
+  fuelTypePrimary?: string | null;
+  fuelTypeSecondary?: string | null;
+  electrificationLevel?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  title?: string | null;
+  engine?: string | null;
+}): PowertrainKind {
+  const primary = evidence.fuelTypePrimary ?? "";
+  const secondary = evidence.fuelTypeSecondary ?? "";
+  const elec = evidence.electrificationLevel ?? "";
+  const textBits = [evidence.model, evidence.trim, evidence.title, evidence.engine, elec, primary, secondary];
+  const joined = textBits.filter(Boolean).join(" ");
+
+  // ElectrificationLevel is authoritative when published.
+  if (/plug/i.test(elec) || /\bphev\b/i.test(elec)) return "phev";
+  if (/\bhev\b|hybrid/i.test(elec)) return "hev";
+  if (/\bbev\b|battery/i.test(elec)) return "ev";
+
+  if (blobHas(PHEV_TEXT_RE, ...textBits)) return "phev";
+  if (blobHas(HYBRID_TEXT_RE, ...textBits) || /electric/i.test(secondary)) return "hev";
+  if (blobHas(HYDROGEN_TEXT_RE, ...textBits)) return "hydrogen";
+  if (
+    blobHas(EV_TEXT_RE, ...textBits) ||
+    (/^electric/i.test(primary.trim()) && !secondary && !/hybrid/i.test(joined))
+  ) {
+    return "ev";
+  }
+  if (blobHas(DIESEL_TEXT_RE, primary, evidence.engine, evidence.model, evidence.trim)) {
+    return "diesel";
+  }
+  // Model-name EV cues (Model 3 / Leaf / etc.) when no fuel primary was published.
+  if (!primary && blobHas(/\b(model\s*[sxy3]|leaf|bolt\s*ev|ioniq\s*5|mach-?e)\b/i, evidence.model, evidence.title)) {
+    return "ev";
+  }
+  if (/\bgas(oline)?\b/i.test(primary) || /regular/i.test(primary)) return "gas";
+  // No primary fuel and no electrification cues → unknown (soft year/make/model path).
+  return "unknown";
+}
+
+/** Classify a FuelEconomy.gov option from its fuelType1 + model/option text. */
+export function powertrainKindFromEpa(input: {
+  fuelType?: string | null;
+  modelName?: string | null;
+  optionText?: string | null;
+}): PowertrainKind {
+  const fuel = input.fuelType ?? "";
+  const bits = [input.modelName, input.optionText, fuel];
+  if (blobHas(HYDROGEN_TEXT_RE, ...bits)) return "hydrogen";
+  if (blobHas(PHEV_TEXT_RE, ...bits) || /plug/i.test(fuel)) return "phev";
+  if (
+    blobHas(HYBRID_TEXT_RE, ...bits) ||
+    (/electric/i.test(fuel) && /gas/i.test(fuel)) ||
+    (/electricity/i.test(fuel) && /gas/i.test(fuel))
+  ) {
+    return "hev";
+  }
+  if (isElectricFuelType(fuel) || blobHas(EV_TEXT_RE, ...bits)) return "ev";
+  if (blobHas(DIESEL_TEXT_RE, fuel, input.optionText)) return "diesel";
+  if (/\bgas(oline)?\b|regular/i.test(fuel) || fuel) return "gas";
+  return "unknown";
+}
+
+export function powertrainKindsAgree(want: PowertrainKind, got: PowertrainKind): boolean {
+  if (want === "unknown" || want === "conflict") return false;
+  if (got === "unknown") return false;
+  return want === got;
+}
 
 function normalizeToken(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -398,7 +496,9 @@ function summarizeVehicles(
 
 /**
  * Pure matcher over already-fetched EPA vehicles (fixture-friendly).
- * When listing provides trim/engine/drive, filter; if multiple remain → ambiguous.
+ * Powertrain identity comes from ALL merged evidence (vPIC electrification + listing
+ * title/trim), never FuelTypePrimary alone. Options must agree on powertrain AND
+ * drivetrain; conflict or several survivors → unknown (never guess).
  */
 export function matchFuelVehicles(input: {
   listing: ListingFuelHints;
@@ -417,56 +517,97 @@ export function matchFuelVehicles(input: {
     });
   }
 
-  const fuelHint = input.listing.fuelType ?? null;
-  const allowAlt =
-    listingModelRequestsAltPowertrain(input.listing.model) ||
-    (fuelHint != null &&
-      (/\bhybrid|phev|plug[\s-]?in\b/i.test(fuelHint) || isElectricFuelType(fuelHint)));
-  const isAltVehicle = (v: { detail: { fuelType: string | null }; modelName: string }) =>
-    isAltPowertrainFuelType(v.detail.fuelType) || ALT_POWERTRAIN_RE.test(v.modelName);
-  // Drop Fuel Cell / Hybrid / EV siblings when ordinary gas/diesel configs exist for the
-  // same listing model. Pure-EV listings (Model 3, Leaf, …) keep their electric configs.
-  const hasOrdinarySibling = input.vehicles.some((v) => !isAltVehicle(v));
-  const compatible = input.vehicles.filter((v) => {
-    if (!allowAlt && hasOrdinarySibling && isAltVehicle(v)) return false;
-    return true;
+  const want = inferPowertrainKind({
+    fuelTypePrimary: input.listing.fuelType,
+    fuelTypeSecondary: input.listing.fuelTypeSecondary,
+    electrificationLevel: input.listing.electrificationLevel,
+    model: input.listing.model,
+    trim: input.listing.trim,
+    title: input.listing.title,
+    engine: input.listing.engine,
   });
-  const basePool = compatible.length > 0 ? compatible : input.vehicles;
 
-  const filtered = basePool.filter((v) => {
+  // Conflicting evidence → never guess a figure.
+  if (want === "conflict") {
+    return emptyEvidence("no_match", input.assumptions, {
+      modelNamesTried: input.modelNamesTried,
+      sourceUrl: input.sourceUrl,
+      reason: "Merged powertrain evidence conflicts — fuel economy left unknown.",
+      honesty:
+        "Fuel cost unavailable — vPIC/listing powertrain signals conflict. Lemonless does not guess MPG.",
+    });
+  }
+
+  const electrifiedWant = want === "hev" || want === "phev" || want === "ev" || want === "hydrogen";
+  const hasPowertrainEvidence = want !== "unknown";
+  const strict =
+    Boolean(input.listing.strictVpicMatch) ||
+    electrifiedWant ||
+    Boolean(input.listing.drivetrain?.trim()) ||
+    Boolean(input.listing.electrificationLevel?.trim()) ||
+    Boolean(input.listing.fuelTypeSecondary?.trim());
+
+  // Soft legacy path: no powertrain/drive evidence → year/make/model + optional engine/trim.
+  if (!hasPowertrainEvidence && !input.listing.drivetrain?.trim() && !strict) {
+    const allowAlt = listingModelRequestsAltPowertrain(input.listing.model);
+    const isAltVehicle = (v: { detail: { fuelType: string | null }; modelName: string }) =>
+      isAltPowertrainFuelType(v.detail.fuelType) || ALT_POWERTRAIN_RE.test(v.modelName);
+    const hasOrdinarySibling = input.vehicles.some((v) => !isAltVehicle(v));
+    let pool = input.vehicles.filter((v) => {
+      if (!allowAlt && hasOrdinarySibling && isAltVehicle(v)) return false;
+      return true;
+    });
+    if (pool.length === 0) pool = input.vehicles;
+    const engineNarrowed = pool.filter((v) =>
+      engineHintMatches(v.detail, v.optionText, input.listing.engine),
+    );
+    if (engineNarrowed.length > 0) pool = engineNarrowed;
+    const trimNarrowed = pool.filter((v) =>
+      trimHintMatches(v.optionText, v.modelName, input.listing.trim),
+    );
+    if (trimNarrowed.length > 0) pool = trimNarrowed;
+    return summarizeVehicles(pool, input.assumptions, input.modelNamesTried, input.sourceUrl);
+  }
+
+  const filtered = input.vehicles.filter((v) => {
+    const got = powertrainKindFromEpa({
+      fuelType: v.detail.fuelType,
+      modelName: v.modelName,
+      optionText: v.optionText,
+    });
+    // Any electrified evidence rejects plain gas/diesel siblings.
+    if (electrifiedWant && (got === "gas" || got === "diesel")) return false;
+    if (hasPowertrainEvidence && !powertrainKindsAgree(want, got)) return false;
     if (!driveHintMatches(v.detail.drive, input.listing.drivetrain)) return false;
-    if (!fuelTypeHintMatches(v.detail.fuelType, fuelHint)) return false;
     if (!engineHintMatches(v.detail, v.optionText, input.listing.engine)) return false;
-    if (!trimHintMatches(v.optionText, v.modelName, input.listing.trim)) return false;
     return true;
   });
+  // Trim is package-level (e.g. Limited) and often absent from EPA option text —
+  // only refine when at least one survivor mentions the trim.
+  const trimFiltered = filtered.filter((v) =>
+    trimHintMatches(v.optionText, v.modelName, input.listing.trim),
+  );
+  const survivors = trimFiltered.length > 0 ? trimFiltered : filtered;
 
-  // When vPIC published fuel/drive/trim, a filter miss stays unknown — never guess a sibling.
-  const strict = Boolean(input.listing.strictVpicMatch);
-
-  if (filtered.length === 0 && strict) {
+  if (survivors.length === 0) {
     return emptyEvidence("no_match", input.assumptions, {
       modelNamesTried: input.modelNamesTried,
       sourceUrl: input.sourceUrl,
       reason:
-        "FuelEconomy.gov had no configuration matching the VIN decode fuel type / drivetrain / trim — MPG left unknown.",
+        "FuelEconomy.gov had no configuration matching the merged powertrain type and drivetrain — MPG left unknown.",
       honesty:
-        "Fuel cost unavailable — FuelEconomy.gov configs did not match vPIC fuel type/drivetrain. Lemonless does not guess MPG.",
+        "Fuel cost unavailable — FuelEconomy.gov configs did not match vPIC/listing powertrain + drivetrain. Lemonless does not guess MPG.",
     });
   }
 
-  // Soft path (no drive/fuel hints): fall back to year/make/model as an ambiguous range.
-  const pool = filtered.length > 0 ? filtered : basePool;
-  const usedFallback = filtered.length === 0 && basePool.length > 0;
-  const evidence = summarizeVehicles(pool, input.assumptions, input.modelNamesTried, input.sourceUrl);
-  if (usedFallback) {
+  // Several survivors with distinct powertrains or MPG → unknown (never silent pick).
+  const evidence = summarizeVehicles(survivors, input.assumptions, input.modelNamesTried, input.sourceUrl);
+  if (survivors.length > 1 && evidence.match === "ambiguous") {
     return {
       ...evidence,
-      match: pool.length > 1 ? "ambiguous" : evidence.match,
-      ambiguous: pool.length > 1,
       reason:
-        "Listing trim/engine/drive hints did not uniquely match — using all year/make/model configurations as a range.",
-      honesty: `${evidence.honesty} Trim/engine/drive hints were inconclusive.`,
+        evidence.reason ??
+        "Several FuelEconomy.gov configurations remain after powertrain/drivetrain filter — showing a range, not a guessed single figure.",
     };
   }
   return evidence;
@@ -501,9 +642,29 @@ function priceAssumptionsFromFeed(
   });
 }
 
+/** When powertrain is electrified, also try "Model Hybrid" / "Model PHEV" EPA menu keys. */
+export function electrifiedEpaModelCandidates(listing: ListingFuelHints, want: PowertrainKind): string[] {
+  const base = listing.model.trim();
+  if (!base) return [];
+  if (want === "hev" || want === "phev") {
+    const out = [base];
+    if (!/\bhybrid\b/i.test(base)) out.push(`${base} Hybrid`);
+    if (want === "phev" && !/\b(phev|plug|prime)\b/i.test(base)) {
+      out.push(`${base} Plug-in Hybrid`, `${base} Prime`);
+    }
+    return out;
+  }
+  if (want === "ev" && !/\bev\b|electric/i.test(base)) {
+    return [base, `${base} Electric`, `${base} EV`];
+  }
+  return [base];
+}
+
 /**
  * Live (or injected-fetch) FuelEconomy match for one listing MMY.
  * Caps detail fetches; never invents a silent single pick when several options remain.
+ * Electrified powertrains also query Hybrid/PHEV/EV menu names — base "RAV4" alone
+ * would only return gas options.
  */
 export async function lookupFindFuelEvidence(
   listing: ListingFuelHints,
@@ -518,25 +679,64 @@ export async function lookupFindFuelEvidence(
   const deps = opts.deps;
   let sourceUrl: string | null = null;
   const modelNamesTried: string[] = [];
+  const want = inferPowertrainKind({
+    fuelTypePrimary: listing.fuelType,
+    fuelTypeSecondary: listing.fuelTypeSecondary,
+    electrificationLevel: listing.electrificationLevel,
+    model: listing.model,
+    trim: listing.trim,
+    title: listing.title,
+    engine: listing.engine,
+  });
 
   try {
-    // 1) Exact model menu
-    let menu = await fetchFuelMenuOptions(listing.year, listing.make, listing.model, deps);
-    sourceUrl = menu.url;
-    let modelNames = [listing.model];
+    const candidateNames = electrifiedEpaModelCandidates(listing, want);
+    // 1) Exact model menu (+ hybrid/PHEV/EV siblings when powertrain evidence says so)
+    const collected: Array<{ detail: FuelVehicleDetail; optionText: string; modelName: string }> = [];
+    let anyMenuAvailable = false;
 
-    if (!menu.available) {
+    for (const name of candidateNames) {
+      const menu = await fetchFuelMenuOptions(listing.year, listing.make, name, deps);
+      sourceUrl = menu.url;
+      modelNamesTried.push(name);
+      if (!menu.available) continue;
+      anyMenuAvailable = true;
+      for (const item of menu.items) {
+        if (item.id <= 0) continue;
+        collected.push({
+          detail: {
+            id: item.id,
+            combMpg: null,
+            cityMpg: null,
+            highwayMpg: null,
+            annualFuelCostUsd: null,
+            vehicleClass: null,
+            engine: null,
+            transmission: null,
+            drive: null,
+            fuelType: null,
+            make: listing.make,
+            model: name,
+            year: listing.year,
+          },
+          optionText: item.text || item.value,
+          modelName: name,
+        });
+      }
+    }
+
+    if (!anyMenuAvailable) {
       const baseline = buildFindFuelAssumptions({ note: opts.note, priceSource: "labeled_fallback" });
       return emptyEvidence("unavailable", baseline, {
         sourceUrl,
         reason: "FuelEconomy.gov menu request failed or timed out.",
         honesty: "Fuel cost unavailable — FuelEconomy.gov did not respond. Not invented.",
-        modelNamesTried: modelNames,
+        modelNamesTried,
       });
     }
 
-    // 2) If empty, resolve model aliases (CR-V → CR-V AWD / CR-V FWD)
-    if (menu.items.length === 0) {
+    // 2) If still empty, resolve model aliases from the make menu (CR-V → CR-V AWD / Hybrid)
+    if (collected.length === 0) {
       const models = await fetchFuelModelNames(listing.year, listing.make, deps);
       if (!models.available) {
         const baseline = buildFindFuelAssumptions({ note: opts.note, priceSource: "labeled_fallback" });
@@ -544,10 +744,21 @@ export async function lookupFindFuelEvidence(
           sourceUrl: models.url,
           reason: "FuelEconomy.gov model menu unavailable.",
           honesty: "Fuel cost unavailable — FuelEconomy.gov model list failed. Not invented.",
-          modelNamesTried: modelNames,
+          modelNamesTried,
         });
       }
-      modelNames = resolveEpaModelNames(listing.model, models.names);
+      // Prefer electrified aliases when powertrain evidence says hybrid/EV.
+      const resolved = resolveEpaModelNames(
+        want === "hev" || want === "phev"
+          ? listingModelRequestsAltPowertrain(listing.model)
+            ? listing.model
+            : `${listing.model} Hybrid`
+          : listing.model,
+        models.names,
+      );
+      // Also include plain resolve of the base model so AWD gas siblings stay visible for filtering.
+      const baseResolved = resolveEpaModelNames(listing.model, models.names);
+      const modelNames = [...new Set([...resolved, ...baseResolved])];
       modelNamesTried.push(...modelNames);
       if (modelNames.length === 0) {
         const baseline = buildFindFuelAssumptions({ note: opts.note, priceSource: "labeled_fallback" });
@@ -558,7 +769,6 @@ export async function lookupFindFuelEvidence(
           modelNamesTried,
         });
       }
-      const collected: Array<{ detail: FuelVehicleDetail; optionText: string; modelName: string }> = [];
       for (const name of modelNames) {
         const sub = await fetchFuelMenuOptions(listing.year, listing.make, name, deps);
         sourceUrl = sub.url;
@@ -585,39 +795,24 @@ export async function lookupFindFuelEvidence(
           });
         }
       }
-      // Fetch details
-      const withDetails: Array<{ detail: FuelVehicleDetail; optionText: string; modelName: string }> = [];
-      for (const row of collected.slice(0, maxConfigs)) {
-        if (row.detail.id == null) continue;
-        const { detail, url } = await fetchFuelVehicle(row.detail.id, deps);
-        sourceUrl = url;
-        if (detail) withDetails.push({ detail, optionText: row.optionText, modelName: row.modelName });
-      }
-      const prices = await fetchFuelPrices(deps);
-      const fuelType = withDetails[0]?.detail.fuelType ?? null;
-      const assumptions = priceAssumptionsFromFeed(fuelType, prices.prices, opts.note);
-      return matchFuelVehicles({
-        listing,
-        vehicles: withDetails,
-        assumptions,
-        modelNamesTried,
-        sourceUrl,
-      });
     }
 
-    modelNamesTried.push(listing.model);
     const withDetails: Array<{ detail: FuelVehicleDetail; optionText: string; modelName: string }> = [];
-    for (const item of menu.items.slice(0, maxConfigs)) {
-      if (item.id <= 0) continue;
-      const { detail, url } = await fetchFuelVehicle(item.id, deps);
+    // Prefer hybrid/PHEV menu rows first when that is the wanted powertrain so maxConfigs
+    // does not fill only with gas siblings.
+    const ordered = [...collected].sort((a, b) => {
+      const score = (name: string) => {
+        if (want === "hev" || want === "phev") return /\bhybrid|phev|prime|plug/i.test(name) ? 0 : 1;
+        if (want === "ev") return /\belectric|\bev\b/i.test(name) ? 0 : 1;
+        return 0;
+      };
+      return score(a.modelName) - score(b.modelName);
+    });
+    for (const row of ordered.slice(0, maxConfigs)) {
+      if (row.detail.id == null) continue;
+      const { detail, url } = await fetchFuelVehicle(row.detail.id, deps);
       sourceUrl = url;
-      if (detail) {
-        withDetails.push({
-          detail,
-          optionText: item.text || item.value,
-          modelName: listing.model,
-        });
-      }
+      if (detail) withDetails.push({ detail, optionText: row.optionText, modelName: row.modelName });
     }
     const prices = await fetchFuelPrices(deps);
     const fuelType = withDetails[0]?.detail.fuelType ?? null;

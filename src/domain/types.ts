@@ -27,6 +27,10 @@ export type Listing = {
   usageType: string | null;
   fuel: string | null;
   engine: string | null;
+  /** vPIC FuelTypeSecondary when decoded onto this listing. */
+  fuelTypeSecondary?: string | null;
+  /** vPIC ElectrificationLevel when decoded onto this listing. */
+  electrificationLevel?: string | null;
   /** Feed transmission when present (Automatic, Manual, CVT, …). Missing is unknown. */
   transmission?: string | null;
   drivetrain: string | null;
@@ -115,7 +119,12 @@ export type VinDecode = {
   trim?: string | null;
   driveType?: string | null;
   engine?: string | null;
+  /** FuelTypePrimary — hybrids often publish "Gasoline" here alone; use electrification too. */
   fuel?: string | null;
+  /** vPIC FuelTypeSecondary (e.g. Electricity on HEVs). */
+  fuelTypeSecondary?: string | null;
+  /** vPIC ElectrificationLevel (HEV / PHEV / BEV / …). */
+  electrificationLevel?: string | null;
   /** NHTSA BodyClass. Missing means the decode did not publish one. */
   bodyClass?: string | null;
 };

@@ -1581,7 +1581,8 @@ export async function executeFindAgentTool(
         continue;
       }
       try {
-        // Match fuel using vPIC/listing drivetrain + fuel type — mismatch stays unknown.
+        // Match fuel using merged powertrain identity (vPIC electrification + trim/title)
+        // and drivetrain — mismatch stays unknown; never guess gas for a hybrid.
         const evidence = await lookupFindFuelEvidence(
           {
             year: listing.year,
@@ -1591,6 +1592,11 @@ export async function executeFindAgentTool(
             engine: listing.engine ?? null,
             drivetrain: listing.drivetrain ?? null,
             fuelType: listing.fuel ?? null,
+            fuelTypeSecondary: listing.fuelTypeSecondary ?? null,
+            electrificationLevel: listing.electrificationLevel ?? null,
+            title: [listing.year, listing.make, listing.model, listing.trim]
+              .filter(Boolean)
+              .join(" "),
             strictVpicMatch: state.vpicEnrichedVins.has(vin),
           },
           { deps: { fetch: govDeps.fetch } },

@@ -516,6 +516,8 @@ export function listingFromNormalizedRecord(
     usageType: extras.usageType ?? null,
     fuel: record.fuelType.value,
     engine: record.engine.value,
+    fuelTypeSecondary: extras.fuelTypeSecondary ?? null,
+    electrificationLevel: extras.electrificationLevel ?? null,
     transmission: extras.transmission ?? null,
     drivetrain: record.drivetrain.value,
     bodyStyle: record.bodyStyle.value,
@@ -552,7 +554,37 @@ export function enrichListingWithVpic(listing: Listing, decode: VinDecode | null
     trim: listing.trim ?? decode.trim ?? null,
     drivetrain: listing.drivetrain ?? decode.driveType ?? null,
     fuel: listing.fuel ?? decode.fuel ?? null,
+    // Always prefer fresh vPIC electrification fields when the decode published them.
+    fuelTypeSecondary: decode.fuelTypeSecondary ?? listing.fuelTypeSecondary ?? null,
+    electrificationLevel: decode.electrificationLevel ?? listing.electrificationLevel ?? null,
     engine: listing.engine ?? decode.engine ?? null,
     bodyStyle: listing.bodyStyle ?? decode.bodyClass ?? null,
   };
+}
+
+/** Ensure Check report checklist rows exist for every required source (attempt-only). */
+export const CHECK_SOURCE_CHECKLIST: readonly VehicleSourceAttemptId[] = [
+  "listing_feed",
+  "listing_page",
+  "vin_decode",
+  "fuel_economy",
+  "recalls",
+  "complaints",
+  "safety_ratings",
+  "market_comps",
+] as const;
+
+export function ensureCheckSourceChecklist(
+  attempts: readonly VehicleSourceAttempt[],
+): VehicleSourceAttempt[] {
+  const byId = new Map(attempts.map((a) => [a.source, a]));
+  return CHECK_SOURCE_CHECKLIST.map((source) => {
+    const hit = byId.get(source);
+    if (hit) return hit;
+    return {
+      source,
+      label: VEHICLE_SOURCE_ATTEMPT_LABELS[source],
+      status: "not_attempted" as const,
+    };
+  });
 }

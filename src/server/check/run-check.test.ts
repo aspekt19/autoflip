@@ -146,6 +146,25 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "ok")).toBe(
       true,
     );
+    // Check-by-link / paste: attempt log reaches the card (feed/page/vPIC/fuel/…).
+    const attempts = result.result.sourceAttempts;
+    expect(attempts.map((a) => a.source)).toEqual([
+      "listing_feed",
+      "listing_page",
+      "vin_decode",
+      "fuel_economy",
+      "recalls",
+      "complaints",
+      "safety_ratings",
+      "market_comps",
+    ]);
+    expect(attempts.find((a) => a.source === "listing_page")?.status).toBe("queried_with_data");
+    expect(attempts.find((a) => a.source === "recalls")?.status).toMatch(
+      /queried_with_data|empty|unavailable/,
+    );
+    expect(attempts.find((a) => a.source === "complaints")?.status).toMatch(
+      /queried_with_data|empty|unavailable/,
+    );
   });
 
   it("honest-fails a VIN dossier without ask when SERV cannot deliver a verdict", async () => {
@@ -332,6 +351,24 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.agentVerdict.serv_spend?.costNote).not.toMatch(/Ordered gates withheld/i);
     // After decide → clamp → challenge, confidenceWhy follows the guarded agent decision.
     expect(result.result.confidenceWhy).toMatch(/guarded agent decision/i);
+    // Per-VIN attempt checklist must reach the Check card (same shape as Find/Resale).
+    const attempts = result.result.sourceAttempts;
+    expect(attempts.map((a) => a.source)).toEqual([
+      "listing_feed",
+      "listing_page",
+      "vin_decode",
+      "fuel_economy",
+      "recalls",
+      "complaints",
+      "safety_ratings",
+      "market_comps",
+    ]);
+    expect(attempts.find((a) => a.source === "vin_decode")?.status).toBe("queried_with_data");
+    expect(attempts.find((a) => a.source === "listing_page")?.status).toBe("not_attempted");
+    expect(attempts.find((a) => a.source === "listing_feed")?.status).toBe("queried_with_data");
+    expect(attempts.find((a) => a.source === "complaints")?.status).toMatch(
+      /queried_with_data|empty|unavailable/,
+    );
   });
 
   it("delivers SOLD listing facts through SERV pass (no code badge walk_away)", async () => {

@@ -21,6 +21,8 @@ import { formatUsd } from "@/domain/format";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { CheckConfidence, CheckRedFlag, ExtractedListingFields } from "@/domain/listing/types";
 import type { SimilarCarView } from "@/domain/purchase-readiness";
+import type { VehicleSourceAttempt } from "@/domain/normalized-vehicle";
+import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 
 type CheckKind = "link" | "vin" | "paste";
 
@@ -45,6 +47,7 @@ type CheckResultView = {
   similarCars: SimilarCarView[];
   fields: ExtractedListingFields | null;
   provenance: Array<{ field: string; value: string | number | string[] | null; source: string | null }>;
+  sourceAttempts?: VehicleSourceAttempt[] | null;
   vin: string | null;
   recalls: Array<{ campaignNumber: string; component: string; summary: string; parkIt: boolean }>;
   recallsAvailable: boolean;
@@ -878,6 +881,13 @@ function CheckResultCard({
               <li key={q}>{q}</li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {result.sourceAttempts && result.sourceAttempts.length > 0 ? (
+        <section>
+          <h3>Sources checked</h3>
+          <SourcesCheckedLine items={result.sourceAttempts} />
         </section>
       ) : null}
 

@@ -185,6 +185,8 @@ export function parseVinDecode(payload: unknown): VinDecode | null {
     driveType: str(row.DriveType),
     engine: engineBits.length > 0 ? engineBits.join(" ") : null,
     fuel: str(row.FuelTypePrimary),
+    fuelTypeSecondary: str(row.FuelTypeSecondary),
+    electrificationLevel: str(row.ElectrificationLevel),
     bodyClass: str(row.BodyClass),
   };
 }
