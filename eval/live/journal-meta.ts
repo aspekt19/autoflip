@@ -19,10 +19,12 @@ type JournalServLike = {
 
 export function liveEvalJournalMeta(journal: ReadonlyArray<{ kind: string }>): {
   featuresActive: string[];
+  featuresActivePerCall: string[][];
   featureRejections: string[];
   servResponseIds: string[];
 } {
   const features = new Set<string>();
+  const featuresActivePerCall: string[][] = [];
   const rejectionFlags = new Set<string>();
   const responseIds: string[] = [];
 
@@ -32,9 +34,15 @@ export function liveEvalJournalMeta(journal: ReadonlyArray<{ kind: string }>): {
     if (typeof serv.responseId === "string" && serv.responseId.trim()) {
       responseIds.push(serv.responseId.trim());
     }
+    const callFeatures: string[] = [];
     for (const f of serv.features ?? []) {
-      if (typeof f === "string" && f.trim()) features.add(f.trim());
+      if (typeof f === "string" && f.trim()) {
+        const trimmed = f.trim();
+        features.add(trimmed);
+        callFeatures.push(trimmed);
+      }
     }
+    featuresActivePerCall.push(callFeatures);
     for (const flag of serv.featureFlags ?? []) {
       if (typeof flag === "string" && flag.includes("FEATURE_REJECTION")) {
         rejectionFlags.add(flag);
@@ -49,6 +57,7 @@ export function liveEvalJournalMeta(journal: ReadonlyArray<{ kind: string }>): {
 
   return {
     featuresActive: [...features],
+    featuresActivePerCall,
     featureRejections: [...rejectionFlags],
     servResponseIds: responseIds,
   };

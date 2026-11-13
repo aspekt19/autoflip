@@ -4,6 +4,7 @@ import {
   findAgentLoopEnabled,
   resolveFindAgentMode,
   validateFindAgentVerdict,
+  validateFindSubmitPicks,
 } from "./find-agent";
 
 describe("findAgentLoopEnabled", () => {
@@ -60,5 +61,38 @@ describe("validateFindAgentVerdict + guardrails", () => {
     });
     expect(guarded.verdict.picks).toHaveLength(0);
     expect(guarded.dropped[0]?.reason).toBe("invented_vin_not_in_tool_results");
+  });
+
+  it("submit_picks rejects pass-only picks (chosen must be buy|negotiate|inspect_first)", () => {
+    const vin = "1HGCM82633A004352";
+    const listings = new Map([[vin, { vin, priceUsd: 12_000, miles: 40_000, distanceMiles: 20 }]]);
+    const passOnly = validateFindSubmitPicks(
+      {
+        summary: "Passing on this Camry.",
+        confidence: "medium",
+        picks: [{ vin, label: "Camry", action: "pass", offerUsd: null, why: "Too many miles." }],
+        relaxedConditions: [],
+        passReason: "Too many miles.",
+      },
+      { listingsByVin: listings, budgetUsd: 15_000 },
+    );
+    expect(passOnly.ok).toBe(false);
+    if (!passOnly.ok) {
+      expect(passOnly.issues.some((i) => i.field === "picks" && /submit_nothing_fits|inspect_first/.test(i.message))).toBe(
+        true,
+      );
+    }
+
+    const buyOk = validateFindSubmitPicks(
+      {
+        summary: "Camry fits.",
+        confidence: "high",
+        picks: [{ vin, label: "Camry", action: "buy", offerUsd: 11_500, why: "Clean ask." }],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      { listingsByVin: listings, budgetUsd: 15_000 },
+    );
+    expect(buyOk.ok).toBe(true);
   });
 });

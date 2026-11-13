@@ -183,7 +183,7 @@ export function resaleAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final resale flip verdict with chosen flips. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is non-negative. On validation failure the tool returns issues — fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
+          "Submit the final resale flip verdict with chosen flips. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is positive (> 0). Mid ≤ 0 fails for repair — code never rewrites your action. On validation failure the tool returns issues — fix and call submit_picks again. To pass with no flip, call submit_nothing_fits instead.",
         parameters: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },

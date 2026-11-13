@@ -3,6 +3,7 @@
  */
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
+import { enrichListingDistanceFromCenter } from "@/domain/geo";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import {
   classifySearchConstraints,
@@ -174,6 +175,8 @@ export type FindAgentToolState = {
   radiusWidenAgreed: boolean;
   /** Last search_listings / comps ZIP lookup returned location_not_recognized. */
   zipGeocodeFailed: boolean;
+  /** Resolved buyer-center lat/lon from the last successful ZIP lookup (for distanceMiles). */
+  searchCenter: { latitude: number; longitude: number; zip: string } | null;
 };
 
 export type FindAgentToolDeps = {
@@ -599,7 +602,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final find verdict with chosen cars. Code validates real VINs from tool results, offer ≤ budget, and offer ≤ asking. On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars. To pass with no pick, call submit_nothing_fits instead.",
+          "Submit the final find verdict with chosen cars. Code validates real VINs from tool results, offer ≤ budget, offer ≤ asking, and at least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits). On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars. To pass with no pick, call submit_nothing_fits instead.",
         parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
@@ -919,6 +922,7 @@ export function createFindAgentToolState(
     briefConfirmed: false,
     radiusWidenAgreed: false,
     zipGeocodeFailed: false,
+    searchCenter: null,
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -1202,6 +1206,11 @@ export async function executeFindAgentTool(
       }
       resolvedZip = lookup.location.zip;
       state.zipGeocodeFailed = false;
+      state.searchCenter = {
+        zip: lookup.location.zip,
+        latitude: lookup.location.latitude,
+        longitude: lookup.location.longitude,
+      };
       locationResolution = {
         requestedZip: parsed.value.zip,
         resolvedZip: lookup.location.zip,
@@ -1244,15 +1253,20 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
+    // Code distance from resolved search ZIP → listing lat/lon when feed omits it.
+    const listingsWithDistance = enrichListingDistanceFromCenter(
+      search.listings,
+      state.searchCenter ?? locationResolution,
+    );
     // Observational funnel for SERV's eyes — product filters must not drop returned rows.
-    const { listings: funnelKept, funnel } = applySearchListingsFunnel(search.listings, parsed.value);
+    const { listings: funnelKept, funnel } = applySearchListingsFunnel(listingsWithDistance, parsed.value);
     const proxy = buildThinSearchProxyResult({
-      providerListings: search.listings,
+      providerListings: listingsWithDistance,
       params: parsed.value,
       funnel,
     });
     const dropGate = assertThinSearchProxyDidNotDropProductRows({
-      providerListings: search.listings,
+      providerListings: listingsWithDistance,
       returnedListings: proxy.listings,
     });
     if (!dropGate.ok) {

@@ -54,7 +54,9 @@ export function mapFindAgentLoopToDecide(input: {
   const shortlistKeys: string[] = [];
   const offerPool: Listing[] = [];
 
-  for (const pick of input.agent.verdict.picks) {
+  // Only non-pass actions are "chosen" — pass rows are rejected candidates, not the pick.
+  const chosenPicks = input.agent.verdict.picks.filter((p) => p.action !== "pass");
+  for (const pick of chosenPicks) {
     const listing = listingsByVin.get(pick.vin.toUpperCase());
     if (!listing) continue;
     const key = pick.vin.toUpperCase();
@@ -121,7 +123,7 @@ export function mapFindAgentLoopToDecide(input: {
     closeCall: null,
   };
 
-  const top = input.agent.verdict.picks[0];
+  const top = chosenPicks[0] ?? null;
   const joined = top ? joinChosenListing(top.vin, listingsByVin) : null;
   const actionMap = {
     buy: "buy",

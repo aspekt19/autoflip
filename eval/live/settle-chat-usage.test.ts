@@ -80,4 +80,95 @@ describe("settle chat result copies journal SERV usage", () => {
     });
     expect(settled.servUsageTotal).toEqual(usage);
   });
+
+  it("find: includes runId, full confirmedBrief, and per-call featuresActive", () => {
+    const brief = {
+      summary: "Camry under 15k near 43215",
+      budget: { maxUsd: 15_000, userQuote: "under 15k" },
+      zip: "43215",
+      radiusMi: 50,
+    };
+    const settled = settleFindChatCaseResult({
+      query,
+      drivenOk: true,
+      body: {
+        ok: true,
+        result: {
+          ok: true,
+          runId: "run_abc123",
+          confirmedBrief: brief,
+          bestDeal: null,
+          offerPool: [],
+          agentLoop: {
+            journalServCalls: 2,
+            journalToolCalls: 1,
+            servUsageTotal: usage,
+            verdictReached: true,
+            carsFound: 0,
+            passReason: "Nothing fit.",
+            featuresActive: ["serv_prompt_guard", "kronos", "multipath", "serv_shadow_agent"],
+            featuresActivePerCall: [
+              ["serv_prompt_guard"],
+              ["kronos", "multipath", "serv_shadow_agent"],
+            ],
+            featureRejections: [],
+            servResponseIds: ["resp_1", "resp_2"],
+          },
+          honesty: "SERV searched live inventory and explained why nothing fit.",
+        },
+      },
+      elapsedMs: 1000,
+    });
+    expect(settled.runId).toBe("run_abc123");
+    expect(settled.confirmedBrief).toEqual(brief);
+    expect(settled.featuresActive).toEqual(
+      expect.arrayContaining(["serv_prompt_guard", "kronos", "multipath", "serv_shadow_agent"]),
+    );
+    expect(settled.featuresActivePerCall).toEqual([
+      ["serv_prompt_guard"],
+      ["kronos", "multipath", "serv_shadow_agent"],
+    ]);
+  });
+
+  it("resale: includes runId, confirmedBrief, and featuresActive from agentLoop", () => {
+    const brief = {
+      summary: "Flip Jeep under 10k",
+      budget: { maxUsd: 10_000, userQuote: "under 10k" },
+      zip: "48226",
+      radiusMi: 75,
+    };
+    const settled = settleResaleChatCaseResult({
+      query: { ...query, id: "resale_02", product: "resale" },
+      drivenOk: true,
+      body: {
+        ok: true,
+        result: {
+          ok: true,
+          runId: "run_resale_9",
+          confirmedBrief: brief,
+          best: null,
+          alternatives: [],
+          agentVerdict: { verdict: "pass" },
+          agentLoop: {
+            journalServCalls: 2,
+            journalToolCalls: 1,
+            servUsageTotal: usage,
+            verdictReached: true,
+            carsFound: 0,
+            passReason: "Mid not positive.",
+            featuresActive: ["serv_prompt_guard", "multipath", "serv_shadow_agent"],
+            featuresActivePerCall: [["serv_prompt_guard"], ["multipath", "serv_shadow_agent"]],
+          },
+          message: "Nothing fit.",
+        },
+      },
+      elapsedMs: 900,
+    });
+    expect(settled.runId).toBe("run_resale_9");
+    expect(settled.confirmedBrief).toEqual(brief);
+    expect(settled.featuresActivePerCall?.[1]).toEqual(
+      expect.arrayContaining(["multipath", "serv_shadow_agent"]),
+    );
+    expect(settled.featuresActivePerCall?.[1]).not.toContain("serv_prompt_guard");
+  });
 });

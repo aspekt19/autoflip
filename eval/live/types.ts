@@ -110,12 +110,24 @@ export type LiveEvalCaseResult = {
   journalToolCalls?: number;
   /** Aggregated SERV usage from the agent journal (tokens/cost/cache). */
   servUsageTotal?: LiveEvalServUsage | null;
-  /** Documented SERV features active on the winning path (multipath / Prompt Guard / Shadow). */
+  /**
+   * Union of documented SERV features across the run
+   * (serv_prompt_guard / kronos / multipath / serv_shadow_agent).
+   */
   featuresActive?: string[];
+  /**
+   * Per SERV call feature lists in journal order — verifies Kronos/Shadow only
+   * on the final selection hop.
+   */
+  featuresActivePerCall?: string[][];
   /** Exact FEATURE_REJECTION … flag strings when SERV rejected an extension. */
   featureRejections?: string[];
   /** SERV response ids observed in the agent journal (order preserved). */
   servResponseIds?: string[];
+  /** Persisted /run id when the chat delivery wrote a run record. */
+  runId?: string | null;
+  /** Full confirmed shopper brief object from the chat result (not just summary). */
+  confirmedBrief?: Record<string, unknown> | null;
   /** Wall duration for this query in ms (alias of elapsedMs for report consumers). */
   durationMs?: number;
   /** 1 when a car/flip VIN was chosen; 0 otherwise. Reported separately from ok. */

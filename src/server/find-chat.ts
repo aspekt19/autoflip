@@ -359,6 +359,10 @@ export async function runFindChatTurn(input: {
         servUsageTotal: journalMeta.servUsageTotal,
         carsFound: carsFoundFromJournal,
         passReason: null,
+        featuresActive: journalMeta.featuresActive,
+        featuresActivePerCall: journalMeta.featuresActivePerCall,
+        featureRejections: journalMeta.featureRejections,
+        servResponseIds: journalMeta.servResponseIds,
       },
       honesty,
       creditNote: "No report credit charged — incomplete chat stays free.",
@@ -508,6 +512,10 @@ export async function runFindChatTurn(input: {
       servUsageTotal: journalMeta.servUsageTotal,
       carsFound: mapped.offerPool.length,
       passReason: agent.verdict.passReason,
+      featuresActive: journalMeta.featuresActive,
+      featuresActivePerCall: journalMeta.featuresActivePerCall,
+      featureRejections: journalMeta.featureRejections,
+      servResponseIds: journalMeta.servResponseIds,
     },
     honesty: nothingFits
       ? "SERV searched live inventory and explained why nothing fit."

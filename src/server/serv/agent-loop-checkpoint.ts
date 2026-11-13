@@ -53,6 +53,8 @@ export type AgentLoopCheckpointV1 = {
   radiusWidenAgreed?: boolean;
   /** Last ZIP lookup was location_not_recognized (allows one post-confirm ask). */
   zipGeocodeFailed?: boolean;
+  /** Resolved buyer-center from ZIP lookup — used to compute listing distanceMiles. */
+  searchCenter?: { latitude: number; longitude: number; zip: string } | null;
 };
 
 export type AgentLoopCheckpoint = AgentLoopCheckpointV1;

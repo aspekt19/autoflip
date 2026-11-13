@@ -341,6 +341,7 @@ function buildResaleCheckpoint(input: {
     briefConfirmed: input.state.briefConfirmed === true,
     radiusWidenAgreed: input.state.radiusWidenAgreed === true,
     zipGeocodeFailed: input.state.zipGeocodeFailed === true,
+    searchCenter: input.state.searchCenter ?? null,
   };
 }
 
@@ -389,6 +390,14 @@ function restoreResaleStateFromCheckpoint(
   state.briefConfirmed = checkpoint.briefConfirmed === true;
   state.radiusWidenAgreed = checkpoint.radiusWidenAgreed === true;
   state.zipGeocodeFailed = checkpoint.zipGeocodeFailed === true;
+  const center = checkpoint.searchCenter;
+  state.searchCenter =
+    center &&
+    typeof center.latitude === "number" &&
+    typeof center.longitude === "number" &&
+    typeof center.zip === "string"
+      ? { latitude: center.latitude, longitude: center.longitude, zip: center.zip }
+      : null;
   const journal = checkpoint.journal as unknown as ResaleAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromResaleJournal(journal));
   return {
@@ -2226,14 +2235,38 @@ export function summarizeResaleAgentJournal(journal: readonly ResaleAgentJournal
   toolCalls: number;
   toolRounds: number;
   servUsageTotal: AgentServUsageTotals;
+  featuresActive: string[];
+  featuresActivePerCall: string[][];
+  featureRejections: string[];
+  servResponseIds: string[];
 } {
   let servCalls = 0;
   let toolCalls = 0;
   const usageRows: Array<AgentServCallUsage | null> = [];
+  const features = new Set<string>();
+  const featuresActivePerCall: string[][] = [];
+  const featureRejections = new Set<string>();
+  const servResponseIds: string[] = [];
   for (const entry of journal) {
     if (entry.kind === "serv") {
       servCalls += 1;
       usageRows.push(entry.usage ?? null);
+      const callFeatures: string[] = [];
+      for (const f of entry.features ?? []) {
+        if (typeof f === "string" && f.trim()) {
+          features.add(f.trim());
+          callFeatures.push(f.trim());
+        }
+      }
+      featuresActivePerCall.push(callFeatures);
+      if (typeof entry.responseId === "string" && entry.responseId.trim()) {
+        servResponseIds.push(entry.responseId.trim());
+      }
+      for (const flag of entry.featureFlags ?? []) {
+        if (typeof flag === "string" && flag.includes("FEATURE_REJECTION")) {
+          featureRejections.add(flag);
+        }
+      }
     } else if (entry.kind === "tool" && entry.name !== "_mode_fallback") {
       toolCalls += 1;
     }
@@ -2243,5 +2276,9 @@ export function summarizeResaleAgentJournal(journal: readonly ResaleAgentJournal
     toolCalls,
     toolRounds: toolCalls,
     servUsageTotal: sumAgentServUsage(usageRows),
+    featuresActive: [...features],
+    featuresActivePerCall,
+    featureRejections: [...featureRejections],
+    servResponseIds,
   };
 }

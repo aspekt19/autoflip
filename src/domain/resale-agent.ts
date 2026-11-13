@@ -1,6 +1,7 @@
 /**
  * Resale agentic SERV loop — mode flags, result schema, and post-finish guardrails.
- * Picks must come from tool-returned VINs; offer ≤ budget; negative mid-profit → pass.
+ * Picks must come from tool-returned VINs; offer ≤ budget; mid-profit ≤ 0 rejects buy|negotiate
+ * for a SERV repair turn (code never rewrites SERV action text).
  * No credit charge here. SERV must not invent fees/tax/recon/resale dollars.
  */
 import {
@@ -300,8 +301,9 @@ function midProfitOf(fact: ResaleAgentPnlFact | undefined): number | null {
 }
 
 /**
- * Drop picks whose VIN was never returned by a tool; clamp offer ≤ budget;
- * clamp buy|negotiate|needs_inspection → pass when code mid-profit is negative.
+ * Drop picks whose VIN was never returned by a tool; clamp offer ≤ budget.
+ * Mid-profit ≤ 0 buy|negotiate is a validateResaleSubmitPicks repair failure —
+ * this helper never rewrites SERV action / why text.
  */
 export function applyResaleAgentGuardrails(
   verdict: ResaleAgentVerdict,
@@ -331,16 +333,7 @@ export function applyResaleAgentGuardrails(
     if (offerUsd != null && budget != null && offerUsd > budget) {
       offerUsd = budget;
     }
-    let action = pick.action;
-    let why = pick.why;
-    if (action !== "pass") {
-      const mid = midProfitOf(opts.pnlByVin?.get(vin));
-      if (mid != null && mid < 0) {
-        action = "pass";
-        why = `${why} [code guardrail: mid-profit $${mid} is negative — clamped to pass]`.slice(0, 400);
-      }
-    }
-    picks.push({ ...pick, vin, offerUsd, action, why });
+    picks.push({ ...pick, vin, offerUsd });
   }
 
   return {
@@ -440,10 +433,10 @@ export function validateResaleSubmitPicks(
     }
     if (pick.action === "buy" || pick.action === "negotiate") {
       const mid = midProfitOf(opts.pnlByVin?.get(vin));
-      if (mid != null && mid < 0) {
+      if (mid != null && mid <= 0) {
         issues.push({
           field: `picks[${index}].action`,
-          message: `Code mid-profit $${mid} is negative for VIN ${vin}. Use action pass (or needs_inspection) — do not buy/negotiate on negative mid-profit.`,
+          message: `Code mid-profit $${mid} is ≤ 0 for VIN ${vin}. Use action pass / needs_inspection, or call submit_nothing_fits — do not buy/negotiate when mid-profit is not positive. Code will not rewrite your action.`,
         });
       }
     }

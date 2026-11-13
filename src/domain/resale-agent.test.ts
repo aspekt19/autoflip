@@ -4,6 +4,7 @@ import {
   resaleAgentLoopEnabled,
   resolveResaleAgentMode,
   validateResaleAgentVerdict,
+  validateResaleSubmitPicks,
 } from "./resale-agent";
 
 const VIN = "1HGCM82633A004352";
@@ -62,7 +63,7 @@ describe("validateResaleAgentVerdict + guardrails", () => {
     expect(guarded.dropped[0]?.reason).toBe("invented_vin_not_in_tool_results");
   });
 
-  it("clamps negative mid-profit buy to pass", () => {
+  it("does not rewrite buy→pass on negative mid-profit (repair owns that)", () => {
     const ok = validateResaleAgentVerdict({
       summary: "would buy",
       confidence: "medium",
@@ -93,8 +94,56 @@ describe("validateResaleAgentVerdict + guardrails", () => {
       ]),
     });
     expect(guarded.verdict.picks).toHaveLength(1);
-    expect(guarded.verdict.picks[0]?.action).toBe("pass");
-    expect(guarded.verdict.picks[0]?.why).toMatch(/negative/);
+    expect(guarded.verdict.picks[0]?.action).toBe("buy");
+    expect(guarded.verdict.picks[0]?.why).toBe("Looks cheap.");
+  });
+
+  it("submit_picks rejects buy when code mid-profit ≤ 0 (repair, no text override)", () => {
+    const listings = new Map([[VIN, { vin: VIN, priceUsd: 8_895 }]]);
+    const pnlByVin = new Map([
+      [VIN, { vin: VIN, profitMidUsd: -200, rankingProfitMidUsd: -250 }],
+    ]);
+    const negative = validateResaleSubmitPicks(
+      {
+        summary: "Jeep looks cheap vs comps.",
+        confidence: "medium",
+        picks: [{ vin: VIN, action: "buy", offerUsd: 8_500, why: "Ask under resale mid." }],
+        relaxedConditions: [],
+      },
+      { listingsByVin: listings, budgetUsd: 12_000, pnlByVin },
+    );
+    expect(negative.ok).toBe(false);
+    if (!negative.ok) {
+      expect(negative.issues.some((i) => i.field.includes("action") && /≤ 0/.test(i.message))).toBe(
+        true,
+      );
+    }
+
+    const zero = validateResaleSubmitPicks(
+      {
+        summary: "Break-even.",
+        confidence: "low",
+        picks: [{ vin: VIN, action: "negotiate", offerUsd: 8_500, why: "Zero mid." }],
+        relaxedConditions: [],
+      },
+      {
+        listingsByVin: listings,
+        budgetUsd: 12_000,
+        pnlByVin: new Map([[VIN, { vin: VIN, profitMidUsd: 0, rankingProfitMidUsd: 0 }]]),
+      },
+    );
+    expect(zero.ok).toBe(false);
+
+    const labeledNonBuy = validateResaleSubmitPicks(
+      {
+        summary: "Needs inspection — mid not positive.",
+        confidence: "low",
+        picks: [{ vin: VIN, action: "needs_inspection", offerUsd: 8_000, why: "Mid ≤ 0." }],
+        relaxedConditions: [],
+      },
+      { listingsByVin: listings, budgetUsd: 12_000, pnlByVin },
+    );
+    expect(labeledNonBuy.ok).toBe(true);
   });
 
   it("clamps offer to budget", () => {
