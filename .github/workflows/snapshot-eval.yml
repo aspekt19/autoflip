@@ -1,0 +1,70 @@
+# One frozen-snapshot comparison.
+# One Auto.dev search, then two SERV decision calls (features off, features on)
+# against that same candidate set. No second search.
+#
+# Secrets (values are never printed):
+#   SERV_API_KEY, optional SERV_BASE_URL — same as the SERV evaluation workflow.
+#   AUTODEV_API_KEY — listing search. Not created or changed by this workflow.
+name: Frozen snapshot eval
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-eval
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Require secrets
+        env:
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+          AUTODEV_API_KEY: ${{ secrets.AUTODEV_API_KEY }}
+        run: |
+          missing=0
+          if [ -z "${SERV_API_KEY}" ]; then
+            echo "::error::Repository secret SERV_API_KEY is missing. This workflow does not create secrets."
+            missing=1
+          fi
+          if [ -z "${AUTODEV_API_KEY}" ]; then
+            echo "::error::Repository secret AUTODEV_API_KEY is missing. This workflow does not create secrets."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture one snapshot and decide twice
+        env:
+          EVAL_SNAPSHOT_ALLOW_PAID: "1"
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+          SERV_BASE_URL: ${{ secrets.SERV_BASE_URL }}
+          AUTODEV_API_KEY: ${{ secrets.AUTODEV_API_KEY }}
+        run: npx tsx eval/snapshot/live-run.ts
+
+      - name: Upload snapshot, decisions, and scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compare-snapshot-2026-11-13
+          path: eval/results/compare-snapshot-2026-11-13/
+          if-no-files-found: warn
+          retention-days: 30
