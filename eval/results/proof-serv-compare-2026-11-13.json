@@ -170,7 +170,7 @@
     },
     {
       "id": "vin_decode",
-      "label": "VIN decoded (vPIC)",
+      "label": "VIN decoded (official record)",
       "cells": {
         "plain_llm": {
           "summary": "No VIN was given, so nothing could be decoded.",
@@ -182,14 +182,14 @@
           ]
         },
         "features_off": {
-          "summary": "VIN JF2SKACC5RH515915 decodes cleanly on NHTSA vPIC as a 2024 Subaru Forester Premium Base, AWD, 2.5L gasoline SUV. Error code 0.",
+          "summary": "VIN JF2SKACC5RH515915 decodes cleanly on the official VIN decoder as a 2024 Subaru Forester Premium Base, AWD, 2.5L gasoline SUV. Error code 0.",
           "links": [
             {
-              "label": "vPIC decode",
+              "label": "Official VIN decode",
               "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
             },
             {
-              "label": "Saved vPIC JSON",
+              "label": "Saved VIN-decode JSON",
               "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKACC5RH515915.json"
             },
             {
@@ -202,11 +202,11 @@
           "summary": "VIN JF2SKAKC9KH427473 decodes cleanly as a 2019 Subaru Forester Sport+ES+SMART, AWD, 2.5L gasoline SUV. Error code 0.",
           "links": [
             {
-              "label": "vPIC decode",
+              "label": "Official VIN decode",
               "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
             },
             {
-              "label": "Saved vPIC JSON",
+              "label": "Saved VIN-decode JSON",
               "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKAKC9KH427473.json"
             },
             {
@@ -218,7 +218,7 @@
       },
       "winner": "tie_lemonless",
       "winnerLabel": "Tie: both Lemonless variants",
-      "why": "Both Find runs returned a VIN that vPIC decodes as AWD Foresters matching the listing year/trim. The plain model had no VIN to check."
+      "why": "Both Find runs returned a VIN that the official decoder reads as AWD Foresters matching the listing year/trim. The plain model had no VIN to check."
     },
     {
       "id": "recalls_complaints",
@@ -234,14 +234,14 @@
           ]
         },
         "features_off": {
-          "summary": "Queried NHTSA recalls and complaints (status queried_with_data). The /run write-up reports two 2024 model-year recalls (coolant-pipe bolts and front driveshafts) and 31 complaints, and says this is not VIN-specific open/closed status. Official NHTSA lists 2 recalls and 31 complaints for the 2024 Forester \u2014 the counts match.",
+          "summary": "Queried official recall and complaint records (status queried_with_data). The /run write-up reports two 2024 model-year recalls (coolant-pipe bolts and front driveshafts) and 31 complaints, and says this is not VIN-specific open/closed status. The official database lists 2 recalls and 31 complaints for the 2024 Forester \u2014 the counts match.",
           "links": [
             {
-              "label": "NHTSA 2024 recalls (2)",
+              "label": "Official 2024 recall list (2)",
               "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2024"
             },
             {
-              "label": "NHTSA 2024 complaints (31)",
+              "label": "Official 2024 complaint list (31)",
               "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2024"
             },
             {
@@ -251,14 +251,14 @@
           ]
         },
         "features_on": {
-          "summary": "Queried the same sources. The /run write-up reports three 2019 recalls (rear stabilizer bolts, PCV valve, electric steering) and 834 complaints, and says this is not VIN-specific status. Official NHTSA lists campaigns 21V263000, 19V856000 and 19V065000, and 834 complaints \u2014 the topics and counts match.",
+          "summary": "Queried the same sources. The /run write-up reports three 2019 recalls (rear stabilizer bolts, PCV valve, electric steering) and 834 complaints, and says this is not VIN-specific status. The official database lists campaigns 21V263000, 19V856000 and 19V065000, and 834 complaints \u2014 the topics and counts match.",
           "links": [
             {
-              "label": "NHTSA 2019 recalls (3)",
+              "label": "Official 2019 recall list (3)",
               "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2019"
             },
             {
-              "label": "NHTSA 2019 complaints (834)",
+              "label": "Official 2019 complaint list (834)",
               "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2019"
             },
             {
@@ -270,14 +270,14 @@
       },
       "winner": "tie_lemonless",
       "winnerLabel": "Tie: both Lemonless variants",
-      "why": "Both Lemonless runs queried NHTSA and reported counts that match the official APIs, with an honest \u201cnot VIN-specific status\u201d caveat. Features-on named the three campaign topics. The plain model did not cite NHTSA."
+      "why": "Both Lemonless runs queried official recall and complaint records and reported counts that match those databases, with an honest \u201cnot VIN-specific status\u201d caveat. Features-on named the three campaign topics. The plain model did not cite those official records."
     },
     {
       "id": "crash_safety",
       "label": "Crash safety",
       "cells": {
         "plain_llm": {
-          "summary": "No NHTSA star ratings and no SafetyRatings URL. It discussed EyeSight and blind-spot monitoring as equipment to verify.",
+          "summary": "No official crash-test star ratings and no ratings URL. It discussed EyeSight and blind-spot monitoring as equipment to verify.",
           "links": [
             {
               "label": "Full answer",
@@ -286,10 +286,10 @@
           ]
         },
         "features_off": {
-          "summary": "Reports 5 stars overall, frontal and side, and 4 for rollover for this model. Official NHTSA VehicleId 19387 (2024 Forester SUV AWD) is 5 / 5 / 5 / 4 \u2014 the numbers match. The /run page did not include the VehicleId URL.",
+          "summary": "Reports 5 stars overall, frontal and side, and 4 for rollover for this model. The official crash-test record (vehicle 19387) (2024 Forester SUV AWD) is 5 / 5 / 5 / 4 \u2014 the numbers match. The /run page did not include the VehicleId URL.",
           "links": [
             {
-              "label": "NHTSA SafetyRatings VehicleId 19387",
+              "label": "Official crash-test ratings, vehicle 19387",
               "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/19387"
             },
             {
@@ -306,7 +306,7 @@
           "summary": "Reports 5 stars overall/front/side and 4 rollover, and links the official record: VehicleId 13404 (2019 Forester SUV AWD). Those official ratings are 5 / 5 / 5 / 4.",
           "links": [
             {
-              "label": "NHTSA SafetyRatings VehicleId 13404",
+              "label": "Official crash-test ratings, vehicle 13404",
               "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404"
             },
             {
@@ -322,7 +322,7 @@
       },
       "winner": "features_on",
       "winnerLabel": "Lemonless + SERV, features on (ratings are a tie; the citation is not)",
-      "why": "Both Lemonless ratings match official NHTSA figures. Features-on also published a clickable SafetyRatings URL on the /run page. The plain model gave no crash-test stars."
+      "why": "Both Lemonless ratings match the official crash-test figures. Features-on also published a clickable SafetyRatings URL on the /run page. The plain model gave no crash-test stars."
     },
     {
       "id": "fuel_cost",
@@ -474,10 +474,10 @@
           ]
         },
         "features_off": {
-          "summary": "vPIC confirms AWD. Mileage 21,029 is under 90,000. Dealer city is Denver. distanceMiles is null on the /run record \u2014 ZIP-to-ZIP distance was not computed for this row (no dealer URL or ZIP on the inventory row).",
+          "summary": "The official VIN decode confirms AWD. Mileage 21,029 is under 90,000. Dealer city is Denver. distanceMiles is null on the /run record \u2014 ZIP-to-ZIP distance was not computed for this row (no dealer URL or ZIP on the inventory row).",
           "links": [
             {
-              "label": "vPIC decode (AWD)",
+              "label": "Official VIN decode (AWD)",
               "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
             },
             {
@@ -487,10 +487,10 @@
           ]
         },
         "features_on": {
-          "summary": "vPIC confirms AWD. Mileage 79,882 is under 90,000. Dealer city is Colorado Springs, not Denver. distanceMiles is also null \u2014 the exact mile figure was not computed, so this page does not claim the 75-mile radius was proven in miles.",
+          "summary": "The official VIN decode confirms AWD. Mileage 79,882 is under 90,000. Dealer city is Colorado Springs, not Denver. distanceMiles is also null \u2014 the exact mile figure was not computed, so this page does not claim the 75-mile radius was proven in miles.",
           "links": [
             {
-              "label": "vPIC decode (AWD)",
+              "label": "Official VIN decode (AWD)",
               "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
             },
             {
@@ -522,7 +522,7 @@
           ]
         },
         "features_off": {
-          "summary": "States accident/salvage history is unverified, recalls are not VIN-specific, comps are asking prices, commute MPG was unavailable, and there is no dealer URL. Verdict is needs_inspection, confidence medium. Sources checked: recalls, complaints, safety, vPIC, fuel, comps \u2014 all queried_with_data.",
+          "summary": "States accident/salvage history is unverified, recalls are not VIN-specific, comps are asking prices, commute MPG was unavailable, and there is no dealer URL. Verdict is needs_inspection, confidence medium. Sources checked: recalls, complaints, safety, VIN decode, fuel, comps \u2014 all queried_with_data.",
           "links": [
             {
               "label": "Public /run",
@@ -587,7 +587,7 @@
       },
       {
         "point": "Features-on cited sources more specifically",
-        "detail": "It linked NHTSA SafetyRatings VehicleId 13404, stated 29 mpg combined and 1.38 gallons for a 40-mile commute, named two asking comps, and listed the three 2019 recall topics. Features-off reported matching 2024 recall/complaint counts and 5-star ratings, but left commute MPG unknown and did not publish the SafetyRatings URL.",
+        "detail": "It linked Official crash-test ratings, vehicle 13404, stated 29 mpg combined and 1.38 gallons for a 40-mile commute, named two asking comps, and listed the three 2019 recall topics. Features-off reported matching 2024 recall/complaint counts and 5-star ratings, but left commute MPG unknown and did not publish the SafetyRatings URL.",
         "links": [
           {
             "label": "SafetyRatings 13404",
@@ -661,7 +661,7 @@
       {
         "claim": "About 8.7 inches of ground clearance; thermo control valve as a known issue",
         "verdict": "unverified",
-        "detail": "Not checked against an official specification or a NHTSA campaign in this review."
+        "detail": "Not checked against an official specification or an official recall campaign in this review."
       }
     ]
   },
