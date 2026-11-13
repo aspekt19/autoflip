@@ -1,3 +1,20 @@
+describe("find-agent terminal tool contract", () => {
+  it("gives submit_nothing_fits a schema for candidate-specific rejection reasons", () => {
+    const tool = findAgentResponsesTools().find((row) => row.name === "submit_nothing_fits");
+    expect(tool).toBeTruthy();
+    expect(tool?.parameters.required).toEqual(["reason", "rejectedCandidates"]);
+    const properties = tool?.parameters.properties as Record<string, unknown>;
+    expect(properties.rejectedCandidates).toMatchObject({
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["vin", "reason"],
+      },
+    });
+  });
+});
+
 import { describe, expect, it } from "vitest";
 import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { TtlCache } from "@/io/cache";
@@ -6,6 +23,7 @@ import type { Listing } from "@/domain/types";
 import {
   applySearchListingsFunnel,
   createFindAgentToolState,
+  findAgentResponsesTools,
   executeFindAgentTool,
   parseLimitArg,
   parseSearchListingsArgs,

@@ -1,0 +1,110 @@
+{
+  "title": "Denver AWD SUV search — Gemini Auto vs Lemonless Find",
+  "recordedAt": "2026-11-13T20:29:50.989Z",
+  "prompt": "I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+  "scopeNote": "One real-world scenario, using the same request. This is a case study, not a statistically representative benchmark.",
+  "gemini": {
+    "headline": "Gemini Chat · Auto · answer shared by the user",
+    "verbatim": "Because your **$25,000 budget is all-in** and you register in **Denver (80202)**, the math works backward from the out-the-door (OTD) total:\n\n- **Denver Combined Sales Tax:** ~8.81% (charged based on your 80202 registration address, regardless of where in Colorado you buy)\n- **Colorado Dealer Handling / Doc Fee:** ~$699 average (uncapped in CO)\n- **Title, Filing & First-Year Specific Ownership Tax (SOT):** ~$350–$500 at the Denver County DMV\n\nTo stay strictly at or under **$25,000 OTD**, your maximum target **vehicle + dealer fee price before tax** is roughly **$22,400–$22,600** (meaning a sticker price around **$21,500–$22,000**).\n\n### 1. Which SUV Should You Buy?\n\nFor a 40-mile daily Denver commute, I-70/mountain winter driving, two kids, top safety ratings, and low fuel costs, **two models stand out above everything else** in your price bracket:\n\n#### **Top Pick #1: 2022–2023 Subaru Forester (Premium or Sport)**\n\n- **Why it wins for Denver & kids:** Standard Symmetrical AWD, **8.7 inches of ground clearance** (best-in-class for deep snow), massive greenhouse visibility, wide rear door openings for car seats/boosters, and an **IIHS Top Safety Pick** rating.\n- **Fuel Economy:** **26 city / 33 highway MPG** (29 combined) on regular 87-octane gas—excellent for a non-hybrid AWD SUV.\n- **Local Denver Market Reality:** You will find clean-title, no-accident 2022–2023 Foresters with **40,000–65,000 miles** right around **$21,500–$22,800** in the Denver/Boulder/Brighton/Englewood area. *(Tip: Look at \"no-haggle\" dealers like Schomp Subaru or Flatirons Subaru, which don't tack on $700+ doc fees, leaving more of your budget for the car itself.)*\n\n#### **Top Pick #2: 2023 Mazda CX-5 (2.5 S Select or Preferred AWD)**\n\n- **Why it wins for safety & value:** Every 2022+ CX-5 has standard AWD. Critically, **starting in 2023**, Mazda added rear seatbelt pretensioners and load limiters specifically to protect back-seat passengers in frontal crashes, earning top marks in the updated IIHS crash tests. It also uses a traditional 6-speed automatic rather than a CVT.\n- **Fuel Economy:** **24 city / 30 highway MPG** (27 combined) on regular gas.\n- **Local Denver Market Reality:** Clean 2023 CX-5s with **33,000–55,000 miles** regularly list between **$21,500 and $22,500** across Denver, Boulder, and Aurora.\n- **Trade-off vs. Forester:** Slightly tighter backseat legroom if you still have bulky rear-facing convertible car seats, and 7.6 inches of ground clearance (great for plowed mountain highways, slightly less clearance for unplowed trailheads).\n\n*(Note on Toyota RAV4 Hybrid & Honda CR-V AWD: Both are fantastic, and a 2020–2021 RAV4 Hybrid gets ~40 MPG, but Front Range \"Toyota/Honda tax\" pushes clean, under-100k-mile examples closer to $25k–$28k before taxes, forcing you into older 2018–2020 models with 80k–95k miles.)*\n\n### 2. What You Should Offer (And How to Negotiate It)\n\nIn the Front Range (within 75 miles of 80202—stretching from Fort Collins/Greeley down to Colorado Springs), dealers know AWD SUVs are in high demand every November. Do not negotiate the sticker price; **negotiate strictly on an Out-The-Door (OTD) number.**\n\n1. **Target Cars Listed Between $21,500 and $22,900:**\n   - Focus on 2022–2023 Foresters or 2023 CX-5s with **under 65,000 miles**, a clean Carfax/AutoCheck (1-owner, no accidents), and good tire tread (replacing 4 AWD tires in Denver runs $800–$1,000).\n\n2. **Your Opening Offer:**\n   - Email or text the internet sales manager before stepping foot on the lot:\n   > *\"I'm a local Denver buyer (80202) ready to buy this week. Assuming a clean pre-purchase inspection and clean title/history, I am at **$24,200 out-the-door**, inclusive of all dealer handling fees and 80202 taxes. Can you get there?\"*\n\n3. **Your Walk-Away Ceiling:**\n   - Let them counter, and hold firm at **$24,800–$25,000 OTD**.\n   - **Watch out for Colorado DMV billing:** Some Colorado dealers collect sales tax at the dealership, while others give you a \"tax-exempt\" temp tag and have you pay Denver County directly when you get your plates. Make sure your written OTD breakdown explicitly clarifies whether the ~8.81% Denver tax is included in their check or if you need to hold back ~$1,950 in cash for the Denver DMV.\n   - **Refuse all add-ons:** Colorado dealers frequently pre-load $500–$800 \"appearance protection,\" VIN etching, or LoJack. Tell them to strip them off or discount the vehicle price to absorb them.\n\n### Quick Pre-Buy Checklist for Mountain Driving\n\n- **Tires:** Verify all 4 tires match in brand, size, and tread depth (mismatched tread damages Subaru/Mazda AWD differentials). Look for the **Three-Peak Mountain Snowflake (3PMSF)** symbol (e.g., Michelin CrossClimate2) so you stay compliant with CDOT's I-70 traction laws without needing chains.\n- **Windshield:** Check carefully for cracks or star chips—Colorado highway gravel takes a heavy toll, and replacement windshields with forward-collision camera recalibration (EyeSight / i-Activsense) cost $900–$1,400.",
+    "sourceUrl": "https://share.gemini.google/zr44XVFu8UNW"
+  },
+  "lemonless": {
+    "pick": "2021 Subaru Forester Premium AWD · VIN JF2SKAJC5MH423912 · $20,197 asking price · 89,215 miles · Longmont, Colorado · approximately 28 miles from ZIP 80202.",
+    "recommendation": "Needs inspection. Opening offer: $19,000 before taxes and fees. Vehicle-price walk-away point: $20,000. Keep the total purchase within the $25,000 all-in budget.",
+    "whyThisCar": "Find returned a specific listing and SERV selected it from the live inventory results. The VIN decode identifies a 2021 Subaru Forester Premium with AWD and a 2.5L gasoline engine. The vehicle safety lookup returned 5-star overall, front and side ratings, and 4-star rollover. The closest fuel-economy configuration returned an estimated 29 MPG combined and a standardized annual fuel-cost estimate of $1,670. Local 2019–2021 Forester asking-price comparisons in the returned evidence ranged from $19,493 to $20,197, with a $19,797 median. Those are advertised asking prices, not completed sale prices.",
+    "whyThisOffer": "The structured opening offer is $19,000, with a $20,000 vehicle-price walk-away point. The recommendation also keeps the full purchase within $25,000 including taxes and fees. The $20,197 listing price is not an itemized out-the-door quote, so the dealer's full breakdown is still needed before purchase.",
+    "checked": [
+      "Live inventory search returned the listing with its VIN, asking price, mileage, seller field, location and listing URL.",
+      "VIN decode: 2021 Subaru Forester Premium, AWD, 2.5L gasoline engine.",
+      "Vehicle safety data: 5-star overall, front and side ratings; 4-star rollover.",
+      "Fuel-economy estimate: 29 MPG combined for the closest configuration; $1,670 standardized annual fuel cost.",
+      "Local 2019–2021 Forester asking-price comparisons: $19,493–$20,197, with a $19,797 median.",
+      "Search area: ZIP 80202, within 75 miles; selected listing approximately 28 miles away."
+    ],
+    "unknown": [
+      "The dealer's final itemized out-the-door amount, including taxes, title, registration and fees, was not part of this result.",
+      "A physical pre-purchase inspection, test drive, tire check and child-seat fit check still need to happen."
+    ],
+    "rejected": "The final Find verdict was needs_inspection with medium confidence. It selected one VIN-backed listing and did not present a multi-car shortlist in this run."
+  },
+  "run": {
+    "id": "run_2e88e0fb64f74f818f31",
+    "status": "completed",
+    "startedAt": "2026-11-13T20:29:50.989Z",
+    "finishedAt": "2026-11-13T20:30:38.498Z",
+    "durationMs": 47509,
+    "execution": "runFindChatTurn, the same server-side Find function used by /api/find/chat; fresh in-memory KV; skipCredit=true",
+    "verdict": "needs_inspection",
+    "confidence": "medium",
+    "servModel": "gpt-6.1-sol",
+    "servCalls": 8,
+    "toolRounds": 12,
+    "toolCalls": 13,
+    "inputTokens": 86368,
+    "outputTokens": 1716,
+    "totalTokens": 88084,
+    "cachedTokens": 47059,
+    "providerCost": null,
+    "features": [
+      "serv_prompt_guard",
+      "content_filter",
+      "reasoning_effort",
+      "prompt_cache",
+      "responses_reasoning",
+      "usage",
+      "serv_shadow_agent",
+      "multipath",
+      "kronos"
+    ],
+    "searchTrail": [
+      {
+        "zip": "80202",
+        "radiusMiles": 75,
+        "priceMaxUsd": 25000,
+        "bodyFamily": "suv",
+        "returned": 20
+      },
+      {
+        "zip": "80202",
+        "radiusMiles": 75,
+        "priceMaxUsd": 22500,
+        "bodyFamily": "suv",
+        "returned": 0
+      },
+      {
+        "zip": "80202",
+        "radiusMiles": 75,
+        "priceMaxUsd": 22500,
+        "bodyFamily": "suv",
+        "returned": 20
+      }
+    ],
+    "creditsCharged": false,
+    "productionDataChanged": false,
+    "githubRunUrl": "https://github.com/aspekt19/autoflip/actions/runs/43502039509",
+    "servResponseIds": [
+      "resp_0d1845524b5c558c016af77341a79487d2a369b17ed554771a",
+      "resp_0d1845524b5c558c016af77343e98887d2bfae634f81feb4d6",
+      "resp_0d1845524b5c558c016af773493e0487d2a38af39d8024033f",
+      "resp_0d1845524b5c558c016af7734d904087d2a946f3282681b54b",
+      "resp_0d1845524b5c558c016af773524cd887d2a81a4d21c9e129c0",
+      "resp_0d1845524b5c558c016af77359c8a887d2a4b0e0a568de9d81",
+      "resp_0d1845524b5c558c016af7735e870c87d29cf14707e9a1cb89",
+      "resp_0d1845524b5c558c016af773677cc087d288d23ca41f30b9dd"
+    ]
+  },
+  "links": {
+    "geminiChat": "https://share.gemini.google/zr44XVFu8UNW",
+    "listing": "https://www.lovelandlincoln.com/used-Loveland-2021-Subaru-Forester-Premium-JF2SKAJC5MH423912",
+    "vinDecode": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAJC5MH423912?format=json",
+    "safety": "https://api.nhtsa.gov/SafetyRatings/VehicleId/15635",
+    "fuel": "https://www.fueleconomy.gov/",
+    "githubRun": "https://github.com/aspekt19/autoflip/actions/runs/43502039509"
+  },
+  "disclosures": [
+    "Gemini Chat answer was captured from the user-shared conversation. The selected mode was Auto; the page does not claim a specific underlying Gemini model version.",
+    "Gemini supplied model-level recommendations; its captured answer did not identify a specific listing, VIN or live dealer stock record.",
+    "Find selected one vehicle from a live inventory snapshot. This single case does not establish that Find always returns the best vehicle or generalize to other shoppers.",
+    "Find was executed through the server-side Find chat function with isolated in-memory state; no customer credits were consumed and no production data was changed."
+  ]
+}

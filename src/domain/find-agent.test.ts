@@ -96,7 +96,7 @@ describe("validateFindAgentVerdict + guardrails", () => {
     expect(guarded.dropped[0]?.reason).toBe("invented_vin_not_in_tool_results");
   });
 
-  it("submit_picks rejects pass-only picks (chosen must be buy|negotiate|inspect_first)", () => {
+  it("submit_picks rejects pass-only picks, but submit_nothing_fits accepts reasoned rejections", () => {
     const vin = "1HGCM82633A004352";
     const listings = new Map([[vin, { vin, priceUsd: 12_000, miles: 40_000, distanceMiles: 20 }]]);
     const passOnly = validateFindSubmitPicks(
@@ -115,6 +115,23 @@ describe("validateFindAgentVerdict + guardrails", () => {
         true,
       );
     }
+
+    const reasonedNothingFits = validateFindSubmitPicks(
+      {
+        summary: "No candidate met all hard requirements.",
+        confidence: "low",
+        picks: [{ vin, label: "Camry", action: "pass", offerUsd: null, why: "FWD; the brief requires AWD." }],
+        relaxedConditions: [],
+        passReason: "The only returned candidate is FWD, while AWD is mandatory.",
+      },
+      {
+        listingsByVin: listings,
+        budgetUsd: 15_000,
+        searches: [{ params: { zip: "80202", radiusMi: 75 }, resultCount: 1 }],
+        allowPassOnly: true,
+      },
+    );
+    expect(reasonedNothingFits.ok).toBe(true);
 
     const buyOk = validateFindSubmitPicks(
       {
