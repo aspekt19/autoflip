@@ -41,7 +41,7 @@ on:
         required: false
         type: string
       notes:
-        description: "Optional JSON array of shopper notes, e.g. [{"product":"find","note":"...","zip":"80202"},{"product":"resale","note":"...","zip":"60601"}]"
+        description: 'Optional JSON array of shopper notes, e.g. [{"product":"find","note":"...","zip":"80202"}]'
         required: false
         type: string
 
