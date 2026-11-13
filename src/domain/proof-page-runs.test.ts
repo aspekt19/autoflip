@@ -127,6 +127,12 @@ describe("proof-page-runs", () => {
     expect(snapshot!.snapshot.dataCaveats.join(" ")).toContain("AWD was requested but not verified");
     expect(snapshot!.metadata.providersNotCalled).toContain("NHTSA VIN decode");
     expect(snapshot!.result.conclusion).toContain("not statistically significant");
+    expect(snapshot!.result.totalCompletedRuns).toBe(4);
+    expect(snapshot!.result.totalListingSearches).toBe(4);
+    expect(snapshot!.result.totalServCalls).toBe(8);
+    expect(snapshot!.result.completedRunsHarnessEstimateUsd).toBe(0.24);
+    expect(snapshot!.additionalRuns).toHaveLength(2);
+    expect(snapshot!.result.repeatability).toContain("same 12 VINs");
   });
 
 });
