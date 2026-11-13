@@ -5,7 +5,9 @@ import { useEffect } from "react";
 import type { RunView } from "@/domain/run-view";
 import { runReportModel } from "@/domain/run-view";
 import { pickHeading } from "@/domain/run-view";
+import { accidentHistoryBuyerLine, NO_ACCIDENT_ALTERNATIVE_TEXT } from "@/domain/accident-hard-constraint";
 import { formatNumber, formatUsd } from "@/domain/format";
+import { buyerDistanceText } from "@/domain/geo";
 import { RunClarificationForm } from "./RunClarificationForm";
 import { SourcesCheckedLine } from "./SourcesCheckedLine";
 
@@ -74,7 +76,10 @@ export function RunReport({ run }: { run: RunView }) {
       {model.listings.length > 0 ? (
         <div className="run-listings">
           {model.listings.map((car) => {
-            const guidance = pickHeading(run, Boolean(car.picked));
+            const guidance = pickHeading(run, Boolean(car.picked), car.alternativeLabel);
+            const historyLine = car.alternativeLabel
+              ? NO_ACCIDENT_ALTERNATIVE_TEXT
+              : accidentHistoryBuyerLine(car.accidentCount);
             return (
               <article key={car.vin} className="run-car" data-vin={car.vin}>
                 {guidance ? <p className="run-pick-label">{guidance}</p> : null}
@@ -83,9 +88,8 @@ export function RunReport({ run }: { run: RunView }) {
                 <p className="support">
                   {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
                   {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}
-                  {car.distanceMiles != null && Number.isFinite(car.distanceMiles)
-                    ? ` · ${Math.round(car.distanceMiles)} mi away`
-                    : ""}
+                  {` · ${buyerDistanceText({ distanceMiles: car.distanceMiles, radiusCheck: car.radiusCheck })}`}
+                  {historyLine ? ` · ${historyLine}` : ""}
                   {car.drivetrain ? ` · ${car.drivetrain}` : car.drivetrainUnknown ? " · Drivetrain not listed" : ""}
                   {car.place ? ` · ${car.place}` : ""}
                   {car.dealer ? ` · ${car.dealer}` : ""}

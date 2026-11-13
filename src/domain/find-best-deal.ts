@@ -142,6 +142,9 @@ export type BestDealCandidate = {
   complaintCount?: number | null;
   ncapOverall?: number | null;
   distanceMiles?: number | null;
+  radiusCheck?: "unverified" | "known" | null;
+  /** Present only when the pick came from submit_picks structured fields. */
+  structuredOffer?: { openingOffer: number | null; walkAway: number | null } | null;
 };
 
 /**

@@ -25,6 +25,8 @@ import {
   type StepStatus,
   type VerdictId,
 } from "./buyer-copy-table";
+import { accidentHistoryBuyerLine, NO_ACCIDENT_ALTERNATIVE_TEXT } from "./accident-hard-constraint";
+import { buyerDistanceText } from "./geo";
 import { buyerListingHref } from "./find-listing-link";
 import type { VehicleSourceAttempt } from "./normalized-vehicle";
 import { formatSourceAttemptLine } from "./normalized-vehicle";
@@ -50,8 +52,13 @@ export type RunListingView = {
   bodyStyle?: string | null;
   /** Miles from confirmed buyer-center ZIP when known. */
   distanceMiles?: number | null;
+  radiusCheck?: "unverified" | "known" | null;
   offerUsd?: number | null;
+  /** True when offerUsd / offerLabel came from submit_picks openingOffer and walkAway. */
+  offerStructured?: boolean;
   offerLabel?: string | null;
+  /** Separate from the primary pick. Exact shopper text when a no-accident rule failed. */
+  alternativeLabel?: string | null;
   reason?: string | null;
   confidence?: string | null;
   implausible?: boolean;
@@ -135,7 +142,8 @@ function carTitle(car: RunListingView): string {
   return name || "Vehicle";
 }
 
-export function pickHeading(view: RunView, picked: boolean): string | null {
+export function pickHeading(view: RunView, picked: boolean, alternativeLabel?: string | null): string | null {
+  if (alternativeLabel) return null;
   if (!picked) return null;
   if (view.kind === "resale") return resalePickHeading(view.verdict, true);
   if (view.verdict) return verdictCopy(view.verdict);
@@ -291,13 +299,15 @@ export function renderRunPermalinkHtml(view: RunView): string {
   }
   for (const car of model.listings) {
     parts.push(`<section data-vin="${esc(car.vin)}">`);
-    const heading = pickHeading(view, Boolean(car.picked));
+    const heading = pickHeading(view, Boolean(car.picked), car.alternativeLabel);
     if (heading) parts.push(`<p class="run-pick-label">${esc(heading)}</p>`);
     parts.push(`<h2 class="run-car-title">${esc(car.title)}</h2>`);
     if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);
     const facts = [
       car.priceUsd == null ? "Price not listed" : money(car.priceUsd),
       car.miles == null ? null : `${car.miles.toLocaleString("en-US")} miles`,
+      buyerDistanceText({ distanceMiles: car.distanceMiles, radiusCheck: car.radiusCheck }),
+      car.alternativeLabel ? NO_ACCIDENT_ALTERNATIVE_TEXT : accidentHistoryBuyerLine(car.accidentCount),
       car.drivetrain ? car.drivetrain : car.drivetrainUnknown ? "Drivetrain not listed" : null,
       car.place,
     ].filter(Boolean);

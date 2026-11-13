@@ -14,6 +14,7 @@ import {
   type RunRecord,
 } from "@/domain/run";
 import { buildPurchaseReadiness } from "@/domain/purchase-readiness";
+import { renderStructuredOffer } from "@/domain/structured-offer";
 import { resaleEdgeSentence } from "@/domain/resale-presentation";
 import { highMileageFlipExplanation } from "@/domain/resale-sanity";
 import type { BestDealResult } from "@/domain/find-best-deal";
@@ -185,8 +186,11 @@ export function listingFromCar(car: {
   accidentCount?: number | null;
   bodyStyle?: string | null;
   distanceMiles?: number | null;
+  radiusCheck?: "unverified" | "known" | null;
   offerUsd?: number | null;
+  offerStructured?: boolean;
   offerLabel?: string | null;
+  alternativeLabel?: string | null;
   reason?: string | null;
   confidence?: string | null;
   sourcesChecked?: VehicleSourceAttempt[] | null;
@@ -210,8 +214,11 @@ export function listingFromCar(car: {
     accidentCount: typeof car.accidentCount === "number" ? car.accidentCount : null,
     bodyStyle: car.bodyStyle?.trim() || null,
     distanceMiles: typeof car.distanceMiles === "number" ? car.distanceMiles : null,
+    radiusCheck: car.radiusCheck === "known" ? "known" : car.distanceMiles == null ? "unverified" : car.radiusCheck ?? "known",
     offerUsd: typeof car.offerUsd === "number" ? car.offerUsd : null,
+    offerStructured: car.offerStructured === true,
     offerLabel: car.offerLabel?.trim() || null,
+    alternativeLabel: car.alternativeLabel?.trim() || null,
     reason: car.reason ? clipBuyerText(car.reason, 600) || null : null,
     confidence: car.confidence?.trim() || null,
     sourcesChecked: car.sourcesChecked ?? null,
@@ -260,15 +267,18 @@ export function listingsFromBestDeal(
   const now = new Date();
   return ranked.flatMap((car) => {
     const subject = rankedPool.find((row) => row.vin === car.vin) ?? rankedPool[0]!;
-    const offer = verdict
-      ? buildPurchaseReadiness({
-          car: subject,
-          pool,
-          zip: null,
-          zipUsedFor: null,
-          now,
-        }).offer
-      : null;
+    const structured = car.structuredOffer ?? null;
+    const offer = structured
+      ? null
+      : verdict
+        ? buildPurchaseReadiness({
+            car: subject,
+            pool,
+            zip: null,
+            zipUsedFor: null,
+            now,
+          }).offer
+        : null;
     const row = listingFromCar({
       vin: car.vin,
       year: car.year,
@@ -283,9 +293,12 @@ export function listingsFromBestDeal(
       state: car.state,
       drivetrain: car.drivetrain,
       accidentCount: car.accidentCount,
+      distanceMiles: car.distanceMiles ?? null,
+      radiusCheck: car.radiusCheck ?? (car.distanceMiles == null ? "unverified" : "known"),
       reason: car.vin && car.vin === deal?.pick?.vin ? deal?.why : car.excludedReason,
-      offerUsd: offer?.openingUsd ?? null,
-      offerLabel: offer?.openingLabel ?? null,
+      offerUsd: structured ? structured.openingOffer : offer?.openingUsd ?? null,
+      offerStructured: structured != null,
+      offerLabel: structured ? renderStructuredOffer(structured) : offer?.openingLabel ?? null,
       confidence: null,
     });
     return row ? [row] : [];

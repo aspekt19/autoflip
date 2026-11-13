@@ -30,10 +30,10 @@
 | `fixtures/scout/adversarial-contradiction.json` | No (tests/eval) | Written adversarial scout case | **Keep** (test/eval only) |
 | `fixtures/listing-pages/*` | No (fetch/parser tests) | Saved HTML for listing-page parsers | **Keep** (test-only) |
 | `eval/results/verdict-latest.json` | Eval docs | **Stub** `status: not_yet_run` — no fabricated scores | **Keep** (honest stub) |
-| `eval/results/serv-proof-trace.json` | Eval / judge materials | **Live SERV** flip_judge call with response id + disclosure that it is an evaluation fixture, not customer traffic | **Keep** — real capture with provenance; not a verdict revision trail |
+| `eval/results/serv-proof-trace.json` | Eval materials | **Live SERV** flip_judge call with response id + disclosure that it is an evaluation fixture, not customer traffic | **Keep** — real capture with provenance; not a verdict revision trail |
 | `eval/results/scout-baseline.json` | Eval | Offline scout plumbing — labeled MOCK/OFFLINE | **Keep** with existing labeling |
 | `eval/results/serv-scout-model-compare.*` | Eval | Dry-run / live compare artifacts with gates | **Keep** — harness docs already forbid inventing rows |
-| `docs/judge-guide.md` sample link | Jury | Points at labeled sample report | Unchanged; sample no longer invents SERV revision |
+| `docs/ARCHITECTURE.md` | Product | Describes the current chat, confirm gate, and pick path | Sample report stays a labeled fixture |
 
 ## Provenance required for any future sample trail
 

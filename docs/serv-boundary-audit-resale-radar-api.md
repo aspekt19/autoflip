@@ -172,7 +172,7 @@
 
 ## 8. Resale settle SERV (`runResaleSettleServ`)
 
-- `src/server/resale-settle-serv.ts:113` — `RESALE_SERV_JUDGE_MAX = 3` shortlist for SERV judge — **moved into SERV** (SERV sees full candidate set or asks for pages).
+- `src/server/resale-settle-serv.ts:113` — `RESALE_SERV_JUDGE_MAX = 3` shortlist for the resale review — **moved into SERV** (SERV sees full candidate set or asks for pages).
 - `src/server/resale-settle-serv.ts:788-797` — code `sortByProfit` then keeps only non-negative mid, slice to 3 — **rank-to-drop** — **removed**.
 - `src/server/resale-settle-serv.ts:799-824` — early empty shortlist → pass / “no candidates” without SERV choose — **removed** (SERV nothing-fits).
 - `src/server/resale-settle-serv.ts:459-485` (`pickAlternatives`) — drops alts where ask and offer both over budget; limit 4 — budget validate **kept as guardrail**; pre-drop before SERV **removed**.

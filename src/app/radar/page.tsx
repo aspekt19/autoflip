@@ -14,6 +14,8 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { formatUsd } from "@/domain/format";
+import { buyerDistanceText } from "@/domain/geo";
+import { renderStructuredOffer } from "@/domain/structured-offer";
 import { criteriaSourceLine, criteriaSourceTechnicalLine, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
 import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
 import type { WatchCriteria } from "@/domain/radar-watch";
@@ -44,6 +46,10 @@ function RadarInner() {
       mode: string;
       priceUsd: number;
       miles: number | null;
+      distanceMiles?: number | null;
+      radiusCheck?: "unverified" | "known" | null;
+      openingOffer?: number | null;
+      walkAway?: number | null;
       year: number;
       make: string;
       model: string;
@@ -523,6 +529,18 @@ function RadarInner() {
                   {alert.year} {alert.make} {alert.model}
                 </h2>
                 {alert.badge ? <PriceBadgeView badge={alert.badge} /> : null}
+                <p className="hint">
+                  {buyerDistanceText({
+                    distanceMiles: alert.distanceMiles,
+                    radiusCheck: alert.radiusCheck,
+                  })}
+                  {alert.openingOffer !== undefined || alert.walkAway !== undefined
+                    ? ` · ${renderStructuredOffer({
+                        openingOffer: alert.openingOffer ?? null,
+                        walkAway: alert.walkAway ?? null,
+                      })}`
+                    : ""}
+                </p>
                 <p><strong>Why this car. </strong>{alert.why}</p>
                 {codeOnly ? (
                   <p className="hint">This alert uses the price rating only. A full review did not finish for this car.</p>

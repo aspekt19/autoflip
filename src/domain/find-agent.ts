@@ -7,6 +7,9 @@ import {
   scoringVerdictComplete,
   type AgentSearchJournalRow,
 } from "./agent-verdict-complete";
+import { accidentHardConstraintIssue, briefForbidsAccidents } from "./accident-hard-constraint";
+import { structuredOfferRepairIssue } from "./structured-offer";
+import type { ShopperBriefConstraint } from "./shopper-brief";
 import { listingPriceBudgetIssue } from "./serv-boundary";
 
 export const FIND_AGENT_MODES = ["tools", "next_action", "auto"] as const;
@@ -22,7 +25,12 @@ export type FindAgentPick = {
   vin: string;
   label: string;
   action: "buy" | "negotiate" | "inspect_first" | "pass";
+  /** Mirrors openingOffer. Older callers still send offerUsd. */
   offerUsd: number | null;
+  /** Structured opening offer from submit_picks. Rendered text reads this, not the prose. */
+  openingOffer: number | null;
+  /** Structured walk-away from submit_picks. */
+  walkAway: number | null;
   why: string;
 };
 
@@ -89,6 +97,8 @@ export const FIND_AGENT_RESULT_SCHEMA = {
           label: { type: "string" },
           action: { type: "string", enum: ["buy", "negotiate", "inspect_first", "pass"] },
           offerUsd: { type: ["number", "null"] },
+          openingOffer: { type: ["number", "null"] },
+          walkAway: { type: ["number", "null"] },
           why: { type: "string" },
         },
         required: ["vin", "label", "action", "offerUsd", "why"],
@@ -145,6 +155,8 @@ export const FIND_AGENT_NEXT_ACTION_SCHEMA = {
           label: { type: "string" },
           action: { type: "string", enum: ["buy", "negotiate", "inspect_first", "pass"] },
           offerUsd: { type: ["number", "null"] },
+          openingOffer: { type: ["number", "null"] },
+          walkAway: { type: ["number", "null"] },
           why: { type: "string" },
         },
         required: ["vin", "label", "action", "offerUsd", "why"],
@@ -251,8 +263,12 @@ export function validateFindAgentVerdict(input: unknown): ValidateFindAgentVerdi
         issues: [{ field: `picks[${index}].action`, message: "action must be buy|negotiate|inspect_first|pass." }],
       };
     }
-    const offerRaw = row.offerUsd == null ? null : asFiniteNumber(row.offerUsd);
-    const offerUsd = offerRaw != null ? Math.round(offerRaw) : null;
+    const openingFromField = row.openingOffer == null ? null : asFiniteNumber(row.openingOffer);
+    const offerFromLegacy = row.offerUsd == null ? null : asFiniteNumber(row.offerUsd);
+    const openingRaw = openingFromField ?? offerFromLegacy;
+    const openingOffer = openingRaw != null ? Math.round(openingRaw) : null;
+    const walkRaw = row.walkAway == null ? null : asFiniteNumber(row.walkAway);
+    const walkAway = walkRaw != null ? Math.round(walkRaw) : null;
     // Store SERV why untruncated — clip only at display via clipBuyerText (word boundary).
     const whyRaw = typeof row.why === "string" ? row.why.trim() : "";
     const why = whyRaw || "Chosen from live listings.";
@@ -260,7 +276,9 @@ export function validateFindAgentVerdict(input: unknown): ValidateFindAgentVerdi
       vin,
       label,
       action: actionRaw as FindAgentPick["action"],
-      offerUsd,
+      offerUsd: openingOffer,
+      openingOffer,
+      walkAway,
       why,
     });
   }
@@ -317,11 +335,15 @@ export function applyFindAgentGuardrails(
       dropped.push({ vin, reason: "invented_vin_not_in_tool_results" });
       continue;
     }
-    let offerUsd = pick.offerUsd;
-    if (offerUsd != null && budget != null && offerUsd > budget) {
-      offerUsd = budget;
+    let openingOffer = pick.openingOffer ?? pick.offerUsd;
+    let walkAway = pick.walkAway;
+    if (openingOffer != null && budget != null && openingOffer > budget) {
+      openingOffer = budget;
     }
-    picks.push({ ...pick, vin, offerUsd });
+    if (walkAway != null && budget != null && walkAway > budget) {
+      walkAway = budget;
+    }
+    picks.push({ ...pick, vin, offerUsd: openingOffer, openingOffer, walkAway });
   }
 
   return {
@@ -335,6 +357,14 @@ export type FindSubmitPicksListingFact = {
   priceUsd: number | null;
   miles?: number | null;
   distanceMiles?: number | null;
+  radiusCheck?: "unverified" | "known" | null;
+  accidentCount?: number | null;
+  /** Extra accident counts from other sources (page, feed). Any value >= 1 rejects. */
+  accidentCounts?: Array<number | null>;
+  titleBrand?: string | null;
+  usageType?: string | null;
+  dealer?: string | null;
+  trim?: string | null;
 };
 
 /**
@@ -353,6 +383,8 @@ export function validateFindSubmitPicks(
     radiusWidenAgreed?: boolean;
     /** Documented search_listings rows from the agent journal (params + counts). */
     searches?: readonly AgentSearchJournalRow[];
+    /** Confirmed brief rows. A no-accident / no-salvage row is a hard constraint. */
+    hardConstraints?: readonly ShopperBriefConstraint[];
   },
 ):
   | { ok: true; verdict: FindAgentVerdict }
@@ -371,6 +403,7 @@ export function validateFindSubmitPicks(
       : null;
   /** Only shopper-agreed widens count — never invent from SERV prose alone. */
   const radiusWidenAgreed = opts.radiusWidenAgreed === true;
+  const forbidsAccidents = briefForbidsAccidents(opts.hardConstraints);
 
   const actionable = validated.verdict.picks.filter((p) => p.action !== "pass");
   if (validated.verdict.picks.length > 0 && actionable.length === 0) {
@@ -412,7 +445,25 @@ export function validateFindSubmitPicks(
           message: `VIN ${vin} is ${Math.round(listing.distanceMiles)} mi away — outside confirmed radius ${maxRadius} mi. Pick a closer car, call submit_nothing_fits, or document an agreed radius widen in relaxedConditions.`,
         });
       }
+      const historyIssue = accidentHardConstraintIssue({
+        forbidsAccidents,
+        vin,
+        field: `picks[${index}].history`,
+        accidentCounts: [
+          listing.accidentCount,
+          ...(listing.accidentCounts ?? []),
+        ],
+        texts: [listing.titleBrand, listing.usageType, listing.dealer, listing.trim],
+      });
+      if (historyIssue) issues.push(historyIssue);
     }
+    const offerIssue = structuredOfferRepairIssue({
+      prose: `${pick.why}\n${validated.verdict.summary}`,
+      openingOffer: pick.openingOffer,
+      walkAway: pick.walkAway,
+      field: `picks[${index}].openingOffer`,
+    });
+    if (offerIssue) issues.push(offerIssue);
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({
         field: `picks[${index}].offerUsd`,
@@ -429,6 +480,12 @@ export function validateFindSubmitPicks(
       issues.push({
         field: `picks[${index}].offerUsd`,
         message: `offerUsd ${pick.offerUsd} is above listing asking price ${listing.priceUsd} for VIN ${vin}. Match or beat asking.`,
+      });
+    }
+    if (pick.walkAway != null && budget != null && pick.walkAway > budget) {
+      issues.push({
+        field: `picks[${index}].walkAway`,
+        message: `walkAway ${pick.walkAway} exceeds budget ${budget}. Lower the walk-away.`,
       });
     }
   }

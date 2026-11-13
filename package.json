@@ -24,6 +24,7 @@
     "eval:verdict": "tsx eval/verdict-run.ts",
     "eval:trace": "tsx eval/trace.ts",
     "eval:comparison": "tsx eval/comparison/harness.ts",
+    "eval:snapshot": "tsx eval/snapshot/harness.ts",
     "eval:record-serv-revision": "tsx eval/record-serv-revision.ts",
     "eval:live": "tsx eval/live/harness.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",

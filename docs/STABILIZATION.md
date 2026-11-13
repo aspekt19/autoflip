@@ -183,7 +183,7 @@ And a hard invariant: **`queries.length > 0` before any charge or verdict.** If 
 
 ### RC7. No server-side Run, so no permalink, no consistent final state and weak auditability
 
-The Find result exists only in browser state assembled from 3–4 separate responses (`/api/need`, `/api/match`, `/api/find/decide`, optionally next-check). Proof records are scattered. "Auditable steps" is a **judging criterion**, yet the judge cannot open a URL that shows one run end to end. Resale has a job object (`resale-job.ts:281`); Find does not.
+The Find result exists only in browser state assembled from 3–4 separate responses (`/api/need`, `/api/match`, `/api/find/decide`, optionally next-check). Proof records are scattered. "Auditable steps" still need a URL that shows one run end to end. Resale has a job object (`resale-job.ts:281`); Find does not.
 
 **Fix:** a `Run { id, spec, steps[] (each with SERV response id, model, latency, status, retryOf), inventory snapshot (VINs + kept/dropped), final decision }` persisted in KV, with `/run/[id]` as the permalink. The UI renders `Run` only, so progress and final come from the same object and cannot contradict each other. The same object goes to /proof and the API.
 
@@ -220,7 +220,7 @@ The Find result exists only in browser state assembled from 3–4 separate respo
 
 ## 3. Cut / hide / freeze list (4 days left)
 
-**Must be rock-solid for the demo (the only things judges should touch):**
+**Must be rock-solid for the demo (the only paths the demo should open):**
 
 1. **Find** (personal). Free-text note → spec → inventory → SERV plan/triage/decide/challenge → verdict, with a permalink.
 2. **Resale.** Budget → spec → inventory → sanity-gated "priced below similar" → SERV pick/challenge → verdict, with a permalink.
@@ -236,7 +236,7 @@ The Find result exists only in browser state assembled from 3–4 separate respo
 - PR #159 (capability matrix "coordinated defaults"): do **not** merge before the demo. It changes model behaviour across all steps. Close #137.
 
 **Hide or delete:**
-- **Scout** (15k LOC, already flagged): remove it from nav permanently and exclude it from the judge write-up.
+- **Scout** (15k LOC, already flagged): remove it from nav permanently and leave it out of the public write-up.
 - **Next-check loop pipeline** (`find-next-check-*`, `find_next_check`, `find_pick`): the decide path is the default. Delete or hard-disable it.
 - **Telegram** (already hidden), **x402** (contradicts the rules), **kite-pay**.
 - Dead profiles: `need_guard`, `need_extract`, `telegram_reply`, `personal_alert_review`.

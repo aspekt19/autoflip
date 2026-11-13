@@ -108,6 +108,10 @@ export type WatchAlert = {
   miles: number | null;
   /** Miles from search ZIP when the listing record includes it. */
   distanceMiles?: number | null;
+  radiusCheck?: "unverified" | "known" | null;
+  /** Structured submit_picks offer when the review produced one. */
+  openingOffer?: number | null;
+  walkAway?: number | null;
   /** Dealer listing https URL from the per-VIN record (vdp / dealerUrl). */
   listingUrl?: string | null;
   city: string | null;
@@ -134,7 +138,7 @@ export type RadarCandidateDecision = PrefilterDecision;
 /**
  * Bump when the pre-filter changes meaning, so VINs stored under an older rule are judged again.
  * Version 1 stored every fetched VIN, including rows the filter rejected.
- * Version 3 judges price with adjusted similar listings, not a raw median of the page.
+ * Version 3 prices with adjusted similar listings, not a raw median of the page.
  */
 export const SEEN_RULES_VERSION = 3;
 

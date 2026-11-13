@@ -13,32 +13,25 @@ export type ServPipelineStep = {
 
 export const PIPELINE_STEPS: readonly ServPipelineStep[] = [
   {
-    id: "need_parse",
+    id: "find_intake",
     surface: "Find",
-    name: "Read what you need",
+    name: "Intake chat",
     by: "SERV",
-    detail: "Reads your note. Only the fields Lemonless already accepts are kept.",
+    detail: "The chat asks for the brief, then submits it for you to confirm before any search.",
   },
   {
-    id: "find_rank",
+    id: "find_search",
     surface: "Find",
-    name: "Rank the shortlist",
-    by: "code",
-    detail: "Asking prices, similar cars for sale nearby, and the order of the list stay in the calculation.",
-  },
-  {
-    id: "find_next_check",
-    surface: "Find",
-    name: "Choose the next check",
+    name: "Search and evidence",
     by: "SERV",
-    detail: "Chooses the next check from the list Lemonless allows. The check itself is run and saved by the calculation.",
+    detail: "After you confirm, the same chat calls listing and public-record tools. A missing source does not stop the search.",
   },
   {
     id: "find_settle",
     surface: "Find",
-    name: "Buy, negotiate, or pass",
+    name: "Pick or nothing fits",
     by: "SERV",
-    detail: "Chooses an action from the calculated facts. A second review must agree, or confidence drops.",
+    detail: "The chat submits the cars or says nothing fits. The calculation checks budget, radius, and a no-accident rule, and keeps the journal.",
   },
   {
     id: "check_extract",

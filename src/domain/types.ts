@@ -41,6 +41,8 @@ export type Listing = {
   style?: string | null;
   /** Miles from the search ZIP when the listings payload includes it. */
   distanceMiles?: number | null;
+  /** Set when miles could not be computed. Never leave a missing distance unlabeled. */
+  radiusCheck?: "unverified" | "known" | null;
   latitude: number | null;
   longitude: number | null;
   removedAt: string | null;
