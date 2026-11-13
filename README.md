@@ -77,7 +77,7 @@ The public [Proof page](https://autoflip-umber.vercel.app/proof) presents one re
 | Vehicle-price walk-away | $20,000 |
 | Shopper's all-in ceiling | $25,000 |
 
-The run requested VIN decoding, vehicle-safety data, fuel-economy evidence, and local asking-price comparisons. The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
+The run requested VIN decoding, vehicle-safety and recall/complaint data, fuel-economy evidence, and local asking-price comparisons. The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
 
 **Run record:** 13 November 2026, 20:29:50 UTC · 47.5 seconds · 8 SERV calls · 13 tool calls · 12 tool rounds · 88,084 reported tokens. Find ran through the same server-side function used by `/api/find/chat`, with isolated in-memory state. No customer credit was charged and no production data was changed. The [GitHub Actions run](https://github.com/aspekt19/autoflip/actions/runs/43502039509) and the source links are available from Proof.
 
