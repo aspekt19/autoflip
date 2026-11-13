@@ -89,11 +89,12 @@ export function RunReport({ run }: { run: RunView }) {
                   {car.place ? ` · ${car.place}` : ""}
                   {car.dealer ? ` · ${car.dealer}` : ""}
                 </p>
-                {car.vdp && car.linkLabel ? (
+                {car.listingHref && car.linkLabel ? (
                   <p>
-                    <a href={car.vdp}>{car.linkLabel}</a>
+                    <a href={car.listingHref}>{car.linkLabel}</a>
                   </p>
                 ) : null}
+                {car.sourcesLine ? <p className="hint">Sources: {car.sourcesLine}</p> : null}
               </article>
             );
           })}

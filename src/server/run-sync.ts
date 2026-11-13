@@ -19,6 +19,7 @@ import { highMileageFlipExplanation } from "@/domain/resale-sanity";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
+import { clipBuyerText, normalizedListingUrl, type VehicleSourceAttempt } from "@/domain/normalized-vehicle";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
 import { releaseFindSearchCredit } from "@/server/find-search-credit";
@@ -177,6 +178,7 @@ export function listingFromCar(car: {
   miles?: number | null;
   dealer?: string | null;
   vdp?: string | null;
+  dealerUrl?: string | null;
   city?: string | null;
   state?: string | null;
   drivetrain?: string | null;
@@ -187,6 +189,7 @@ export function listingFromCar(car: {
   offerLabel?: string | null;
   reason?: string | null;
   confidence?: string | null;
+  sourcesChecked?: VehicleSourceAttempt[] | null;
 }): RunListing | null {
   const vin = car.vin?.trim();
   if (!vin) return null;
@@ -199,7 +202,8 @@ export function listingFromCar(car: {
     priceUsd: typeof car.priceUsd === "number" ? car.priceUsd : null,
     miles: typeof car.miles === "number" ? car.miles : null,
     dealer: car.dealer?.trim() || null,
-    vdp: car.vdp?.trim() || null,
+    // Store http(s) only — Auto.dev fragment ids never become /run links.
+    vdp: normalizedListingUrl(car.vdp, car.dealerUrl).value,
     city: car.city?.trim() || null,
     state: car.state?.trim() || null,
     drivetrain: car.drivetrain?.trim() || null,
@@ -208,8 +212,9 @@ export function listingFromCar(car: {
     distanceMiles: typeof car.distanceMiles === "number" ? car.distanceMiles : null,
     offerUsd: typeof car.offerUsd === "number" ? car.offerUsd : null,
     offerLabel: car.offerLabel?.trim() || null,
-    reason: car.reason?.trim() || null,
+    reason: car.reason ? clipBuyerText(car.reason, 600) || null : null,
     confidence: car.confidence?.trim() || null,
+    sourcesChecked: car.sourcesChecked ?? null,
   };
 }
 

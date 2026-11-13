@@ -84,6 +84,13 @@ export type ListingFuelHints = {
   trim?: string | null;
   engine?: string | null;
   drivetrain?: string | null;
+  /** Fuel type from vPIC / listing — used to avoid guessing hybrid vs gas. */
+  fuelType?: string | null;
+  /**
+   * When true (vPIC published drivetrain and/or fuel type), a filter miss is
+   * unknown — never fall back to an incompatible 2WD/gas sibling config.
+   */
+  strictVpicMatch?: boolean;
 };
 
 function normalizeToken(s: string): string {
@@ -199,6 +206,30 @@ function driveHintMatches(drive: string | null | undefined, hint: string | null 
   if (h.includes("fwd") || h.includes("front")) return d.includes("front");
   if (h.includes("rwd") || h.includes("rear")) return d.includes("rear");
   return d.includes(h) || h.includes(d);
+}
+
+/** Match FuelEconomy fuelType1 against vPIC/listing fuel (hybrid vs gas vs electric). */
+export function fuelTypeHintMatches(
+  vehicleFuelType: string | null | undefined,
+  hint: string | null | undefined,
+): boolean {
+  if (!hint || !vehicleFuelType) return true;
+  const h = hint.toLowerCase();
+  const v = vehicleFuelType.toLowerCase();
+  const hintHybrid = /\bhybrid|phev|plug[\s-]?in|electric.*gas|gas.*electric\b/i.test(h);
+  const hintElectric = isElectricFuelType(hint) && !hintHybrid;
+  const hintDiesel = /\bdiesel\b/i.test(h);
+  const vehHybrid = /\bhybrid|phev|plug[\s-]?in\b/i.test(v) || (v.includes("electric") && v.includes("gas"));
+  const vehElectric = isElectricFuelType(vehicleFuelType) && !vehHybrid;
+  const vehDiesel = /\bdiesel\b/i.test(v);
+  if (hintHybrid) return vehHybrid;
+  if (hintElectric) return vehElectric;
+  if (hintDiesel) return vehDiesel;
+  // Ordinary gas: reject hybrid/EV/diesel siblings when the hint is plain gasoline.
+  if (/\bgas(oline)?\b/i.test(h) || h === "gas") {
+    return !vehHybrid && !vehElectric && !vehDiesel;
+  }
+  return true;
 }
 
 function engineHintMatches(
@@ -386,7 +417,11 @@ export function matchFuelVehicles(input: {
     });
   }
 
-  const allowAlt = listingModelRequestsAltPowertrain(input.listing.model);
+  const fuelHint = input.listing.fuelType ?? null;
+  const allowAlt =
+    listingModelRequestsAltPowertrain(input.listing.model) ||
+    (fuelHint != null &&
+      (/\bhybrid|phev|plug[\s-]?in\b/i.test(fuelHint) || isElectricFuelType(fuelHint)));
   const isAltVehicle = (v: { detail: { fuelType: string | null }; modelName: string }) =>
     isAltPowertrainFuelType(v.detail.fuelType) || ALT_POWERTRAIN_RE.test(v.modelName);
   // Drop Fuel Cell / Hybrid / EV siblings when ordinary gas/diesel configs exist for the
@@ -400,12 +435,27 @@ export function matchFuelVehicles(input: {
 
   const filtered = basePool.filter((v) => {
     if (!driveHintMatches(v.detail.drive, input.listing.drivetrain)) return false;
+    if (!fuelTypeHintMatches(v.detail.fuelType, fuelHint)) return false;
     if (!engineHintMatches(v.detail, v.optionText, input.listing.engine)) return false;
     if (!trimHintMatches(v.optionText, v.modelName, input.listing.trim)) return false;
     return true;
   });
 
-  // If hints eliminated everything, fall back to compatible configs as ambiguous (honest).
+  // When vPIC published fuel/drive/trim, a filter miss stays unknown — never guess a sibling.
+  const strict = Boolean(input.listing.strictVpicMatch);
+
+  if (filtered.length === 0 && strict) {
+    return emptyEvidence("no_match", input.assumptions, {
+      modelNamesTried: input.modelNamesTried,
+      sourceUrl: input.sourceUrl,
+      reason:
+        "FuelEconomy.gov had no configuration matching the VIN decode fuel type / drivetrain / trim — MPG left unknown.",
+      honesty:
+        "Fuel cost unavailable — FuelEconomy.gov configs did not match vPIC fuel type/drivetrain. Lemonless does not guess MPG.",
+    });
+  }
+
+  // Soft path (no drive/fuel hints): fall back to year/make/model as an ambiguous range.
   const pool = filtered.length > 0 ? filtered : basePool;
   const usedFallback = filtered.length === 0 && basePool.length > 0;
   const evidence = summarizeVehicles(pool, input.assumptions, input.modelNamesTried, input.sourceUrl);

@@ -27,9 +27,16 @@ import {
   listingsSearchUrl,
   type AutodevDeps,
 } from "@/io/autodev";
-import { complaintsFor, decodeVin, fuelFor, recallsFor, type GovDeps } from "@/io/gov";
+import { complaintsFor, decodeVin, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
-import { buyerListingHref } from "@/domain/find-listing-link";
+import {
+  enrichListingWithVpic,
+  normalizedListingUrl,
+} from "@/domain/normalized-vehicle";
+import {
+  fuelFactFromFindEvidence,
+  lookupFindFuelEvidence,
+} from "@/domain/find-fuel-match";
 import type { Listing } from "@/domain/types";
 import type { ListingQuery } from "@/io/marketcheck";
 import {
@@ -181,6 +188,8 @@ export type FindAgentToolState = {
   zipGeocodeFailed: boolean;
   /** Resolved buyer-center lat/lon from the last successful ZIP lookup (for distanceMiles). */
   searchCenter: { latitude: number; longitude: number; zip: string } | null;
+  /** VINs that received a successful vPIC decode this run (strict fuel match). */
+  vpicEnrichedVins: Set<string>;
 };
 
 export type FindAgentToolDeps = {
@@ -710,7 +719,8 @@ export function listingToCard(listing: Listing): ListingCard | null {
   if (!vin) return null;
   const distance = listing.distanceMiles ?? null;
   // Prefer the feed's own detail-page URL (vdp); fall back to dealerUrl when present.
-  const listingUrl = buyerListingHref(listing.vdp) ?? buyerListingHref(listing.dealerUrl);
+  // Auto.dev fragment ids (#9000…) never become a listing link.
+  const listingUrl = normalizedListingUrl(listing.vdp, listing.dealerUrl).value;
   return {
     vin,
     year: listing.year,
@@ -984,6 +994,7 @@ export function createFindAgentToolState(
     radiusWidenAgreed: false,
     zipGeocodeFailed: false,
     searchCenter: null,
+    vpicEnrichedVins: new Set(),
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -1504,6 +1515,12 @@ export async function executeFindAgentTool(
           continue;
         }
         okCount += 1;
+        // Merge vPIC onto the per-VIN listing so later fuel/comps use drivetrain/fuel type.
+        const prior = state.listingsByVin.get(vin);
+        if (prior) {
+          state.listingsByVin.set(vin, enrichListingWithVpic(prior, decoded));
+        }
+        state.vpicEnrichedVins.add(vin);
         decodes.push({
           vin,
           available: true,
@@ -1564,13 +1581,21 @@ export async function executeFindAgentTool(
         continue;
       }
       try {
-        const fuel = await fuelFor(
-          listing.year,
-          listing.make,
-          listing.model,
-          listing.engine ?? null,
-          govDeps,
+        // Match fuel using vPIC/listing drivetrain + fuel type — mismatch stays unknown.
+        const evidence = await lookupFindFuelEvidence(
+          {
+            year: listing.year,
+            make: listing.make,
+            model: listing.model,
+            trim: listing.trim ?? null,
+            engine: listing.engine ?? null,
+            drivetrain: listing.drivetrain ?? null,
+            fuelType: listing.fuel ?? null,
+            strictVpicMatch: state.vpicEnrichedVins.has(vin),
+          },
+          { deps: { fetch: govDeps.fetch } },
         );
+        const fuel = fuelFactFromFindEvidence(evidence);
         if (!fuel) {
           emptyCount += 1;
           vehicles.push({
@@ -1580,6 +1605,7 @@ export async function executeFindAgentTool(
             model: listing.model,
             available: false,
             empty: true,
+            match: evidence.match,
             fuel: null,
           });
           continue;
@@ -1622,7 +1648,7 @@ export async function executeFindAgentTool(
         vehicles,
         empty: okCount === 0,
         honesty:
-          "FuelEconomy.gov via listing year/make/model. Empty/error still counts as an attempted evidence source.",
+          "FuelEconomy.gov matched on year/make/model plus vPIC fuel type/drivetrain/trim when known. Mismatch → unknown (never guessed). Empty/error still counts as an attempted evidence source.",
       },
       summary: `get_fuel_economy → ${parsed.value.vins.length} vins ok=${okCount} empty=${emptyCount} missing=${missingListing}`,
     };

@@ -28,6 +28,8 @@ import {
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
 import { formatShopperBriefCard } from "@/domain/shopper-brief";
+import { sourceAttemptsFromEvidenceRows } from "@/domain/normalized-vehicle";
+import { clipBuyerText } from "@/domain/normalized-vehicle";
 
 export type FindChatSession = {
   sessionId: string;
@@ -416,11 +418,13 @@ export async function runFindChatTurn(input: {
   }
   const balance = await creditBalance(input.kv, input.userId);
 
-  const assistantSummary =
+  const assistantSummary = clipBuyerText(
     agent.verdict.summary?.trim() ||
-    (nothingFits
-      ? agent.verdict.passReason || "Nothing in live inventory fit this request."
-      : "Here are the cars SERV chose from live listings.");
+      (nothingFits
+        ? agent.verdict.passReason || "Nothing in live inventory fit this request."
+        : "Here are the cars SERV chose from live listings."),
+    1200,
+  );
   session.messages.push({ role: "assistant", content: assistantSummary, at: new Date().toISOString() });
 
   const briefCard = session.confirmedBrief ? formatShopperBriefCard(session.confirmedBrief) : "";
@@ -439,12 +443,15 @@ export async function runFindChatTurn(input: {
     mapped.offerPool,
   ).map((row) => {
     const listing = mapped.offerPool.find((l) => l.vin?.toUpperCase() === row.vin.toUpperCase());
+    const evidenceRows = mapped.sourcesCheckedByVin[row.vin.toUpperCase()] ?? [];
     return {
       ...row,
       distanceMiles: listing?.distanceMiles ?? row.distanceMiles ?? null,
       bodyStyle: listing?.bodyStyle ?? row.bodyStyle ?? null,
       drivetrain: listing?.drivetrain ?? row.drivetrain ?? null,
       reason: pickWhyByVin.get(row.vin.toUpperCase()) ?? row.reason ?? null,
+      dealerUrl: listing?.dealerUrl ?? null,
+      sourcesChecked: sourceAttemptsFromEvidenceRows(evidenceRows),
     };
   });
   const runId = await syncRunSafely(input.kv, {
@@ -476,6 +483,7 @@ export async function runFindChatTurn(input: {
       : [],
     listings,
     picks: chosenVin ? [chosenVin] : [],
+    // Generic SourceId kept for legacy run store; per-VIN checklist is on each listing.
     sources: journalMeta.toolCalls > 0 ? ["cars_for_sale"] : [],
     queryCount: journalMeta.toolCalls,
     verdict: mapped.agentVerdict.verdict,

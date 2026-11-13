@@ -151,7 +151,7 @@ export function ResaleChatFlow() {
                         .join(" · ")}
                     </p>
                   ) : null}
-                  {vdp ? (
+                  {vdp && /^https?:\/\//i.test(vdp) ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">
                         Listing

@@ -634,7 +634,11 @@ function CheckResultCard({
   onFreshCheck?: () => void;
   freshPending?: boolean;
 }) {
-  const priced = result.fields?.priceUsd.value;
+  // Prefer merged page+feed fields; fall back to provenance (normalized VIN record).
+  const priced =
+    result.fields?.priceUsd.value ??
+    (result.provenance.find((row) => row.field === "priceUsd")?.value as number | null | undefined) ??
+    null;
   const stopFlags = result.redFlags.filter((flag) => flag.level === "stop");
   const sold = result.redFlags.some((flag) => flag.id === "sold");
   const similarCars = result.similarCars ?? [];
