@@ -268,7 +268,7 @@ jobs:
   # Manual head-to-head mode: set max_queries=0 in the dispatch form.
   # This does NOT run the normal live-eval batch or touch Resale.
   find-gemini-head-to-head:
-    if: \${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_queries == '0' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_queries == '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -277,15 +277,15 @@ jobs:
 
       - name: Require comparison secrets
         env:
-          EVAL_SECRET: \${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
-          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+          EVAL_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           missing=0
-          if [ -z "\${EVAL_SECRET}" ]; then
+          if [ -z "${EVAL_SECRET}" ]; then
             echo "::error::Repository secret CRON_SECRET or RADAR_CRON_SECRET is missing."
             missing=1
           fi
-          if [ -z "\${GEMINI_API_KEY}" ]; then
+          if [ -z "${GEMINI_API_KEY}" ]; then
             echo "::error::Repository secret GEMINI_API_KEY is missing."
             missing=1
           fi
@@ -298,9 +298,9 @@ jobs:
 
       - name: Run two-round Find vs Gemini comparison
         env:
-          EVAL_LIVE_SECRET: \${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
-          EVAL_LIVE_URL: \${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
-          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+          EVAL_LIVE_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.8-flash
           OUTPUT_DIR: eval/results/find-gemini-head-to-head-2026-11-13
         run: node eval/comparison/find-gemini-head-to-head.mjs
