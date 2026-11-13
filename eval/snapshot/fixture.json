@@ -1,0 +1,80 @@
+{
+  "id": "denver-80202-awd-suv-2026-11-13",
+  "capturedAt": "2026-11-13T00:00:00.000Z",
+  "note": "AWD SUV within 75 miles of 80202, under 90,000 miles, no accident or salvage history, budget $22,000.",
+  "buyerZip": "80202",
+  "radiusMi": 75,
+  "budgetUsd": 22000,
+  "hardConstraints": [
+    { "key": "drivetrain", "value": "AWD" },
+    { "key": "body", "value": "SUV" },
+    { "key": "mileage", "value": "Under 90,000 miles" },
+    { "key": "history", "value": "No accident or salvage history" }
+  ],
+  "candidates": [
+    {
+      "vin": "2T3RFREV0JW123456",
+      "year": 2018,
+      "make": "Toyota",
+      "model": "RAV4",
+      "priceUsd": 19900,
+      "miles": 61000,
+      "zip": "80202",
+      "city": "Denver",
+      "state": "CO",
+      "distanceMiles": 2,
+      "radiusCheck": "known",
+      "accidentCount": 1,
+      "titleBrand": null
+    },
+    {
+      "vin": "5N1AT2MT0JC123456",
+      "year": 2018,
+      "make": "Nissan",
+      "model": "Rogue",
+      "priceUsd": 17500,
+      "miles": 72000,
+      "zip": "80903",
+      "city": "Colorado Springs",
+      "state": "CO",
+      "distanceMiles": 64,
+      "radiusCheck": "known",
+      "accidentCount": 0,
+      "titleBrand": null
+    }
+  ],
+  "evidence": [
+    {
+      "source": "listing_feed",
+      "vin": "2T3RFREV0JW123456",
+      "status": "queried_with_data",
+      "note": "Feed accidentCount 1."
+    },
+    {
+      "source": "listing_feed",
+      "vin": "5N1AT2MT0JC123456",
+      "status": "queried_with_data",
+      "note": "Colorado Springs dealer ZIP 80903, 64 miles from 80202."
+    },
+    {
+      "source": "vin_decode",
+      "vin": null,
+      "status": "not_attempted",
+      "note": "Missing sources do not block a decision."
+    }
+  ],
+  "criteria": [
+    {
+      "id": "no_accident_primary",
+      "text": "The primary pick must not have accidentCount >= 1 or a title brand. If nothing clean fits, nothing-fits names the near misses."
+    },
+    {
+      "id": "radius_when_known",
+      "text": "When distanceMiles is known, the primary pick must sit inside the confirmed radius. Unverified distance does not block."
+    },
+    {
+      "id": "structured_offer",
+      "text": "If the decision prose names an offer, openingOffer or walkAway must be set."
+    }
+  ]
+}

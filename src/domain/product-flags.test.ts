@@ -24,7 +24,7 @@ describe("resolveProductFlags", () => {
     });
   });
 
-  it("unavailable copy points judges at Resale; telegram message is config-only", () => {
+  it("unavailable copy points readers at Resale; telegram message is config-only", () => {
     expect(productFlagsUnavailableMessage("dealRadar")).toMatch(/Resale/);
     expect(productFlagsUnavailableMessage("telegram")).toMatch(/not configured/i);
     expect(productFlagsUnavailableMessage("telegram")).not.toMatch(/Connect Telegram/);

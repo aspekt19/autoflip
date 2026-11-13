@@ -7,6 +7,8 @@ import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatUsd } from "@/domain/format";
+import { accidentHistoryBuyerLine } from "@/domain/accident-hard-constraint";
+import { buyerDistanceText } from "@/domain/geo";
 import { clipBuyerText } from "@/domain/normalized-vehicle";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
 import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
@@ -43,6 +45,8 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
     bodyStyle?: string | null;
     drivetrain?: string | null;
     distanceMiles?: number | null;
+    radiusCheck?: "unverified" | "known" | null;
+    accidentCount?: number | null;
     vdp?: string | null;
   }>;
   const ranked = bestDeal?.ranked ?? [];
@@ -100,6 +104,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
             const why = whyRaw ? clipBuyerText(whyRaw, 400) : null;
             const pool = vin ? poolByVin.get(vin) : null;
             const distance = car.distanceMiles ?? pool?.distanceMiles ?? null;
+            const historyLine = accidentHistoryBuyerLine(car.accidentCount ?? pool?.accidentCount);
             const body = pool?.bodyStyle ?? null;
             const drivetrain = car.drivetrain ?? pool?.drivetrain ?? null;
             const vdp =
@@ -114,7 +119,11 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                   <p>
                     {car.priceUsd != null ? formatUsd(car.priceUsd) : "Price unknown"}
                     {car.miles != null ? ` · ${car.miles.toLocaleString("en-US")} mi` : ""}
-                    {distance != null ? ` · ${Math.round(distance)} mi away` : ""}
+                    {` · ${buyerDistanceText({
+                      distanceMiles: distance,
+                      radiusCheck: car.radiusCheck ?? pool?.radiusCheck,
+                    })}`}
+                    {historyLine ? ` · ${historyLine}` : ""}
                   </p>
                   <p className="hint">
                     {[body, drivetrain].filter(Boolean).join(" · ") || "Body/drivetrain not listed"}

@@ -4,8 +4,11 @@
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
 import {
+  buyerDistanceText,
   enrichListingDistanceFromCenter,
+  enrichListingDistanceFromCentroidTable,
   enrichListingDistanceFromDealerZip,
+  stampRadiusCheck,
 } from "@/domain/geo";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import {
@@ -151,6 +154,9 @@ export type ListingCard = {
   distanceMiles: number | null;
   /** Alias of distanceMiles for older prompts. */
   distance: number | null;
+  /** "unverified" when miles could not be computed. Buyers must see this text. */
+  radiusCheck: "unverified" | "known";
+  distanceLabel: string;
   city: string | null;
   state: string | null;
   createdAt: string | null;
@@ -165,6 +171,8 @@ export type FindAgentShopperFacts = {
   radiusMi: number | null;
   /** Resale: confirmed brief is budget + location only (broad profit search). */
   budgetOnly?: boolean;
+  /** Confirmed brief hard rows, including no-accident / no-salvage. */
+  hardConstraints?: Array<{ key: string; value: string }>;
 };
 
 export type FindAgentToolState = {
@@ -675,7 +683,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final find verdict with chosen cars. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps) — empty/error/unavailable still count. Code validates real VINs, offer ≤ budget/asking, and at least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits). Cite sources in why. On validation failure fix and call submit_picks again. Do not invent cars.",
+          "Submit the final find verdict with chosen cars. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps) — empty/error/unavailable still count. Set openingOffer and walkAway (offerUsd mirrors openingOffer). Code validates real VINs, offer ≤ budget/asking, confirmed radius when distanceMiles is known, and a no-accident/no-salvage brief against accidentCount or a title brand in any source. Unknown history is allowed. At least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits and name the near misses). Cite sources in why. On validation failure fix and call submit_picks again. Do not invent cars.",
         parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
@@ -721,6 +729,7 @@ export function listingToCard(listing: Listing): ListingCard | null {
   const vin = listing.vin?.trim().toUpperCase();
   if (!vin) return null;
   const distance = listing.distanceMiles ?? null;
+  const radiusCheck = listing.radiusCheck === "unverified" || distance == null ? "unverified" : "known";
   // Prefer the feed's own detail-page URL (vdp); fall back to dealerUrl when present.
   // Auto.dev fragment ids (#9000…) never become a listing link.
   const listingUrl = normalizedListingUrl(listing.vdp, listing.dealerUrl).value;
@@ -738,6 +747,8 @@ export function listingToCard(listing: Listing): ListingCard | null {
     style: listing.style ?? null,
     distanceMiles: distance,
     distance,
+    radiusCheck,
+    distanceLabel: buyerDistanceText({ distanceMiles: distance, radiusCheck }),
     city: listing.city,
     state: listing.state,
     createdAt: listing.createdAt ?? null,
@@ -1331,18 +1342,23 @@ export async function executeFindAgentTool(
     // Code distance: feed → listing lat/lon → dealer ZIP via /api/zip when feed omits it.
     const center = state.searchCenter ?? locationResolution;
     const afterLatLon = enrichListingDistanceFromCenter(search.listings, center);
-    const listingsWithDistance = await enrichListingDistanceFromDealerZip(
-      afterLatLon,
-      center,
-      async (zip) => {
-        if (!agentLoopMayStartAutodevCall(deps.deadline)) return null;
-        const dealerLookup = await autodevZipLookup(zip, autodevDeps);
-        if (!dealerLookup.ok) return null;
-        return {
-          latitude: dealerLookup.location.latitude,
-          longitude: dealerLookup.location.longitude,
-        };
-      },
+    const listingsWithDistance = stampRadiusCheck(
+      enrichListingDistanceFromCentroidTable(
+        await enrichListingDistanceFromDealerZip(
+          afterLatLon,
+          center,
+          async (zip) => {
+            if (!agentLoopMayStartAutodevCall(deps.deadline)) return null;
+            const dealerLookup = await autodevZipLookup(zip, autodevDeps);
+            if (!dealerLookup.ok) return null;
+            return {
+              latitude: dealerLookup.location.latitude,
+              longitude: dealerLookup.location.longitude,
+            };
+          },
+        ),
+        resolvedZip ?? state.shopperFacts.zip,
+      ),
     );
     // Observational funnel for SERV's eyes — product filters must not drop returned rows.
     const { listings: funnelKept, funnel } = applySearchListingsFunnel(listingsWithDistance, parsed.value);

@@ -46,6 +46,11 @@ function candidateFromListing(listing: Listing, key: string): BestDealCandidate 
     usageType: listing.usageType,
     cpo: listing.cpo,
     distanceMiles: listing.distanceMiles ?? null,
+    radiusCheck:
+      listing.radiusCheck === "known" ||
+      (listing.distanceMiles != null && Number.isFinite(listing.distanceMiles))
+        ? "known"
+        : "unverified",
   };
 }
 
@@ -92,7 +97,12 @@ export function mapFindAgentLoopToDecide(input: {
     if (!listing) continue;
     const key = pick.vin.toUpperCase();
     shortlistKeys.push(key);
-    ranked.push(candidateFromListing(listing, key));
+    const candidate = candidateFromListing(listing, key);
+    candidate.structuredOffer = {
+      openingOffer: pick.openingOffer,
+      walkAway: pick.walkAway,
+    };
+    ranked.push(candidate);
     offerPool.push(listing);
   }
 

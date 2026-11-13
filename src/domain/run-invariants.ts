@@ -822,6 +822,7 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
     return car;
   });
   listings = listings.map((car) => {
+    if (car.offerStructured) return car;
     if (car.priceUsd == null || car.offerUsd == null || car.offerUsd !== car.priceUsd) return car;
     if (!fairValueAboveAsk(`${car.reason ?? ""} ${car.summary ?? ""} ${buyerBlob({ buyerMessage: run.buyerMessage })}`, car.priceUsd)) return car;
     const opening = Math.max(1, car.priceUsd - Math.max(100, Math.round(car.priceUsd * 0.03)));

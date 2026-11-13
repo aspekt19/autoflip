@@ -1,4 +1,8 @@
+import { centroidForZip } from "./data/zip-centroids";
+
 const EARTH_MILES = 3958.7613;
+
+export type RadiusCheck = "unverified" | "known";
 
 export type GeoPoint = { latitude: number; longitude: number };
 
@@ -88,7 +92,8 @@ export async function enrichListingDistanceFromDealerZip<T extends {
   const points = new Map<string, GeoPoint>();
   await Promise.all(
     [...needZips].map(async (zip) => {
-      const point = await lookupZip(zip);
+      const lookedUp = await lookupZip(zip);
+      const point = isUsableGeoPoint(lookedUp) ? lookedUp : centroidForZip(zip);
       if (isUsableGeoPoint(point)) points.set(zip, point);
     }),
   );
@@ -104,4 +109,56 @@ export async function enrichListingDistanceFromDealerZip<T extends {
     if (miles == null) return row;
     return { ...row, distanceMiles: miles };
   });
+}
+
+/**
+ * Fill distanceMiles from the shopper ZIP centroid to the dealer ZIP centroid
+ * (or the listing lat/lon) when the feed and the live ZIP lookup left it blank.
+ */
+export function enrichListingDistanceFromCentroidTable<T extends {
+  distanceMiles?: number | null;
+  zip?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}>(listings: readonly T[], buyerZip: string | null | undefined): T[] {
+  const buyer = centroidForZip(buyerZip);
+  return listings.map((row) => {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) return row;
+    const dealerPoint = isUsableGeoPoint(row) ? row : centroidForZip(row.zip);
+    if (!buyer || !isUsableGeoPoint(dealerPoint)) return row;
+    const miles = roundedDistanceMiles(buyer, dealerPoint);
+    if (miles == null) return row;
+    return { ...row, distanceMiles: miles };
+  });
+}
+
+/** Miles between two ZIPs on the bundled centroid table, or null when either ZIP is missing. */
+export function distanceMilesBetweenZips(
+  fromZip: string | null | undefined,
+  toZip: string | null | undefined,
+): number | null {
+  return roundedDistanceMiles(centroidForZip(fromZip), centroidForZip(toZip));
+}
+
+export function stampRadiusCheck<T extends {
+  distanceMiles?: number | null;
+  radiusCheck?: RadiusCheck | null;
+}>(listings: readonly T[]): T[] {
+  return listings.map((row) => {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) {
+      return { ...row, radiusCheck: "known" as const };
+    }
+    return { ...row, distanceMiles: null, radiusCheck: "unverified" as const };
+  });
+}
+
+/** Buyer-facing distance. Never a silent blank when miles were not computed. */
+export function buyerDistanceText(input: {
+  distanceMiles?: number | null;
+  radiusCheck?: RadiusCheck | null;
+}): string {
+  if (typeof input.distanceMiles === "number" && Number.isFinite(input.distanceMiles)) {
+    return `${Math.round(input.distanceMiles)} mi away`;
+  }
+  return "unverified";
 }

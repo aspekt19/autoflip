@@ -441,6 +441,7 @@ function restoreFindStateFromCheckpoint(
       zip: checkpoint.shopperFacts.zip ?? null,
       radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
       budgetOnly: checkpoint.shopperFacts.budgetOnly === true,
+      hardConstraints: checkpoint.shopperFacts.hardConstraints,
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
@@ -820,25 +821,55 @@ async function postResponses(input: {
   });
 }
 
-function listingFactsFromState(
-  state: FindAgentToolState,
-): Map<
-  string,
-  { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
-> {
+function listingFactsFromState(state: FindAgentToolState) {
   const out = new Map<
     string,
-    { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
+    {
+      vin: string;
+      priceUsd: number | null;
+      miles: number | null;
+      distanceMiles: number | null;
+      radiusCheck: "unverified" | "known";
+      accidentCount: number | null;
+      titleBrand: string | null;
+      usageType: string | null;
+      dealer: string | null;
+      trim: string | null;
+    }
   >();
   for (const [vin, listing] of state.listingsByVin) {
+    const distanceMiles = listing.distanceMiles ?? null;
     out.set(vin, {
       vin,
       priceUsd: listing.priceUsd ?? null,
       miles: listing.miles ?? null,
-      distanceMiles: listing.distanceMiles ?? null,
+      distanceMiles,
+      radiusCheck: listing.radiusCheck === "known" || (distanceMiles != null && Number.isFinite(distanceMiles))
+        ? "known"
+        : "unverified",
+      accidentCount: listing.accidentCount ?? null,
+      titleBrand: listing.titleBrand ?? null,
+      usageType: listing.usageType ?? null,
+      dealer: listing.dealer ?? null,
+      trim: listing.trim ?? null,
     });
   }
   return out;
+}
+
+function submitPickGateOpts(
+  state: FindAgentToolState,
+  budgetUsd: number | null,
+  searches: ReturnType<typeof searchesFromFindJournal>,
+) {
+  return {
+    listingsByVin: listingFactsFromState(state),
+    budgetUsd,
+    maxRadiusMi: state.shopperFacts.radiusMi,
+    radiusWidenAgreed: state.radiusWidenAgreed === true,
+    hardConstraints: state.shopperFacts.hardConstraints,
+    searches,
+  };
 }
 
 /** Attempt-only evidence gate for Find submit_picks (one repair, then accept with not_checked). */
@@ -1056,13 +1087,10 @@ async function finalizeVerdict(input: {
   }
 
   const searches = searchesFromFindJournal(input.journal);
-  let gated = validateFindSubmitPicks(validated.verdict, {
-    listingsByVin: listingFactsFromState(input.state),
-    budgetUsd: input.budgetUsd,
-    maxRadiusMi: input.state.shopperFacts.radiusMi,
-    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
-    searches,
-  });
+  let gated = validateFindSubmitPicks(
+    validated.verdict,
+    submitPickGateOpts(input.state, input.budgetUsd, searches),
+  );
   if (!gated.ok) {
     const repairBody = chatBody({
       messages: [
@@ -1116,13 +1144,10 @@ async function finalizeVerdict(input: {
         message: FIND_COULD_NOT_FINISH,
       };
     }
-    gated = validateFindSubmitPicks(repaired.verdict, {
-      listingsByVin: listingFactsFromState(input.state),
-      budgetUsd: input.budgetUsd,
-      maxRadiusMi: input.state.shopperFacts.radiusMi,
-      radiusWidenAgreed: input.state.radiusWidenAgreed === true,
-      searches: searchesFromFindJournal(input.journal),
-    });
+    gated = validateFindSubmitPicks(
+      repaired.verdict,
+      submitPickGateOpts(input.state, input.budgetUsd, searchesFromFindJournal(input.journal)),
+    );
     if (!gated.ok) {
       return {
         ok: false,
@@ -1474,13 +1499,10 @@ async function runToolsMode(input: {
                   input.journal,
                 )
               : args;
-          const checked = validateFindSubmitPicks(submitArgs, {
-            listingsByVin: listingFactsFromState(input.state),
-            budgetUsd,
-            maxRadiusMi: input.state.shopperFacts.radiusMi,
-            radiusWidenAgreed: input.state.radiusWidenAgreed === true,
-            searches,
-          });
+          const checked = validateFindSubmitPicks(
+            submitArgs,
+            submitPickGateOpts(input.state, budgetUsd, searches),
+          );
           if (!checked.ok) {
             // Drop features for repair/retry; next accepted terminal re-enters selection hop.
             selectionHop = false;
@@ -2196,13 +2218,10 @@ async function runNextActionMode(input: {
       }
 
       const searches = searchesFromFindJournal(input.journal);
-      const gated = validateFindSubmitPicks(validated.verdict, {
-        listingsByVin: listingFactsFromState(input.state),
-        budgetUsd: input.deps.budgetUsd ?? null,
-        maxRadiusMi: input.state.shopperFacts.radiusMi,
-        radiusWidenAgreed: input.state.radiusWidenAgreed === true,
-        searches,
-      });
+      const gated = validateFindSubmitPicks(
+        validated.verdict,
+        submitPickGateOpts(input.state, input.deps.budgetUsd ?? null, searches),
+      );
       if (!gated.ok) {
         messages.push({
           role: "user",
@@ -2331,6 +2350,12 @@ export async function runFindAgentLoop(input: {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
     if (pendingBrief.budgetOnly === true) state.shopperFacts.budgetOnly = true;
+    if (pendingBrief.hardConstraints?.length) {
+      state.shopperFacts.hardConstraints = pendingBrief.hardConstraints.map((row) => ({
+        key: row.key,
+        value: row.value,
+      }));
+    }
     state.radiusWidenAgreed = radiusWidenAgreedFromBrief(pendingBrief);
     responsesInput = [
       ...responsesInput,

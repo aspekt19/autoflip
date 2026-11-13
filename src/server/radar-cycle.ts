@@ -777,9 +777,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             priceUsd: alert.priceUsd,
             miles: alert.miles,
             distanceMiles: alert.distanceMiles ?? null,
+            radiusCheck: alert.radiusCheck ?? (alert.distanceMiles == null ? "unverified" : "known"),
             listingUrl: alert.listingUrl ?? null,
             reportUrl,
             searchName: search?.name ?? null,
+            openingOffer: alert.openingOffer,
+            walkAway: alert.walkAway,
           });
           const reply_markup = radarAlertKeyboard(reportUrl, alert.listingUrl ?? null);
           const res = await deps.fetchImpl(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
@@ -1114,6 +1117,7 @@ function makeAlert(
     priceUsd: listing.priceUsd ?? numbers.priceUsd,
     miles: listing.miles,
     distanceMiles: typeof listing.distanceMiles === "number" ? listing.distanceMiles : null,
+    radiusCheck: listing.radiusCheck === "known" ? "known" : "unverified",
     listingUrl: httpsFromListing(listing),
     city: listing.city,
     state: listing.state,

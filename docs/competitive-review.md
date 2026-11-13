@@ -52,7 +52,7 @@ Lemonless also already contains an optional x402 payment rail for agent reports.
 ## Recommended sequence
 
 1. Finish the current VIN identity / recall availability correctness work.
-2. Publish the README judge path and a real SERV-vs-baseline evaluation run; do not invent results.
+2. Publish the README and a real SERV-vs-baseline evaluation run; do not invent results.
 3. Add source-level provenance and timestamps to report facts.
 4. Add an editable negotiation checklist and an out-the-door estimate.
 5. Evaluate a licensed history provider (CARFAX or another provider) only after pricing, API coverage, display rights and retention terms are confirmed.

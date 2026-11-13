@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
+import { buyerDistanceText } from "@/domain/geo";
+import { renderStructuredOffer } from "@/domain/structured-offer";
 
 export const LINK_TTL_MS = 15 * 60 * 1000;
 
@@ -129,13 +131,24 @@ export type RadarTelegramAlertCopy = {
   priceUsd: number;
   miles: number | null;
   distanceMiles: number | null;
+  radiusCheck?: "unverified" | "known" | null;
   listingUrl: string | null;
   reportUrl: string;
   searchName?: string | null;
+  openingOffer?: number | null;
+  walkAway?: number | null;
 };
 
 function money(value: number): string {
   return value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function offerLine(input: RadarTelegramAlertCopy): string | null {
+  if (input.openingOffer === undefined && input.walkAway === undefined) return null;
+  return renderStructuredOffer({
+    openingOffer: input.openingOffer ?? null,
+    walkAway: input.walkAway ?? null,
+  });
 }
 
 /** Telegram body for a Deal Radar alert — must include listing https URL when known. */
@@ -146,9 +159,8 @@ export function radarAlertTelegramText(input: RadarTelegramAlertCopy): string {
     `${input.year} ${input.make} ${input.model}`,
     money(input.priceUsd),
     input.miles === null ? "Mileage not listed" : `${input.miles.toLocaleString("en-US")} mi`,
-    input.distanceMiles == null
-      ? "Distance not listed"
-      : `${Math.round(input.distanceMiles)} mi away`,
+    buyerDistanceText({ distanceMiles: input.distanceMiles, radiusCheck: input.radiusCheck }),
+    ...(offerLine(input) ? [offerLine(input)!] : []),
     "",
   ];
   const listing = httpsListingUrl(input.listingUrl);
