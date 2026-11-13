@@ -16,9 +16,9 @@
     "checked": [
       "Live inventory search returned the listing with its VIN, asking price, mileage, seller field, location and listing URL.",
       "VIN decode: 2021 Subaru Forester Premium, AWD, 2.5L gasoline engine.",
-      "Vehicle safety data: 5-star overall, front and side ratings; 4-star rollover.",
-      "Fuel-economy estimate: 29 MPG combined for the closest configuration; $1,670 standardized annual fuel cost.",
-      "Local 2019–2021 Forester asking-price comparisons: $19,493–$20,197, with a $19,797 median.",
+      "Official vehicle safety lookup: 5-star overall, front and side ratings; 4-star rollover.",
+      "Fuel-economy estimate for the closest configuration: 29 MPG combined and $1,670 standardized annual fuel cost.",
+      "Local 2019–2021 Forester asking-price comparisons: $19,493–$20,197, with a $19,797 median; advertised prices, not completed sale prices.",
       "Search area: ZIP 80202, within 75 miles; selected listing approximately 28 miles away."
     ],
     "unknown": [

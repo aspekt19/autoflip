@@ -61,8 +61,9 @@ export default function ProofPage() {
         <p className="kicker">Proof · Live case study · November 13, 2026</p>
         <h1>One buyer request. Two different approaches.</h1>
         <p className="lead">
-          Gemini Chat answered with general model and negotiation advice. Lemonless Find searched live
-          inventory and returned a specific vehicle, VIN, evidence checks and a structured offer.
+          Gemini gave useful model-level guidance. Lemonless Find went a step further: it searched dealer
+          inventory, selected an actual listing, checked vehicle-specific data and translated the result
+          into a VIN-linked recommendation and a concrete negotiation plan.
         </p>
 
         <section className="proof-example" id="denver-find-vs-gemini-auto">
@@ -111,39 +112,84 @@ export default function ProofPage() {
               </thead>
               <tbody>
                 <tr>
-                  <th scope="row">Type of answer</th>
-                  <td>General recommendations: 2022–2023 Subaru Forester and 2023 Mazda CX-5.</td>
-                  <td>One live inventory result selected with a VIN, listing, mileage and seller location.</td>
+                  <th scope="row">Starting point</th>
+                  <td>Strong broad advice: suggested two suitable model families and explained winter-driving and family-use trade-offs.</td>
+                  <td>Converted the brief into a local inventory search, then evaluated an actual vehicle available to buy.</td>
                 </tr>
                 <tr>
-                  <th scope="row">Specific vehicle</th>
-                  <td>No individual listing or VIN in the captured answer.</td>
-                  <td>2021 Subaru Forester Premium AWD, VIN JF2SKAJC5MH423912, listed at {usd(20197)}.</td>
+                  <th scope="row">Vehicle specificity</th>
+                  <td>Recommended 2022–2023 Forester trims and a 2023 CX-5; no stock number, VIN or individual seller listing.</td>
+                  <td>Identified a 2021 Subaru Forester Premium AWD, VIN JF2SKAJC5MH423912, listed at {usd(20197)} in Longmont, about 28 miles away.</td>
                 </tr>
                 <tr>
-                  <th scope="row">Negotiation</th>
-                  <td>{usd(24200)} opening offer and {usd(24800)}–{usd(25000)} all-in ceiling.</td>
-                  <td>{usd(19000)} opening offer; {usd(20000)} vehicle-price walk-away point; keep total within {usd(25000)}.</td>
+                  <th scope="row">Fit to the actual search</th>
+                  <td>Suggested a target profile (including under 65,000 miles) for the buyer to search for.</td>
+                  <td>Found a concrete vehicle with 89,215 miles that meets the stated under-100,000-mile ceiling; surfaced the exact mileage and location.</td>
                 </tr>
                 <tr>
-                  <th scope="row">Evidence approach</th>
-                  <td>Model-level vehicle, safety, fuel-economy and local-market guidance.</td>
-                  <td>Listing search, VIN decode, safety lookup, fuel-economy estimate and local asking-price comparisons.</td>
+                  <th scope="row">Vehicle-level evidence</th>
+                  <td>Presented model/year-level safety and economy claims.</td>
+                  <td>Ran a VIN decode identifying the vehicle configuration, retrieved its official vehicle safety ratings, and checked the closest fuel-economy configuration.</td>
                 </tr>
                 <tr>
-                  <th scope="row">Recommendation granularity</th>
-                  <td>Two model-year and trim families to search for.</td>
-                  <td>One specific vehicle with a VIN and a direct listing link.</td>
+                  <th scope="row">Safety detail</th>
+                  <td>Discussed family safety and rear-seat improvements at the model-year level.</td>
+                  <td>Returned the selected vehicle's lookup result: 5-star overall, front and side ratings, and 4-star rollover. This is vehicle-specific lookup evidence, not a substitute for inspection.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Running-cost detail</th>
+                  <td>Gave MPG figures for recommended model families.</td>
+                  <td>Returned an estimated 29 MPG combined and a standardized annual fuel-cost estimate of {usd(1670)} for the closest configuration.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Local market grounding</th>
+                  <td>Gave approximate Denver-area price ranges for model families.</td>
+                  <td>Compared local 2019–2021 Forester asking prices: {usd(19493)}–{usd(20197)}, with a {usd(19797)} median. These are advertised prices, not completed-sale prices.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Negotiation output</th>
+                  <td>{usd(24200)} opening offer and {usd(24800)}–{usd(25000)} all-in ceiling, based on a general OTD strategy.</td>
+                  <td>{usd(19000)} opening offer and {usd(20000)} vehicle-price walk-away point, anchored to the selected listing and local asking-price evidence; keep the total within {usd(25000)}.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Decision safety</th>
+                  <td>Provided a useful checklist and negotiation cautions.</td>
+                  <td>Did not claim the car was ready to buy: returned a medium-confidence “needs inspection” verdict and called out the need for an itemized OTD quote and physical checks.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Traceability</th>
+                  <td>Shared conversational advice and a Gemini chat link.</td>
+                  <td>Links the recommendation to the actual listing, VIN decoder, official vehicle safety lookup, fuel-economy source and technical run record.</td>
                 </tr>
               </tbody>
             </table>
           </div>
+          <p className="hint">
+            The offers are not identical formats: Gemini proposed an all-in opening number, while Find
+            proposed a vehicle-price offer and a vehicle-price walk-away point, with the final OTD amount
+            still to be confirmed by the dealer. Find's advantage here is the listing-specific price
+            rationale, not a claim that its number is already a final tax-inclusive quote.
+          </p>
+
+          <h2>Where Find adds practical value</h2>
+          <ul className="refuse">
+            <li><strong>From “what model should I look for?” to “here is a car you can contact the seller about.”</strong> Find tied its recommendation to a live listing, VIN, mileage, asking price and distance.</li>
+            <li><strong>Evidence attached to the candidate.</strong> The answer connected the selected VIN to configuration data, safety lookup, fuel-economy estimates and local comparable listings.</li>
+            <li><strong>A negotiation anchor, not just a budget reminder.</strong> The opening offer and walk-away point were tied to the selected car's asking price and the local comparison set.</li>
+            <li><strong>Decision support with a safety brake.</strong> SERV gave a “needs inspection” verdict rather than turning incomplete evidence into an unconditional buy recommendation.</li>
+            <li><strong>Auditable workflow.</strong> The page exposes the source links and technical run record, so a reviewer can inspect how the result was produced.</li>
+          </ul>
+          <p className="hint">
+            Gemini also delivered useful high-level advice on winter capability, family use and OTD
+            negotiation. The distinction demonstrated here is that Find connected those buying criteria
+            to a specific local vehicle and supporting evidence in one workflow.
+          </p>
 
           <h2>What Find did during this run</h2>
           <ul className="refuse">
             <li>Three live inventory searches in ZIP 80202 within 75 miles; two returned 20 listings and one returned none.</li>
             <li>SERV made {proof.run.servCalls} calls and {proof.run.toolCalls} tool calls across {proof.run.toolRounds} tool rounds.</li>
-            <li>VIN decode, safety, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
+            <li>VIN decode, safety, recall/complaint, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
             <li>The run completed in {duration} seconds with a {proof.run.confidence}-confidence, needs-inspection verdict.</li>
           </ul>
 
