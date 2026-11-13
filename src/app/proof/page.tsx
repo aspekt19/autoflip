@@ -256,7 +256,7 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
       <p>
         One Auto.dev listing search captured {comparison.snapshot.candidates.length} candidates.
         The same immutable snapshot was then sent to SERV twice: once with verdict features off
-        and once with the Kronos–Multipath/Shadow feature bundle on. This isolates the verdict
+        and once with the additional verdict feature bundle on. This isolates the verdict
         step; it is not a full end-to-end test of every vehicle-data provider.
         {comparison.repeatRun ? ` A second full run was also triggered unintentionally by PR synchronization; it is disclosed below.` : ""}
       </p>
