@@ -28,7 +28,7 @@ on:
         required: false
         type: string
       max_queries:
-        description: "Max queries (0–4; 0 = checks only; default 4 = 2 Find + 2 Resale)"
+        description: "Max queries (0 = Find vs Gemini T0/T+10; 1–4 = regular Find/Resale batch)"
         required: false
         default: "4"
         type: string
@@ -59,6 +59,7 @@ concurrency:
 
 jobs:
   live-eval:
+    if: ${{ github.event.inputs.max_queries != '0' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -260,5 +261,55 @@ jobs:
         with:
           name: live-eval-report
           path: eval/results/live/*-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+
+  # Manual head-to-head mode: set max_queries=0 in the dispatch form.
+  # This does NOT run the normal live-eval batch or touch Resale.
+  find-gemini-head-to-head:
+    if: \${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_queries == '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+
+      - name: Require comparison secrets
+        env:
+          EVAL_SECRET: \${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+        run: |
+          missing=0
+          if [ -z "\${EVAL_SECRET}" ]; then
+            echo "::error::Repository secret CRON_SECRET or RADAR_CRON_SECRET is missing."
+            missing=1
+          fi
+          if [ -z "\${GEMINI_API_KEY}" ]; then
+            echo "::error::Repository secret GEMINI_API_KEY is missing."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run two-round Find vs Gemini comparison
+        env:
+          EVAL_LIVE_SECRET: \${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
+          EVAL_LIVE_URL: \${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.8-flash
+          OUTPUT_DIR: eval/results/find-gemini-head-to-head-2026-11-13
+        run: node eval/comparison/find-gemini-head-to-head.mjs
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: find-gemini-head-to-head-2026-11-13
+          path: eval/results/find-gemini-head-to-head-2026-11-13/
           if-no-files-found: warn
           retention-days: 30
