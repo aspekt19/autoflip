@@ -11,14 +11,17 @@ import {
 } from "./autodev";
 
 describe("autodevZipLookup", () => {
-  it("builds a /zip/{code} URL on the Auto.dev origin", () => {
-    expect(zipLookupUrl("30301")).toContain("/zip/30301");
+  it("builds /api/zip/{code} on the Auto.dev origin (not bare /zip)", () => {
+    const url = zipLookupUrl("98101");
+    expect(url).toContain("/api/zip/98101");
+    expect(url).not.toMatch(/api\.auto\.dev\/zip\//);
+    expect(url).toBe("https://api.auto.dev/api/zip/98101");
   });
 
   it("returns location_not_recognized for PO-box ZIP 30301 when provider cannot geocode", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      expect(url).toContain("/zip/30301");
+      expect(url).toContain("/api/zip/30301");
       return new Response(
         JSON.stringify({
           success: false,
@@ -40,7 +43,7 @@ describe("autodevZipLookup", () => {
     expect(result.error).toBe("location_not_recognized");
     expect(result.status).toBe(404);
     expect(result.message).toMatch(/30301/);
-    expect(result.url).toContain("/zip/30301");
+    expect(result.url).toContain("/api/zip/30301");
     expect(result.raw).toEqual({ success: false, error: { message: "ZIP not found" } });
   });
 

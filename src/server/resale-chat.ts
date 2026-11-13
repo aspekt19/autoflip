@@ -3,19 +3,26 @@
  * Credit only when a verdict is delivered.
  */
 import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
-import { chatLimitViolation, type ShopperBrief } from "@/domain/shopper-brief";
+import {
+  chatLimitViolation,
+  formatShopperBriefCard,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
 import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { RESALE_INTERNAL_BUDGET_MS } from "@/domain/resale-deadline";
+import type { ResaleSearchInput } from "@/domain/resale-search-input";
 import { TtlCache } from "@/io/cache";
 import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import { runResaleAgentLoop, summarizeResaleAgentJournal } from "@/server/resale-agent/loop";
+import { mapResaleAgentLoopToSettle } from "@/server/resale-agent/map-to-settle";
 import {
   findSearchIdempotencyKey,
   resaleSearchSpendKey,
   storeResaleSearchDelivery,
 } from "@/server/resale-search-credit";
+import { syncResaleRun } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
 
 type Session = {
@@ -281,11 +288,58 @@ export async function runResaleChatTurn(input: {
   session.messages.push({ role: "assistant", content: summary, at: new Date().toISOString() });
   const journalMeta = summarizeResaleAgentJournal(agent.journal);
   const passReason = agent.verdict.picks.length === 0 ? agent.verdict.summary : null;
+  const brief = session.confirmedBrief;
+  const searchInput: ResaleSearchInput = {
+    budgetUsd: brief?.budget.maxUsd ?? 1,
+    zip: brief?.zip ?? null,
+    distanceMiles: brief?.radiusMi ?? null,
+    bodyStyle: null,
+    preferredMakes: [],
+    preferredModels: [],
+    yearMin: null,
+    yearMax: null,
+    milesMax: null,
+    repairAbility: "unknown",
+    targetProfitUsd: null,
+    asIs: false,
+    sellWithinDays: null,
+    timeToSell: "any",
+    resaleChannel: "private_party",
+    freeText: formatServChatTranscript(session.messages),
+  };
+  // Build journal steps so the result view / /run record are not empty.
+  const settled = mapResaleAgentLoopToSettle({
+    agent,
+    searchInput,
+  });
+  const runId = await syncResaleRun(input.kv, {
+    ownerId: input.userId,
+    note: brief ? formatShopperBriefCard(brief) : searchInput.freeText || "",
+    search: {
+      budgetUsd: searchInput.budgetUsd,
+      zip: searchInput.zip,
+      distanceMiles: searchInput.distanceMiles,
+      yearMin: null,
+      yearMax: null,
+      milesMax: null,
+      sellWithinDays: null,
+    },
+    client: {
+      ...settled.delivery,
+      best: best ?? settled.delivery.best ?? null,
+      alternatives: alternatives.filter((row) => row.vin !== best?.vin).slice(0, 8),
+      chargedCredit: charged,
+      done: true,
+      message: summary,
+      providerQueriesUsed: journalMeta.toolCalls,
+    },
+  });
   const result = {
     ok: true,
     best,
     alternatives: alternatives.filter((row) => row.vin !== best?.vin).slice(0, 8),
-    agentVerdict: null,
+    agentVerdict: settled.delivery.agentVerdict ?? null,
+    journal: settled.delivery.journal ?? null,
     message: summary,
     charged,
     balance,
@@ -296,6 +350,7 @@ export async function runResaleChatTurn(input: {
     journalMeta,
     passReason,
     confirmedBrief: session.confirmedBrief,
+    runId,
     agentLoop: {
       agentMode: agent.agentMode,
       toolRounds: agent.toolRounds,

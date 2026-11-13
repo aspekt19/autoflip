@@ -58,8 +58,16 @@ export type LiveEvalPick = {
   priceUsd?: number | null;
   /** Odometer from verified listing join (not SERV prose). */
   miles?: number | null;
+  /** Miles from confirmed buyer-center ZIP when known. */
+  distanceMiles?: number | null;
   /** Live listing VDP URL from the verified Auto.dev record, when present. */
   vdp?: string | null;
+  /** Resale P&L mid/low/high when the product is resale (code dollars only). */
+  profitMidUsd?: number | null;
+  profitLowUsd?: number | null;
+  profitHighUsd?: number | null;
+  resaleMidUsd?: number | null;
+  askingUsd?: number | null;
 };
 
 export type LiveEvalRelaxedCondition = {

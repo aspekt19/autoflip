@@ -170,6 +170,10 @@ export type FindAgentToolState = {
   requireBriefConfirm: boolean;
   /** Shopper confirmed the pending submit_brief card. */
   briefConfirmed: boolean;
+  /** Shopper agreed (via brief.agreedRelaxations) to widen beyond confirmed radius. */
+  radiusWidenAgreed: boolean;
+  /** Last search_listings / comps ZIP lookup returned location_not_recognized. */
+  zipGeocodeFailed: boolean;
 };
 
 export type FindAgentToolDeps = {
@@ -494,7 +498,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_brief",
         description:
-          "When you have enough facts, submit a compact search brief for the shopper to confirm before any search_listings. budget.userQuote must be verbatim shopper words from chat (with maxUsd). Code pauses for Confirm/Correct — do not search until confirmed.",
+          "When you have enough facts, submit a compact search brief for the shopper to confirm before any search_listings. budget.userQuote must be verbatim shopper words from chat (with maxUsd). Code pauses for Confirm/Correct — do not search until confirmed. After the shopper confirms, do not call submit_brief again — search starts immediately. Optional hardConstraints / softConstraints / agreedRelaxations are structured rows you already know (never invent from silent parsing).",
         parameters: {
           type: "object",
           additionalProperties: false,
@@ -515,6 +519,42 @@ export function findAgentChatTools(): Array<{
             zip: { type: ["string", "null"] },
             radiusMi: { type: ["number", "null"] },
             notes: { type: ["string", "null"] },
+            hardConstraints: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  key: { type: "string" },
+                  value: { type: "string" },
+                },
+                required: ["key", "value"],
+              },
+            },
+            softConstraints: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  key: { type: "string" },
+                  value: { type: "string" },
+                },
+                required: ["key", "value"],
+              },
+            },
+            agreedRelaxations: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  key: { type: "string" },
+                  value: { type: "string" },
+                },
+                required: ["key", "value"],
+              },
+            },
           },
           required: ["summary", "budget", "zip", "radiusMi", "notes"],
         },
@@ -877,6 +917,8 @@ export function createFindAgentToolState(
     shopperFacts: { budgetUsd: null, zip: null, radiusMi: null },
     requireBriefConfirm: false,
     briefConfirmed: false,
+    radiusWidenAgreed: false,
+    zipGeocodeFailed: false,
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -978,6 +1020,22 @@ export async function executeFindAgentTool(
         summary: `ask_shopper rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
       };
     }
+    if (state.briefConfirmed && !state.zipGeocodeFailed) {
+      return {
+        name: "ask_shopper",
+        ok: false,
+        result: {
+          error: "brief_confirmed_search_now",
+          message:
+            "The shopper already confirmed the search brief. Do not ask again — call search_listings, then submit_picks or submit_nothing_fits. ask_shopper is allowed after confirm only when ZIP geocode failed.",
+        },
+        summary: "ask_shopper rejected: brief already confirmed",
+      };
+    }
+    if (state.briefConfirmed && state.zipGeocodeFailed) {
+      // One residential-ZIP repair question, then search.
+      state.zipGeocodeFailed = false;
+    }
     return {
       name: "ask_shopper",
       ok: true,
@@ -1010,6 +1068,18 @@ export async function executeFindAgentTool(
   }
 
   if (name === "submit_brief") {
+    if (state.briefConfirmed) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: {
+          error: "brief_already_confirmed",
+          message:
+            "The shopper already confirmed the search brief. Do not call submit_brief again — call search_listings now, then submit_picks or submit_nothing_fits.",
+        },
+        summary: "submit_brief rejected: brief already confirmed",
+      };
+    }
     const parsed = parseShopperBrief(rawArgs);
     if (!parsed.ok) {
       return {
@@ -1047,6 +1117,37 @@ export async function executeFindAgentTool(
         summary: `search_listings rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
       };
     }
+    // Confirmed brief location is authoritative — never silently drop ZIP / go nationwide.
+    if (state.briefConfirmed) {
+      const briefZip = state.shopperFacts.zip;
+      const briefRadius = state.shopperFacts.radiusMi;
+      if (briefZip && !parsed.value.zip) {
+        return {
+          name,
+          ok: false,
+          result: {
+            error: "location_required",
+            message: `Confirmed brief ZIP is ${briefZip}. Pass that ZIP (or a shopper-agreed residential substitute) — do not search nationwide.`,
+            confirmedZip: briefZip,
+            confirmedRadiusMi: briefRadius,
+          },
+          summary: `search_listings rejected: missing confirmed ZIP ${briefZip}`,
+        };
+      }
+      if (briefRadius != null && parsed.value.radiusMi == null) {
+        return {
+          name,
+          ok: false,
+          result: {
+            error: "radius_required",
+            message: `Confirmed brief radius is ${briefRadius} mi. Do not silently widen to nationwide — ask the shopper first if a wider search is needed.`,
+            confirmedZip: briefZip,
+            confirmedRadiusMi: briefRadius,
+          },
+          summary: `search_listings rejected: nationwide widen blocked (brief ${briefRadius} mi)`,
+        };
+      }
+    }
     if (!agentLoopMayStartAutodevCall(deps.deadline)) {
       return autodevBudgetDeferred("search_listings");
     }
@@ -1060,6 +1161,7 @@ export async function executeFindAgentTool(
       const lookup = await autodevZipLookup(parsed.value.zip, autodevDeps);
       if (!lookup.ok) {
         if (lookup.error === "location_not_recognized") {
+          state.zipGeocodeFailed = true;
           return {
             name,
             ok: false,
@@ -1071,7 +1173,7 @@ export async function executeFindAgentTool(
               providerUrl: lookup.url,
               providerResponse: lookup.raw,
               honesty:
-                "Provider did not geocode this ZIP (common for PO-box / non-delivery ZIPs). This is not an empty market — ask for a street/residential ZIP or city center ZIP and re-search. Do not claim zero inventory.",
+                "Provider did not geocode this ZIP (common for PO-box / non-delivery ZIPs). This is not an empty market — ask_shopper once for a nearby residential / street-delivery ZIP, then re-search with that ZIP and the confirmed radius. Never silently widen to nationwide or claim zero inventory.",
             },
             summary: `search_listings location_not_recognized zip=${parsed.value.zip} status=${lookup.status}`,
           };
@@ -1099,6 +1201,7 @@ export async function executeFindAgentTool(
         };
       }
       resolvedZip = lookup.location.zip;
+      state.zipGeocodeFailed = false;
       locationResolution = {
         requestedZip: parsed.value.zip,
         resolvedZip: lookup.location.zip,
@@ -1336,6 +1439,7 @@ export async function executeFindAgentTool(
         const lookup = await autodevZipLookup(args.zip, autodevDeps);
         if (!lookup.ok) {
           if (lookup.error === "location_not_recognized") {
+            state.zipGeocodeFailed = true;
             return {
               name,
               ok: false,

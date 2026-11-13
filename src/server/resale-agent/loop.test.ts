@@ -182,12 +182,44 @@ describe("runResaleAgentLoop", () => {
         const blob = JSON.stringify(inputItems);
         if (blob.includes("flipPnl")) sawFlipPnl = true;
 
+        if (responsesCalls === 2) {
+          // Still search step after listings — terminal deferred to selection hop.
+          expect(body.model).toBe(BASE_MODEL);
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(false);
+          return new Response(
+            JSON.stringify({
+              id: "resp_resale_2",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_submit_early",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Negotiate the Civic — code PnL looks positive.",
+                    confidence: "high",
+                    picks: [
+                      {
+                        vin: VIN,
+                        action: "negotiate",
+                        offerUsd: 11_000,
+                        why: "Code flipPnl mid-profit clears target.",
+                      },
+                    ],
+                    relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
         expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
         expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
         expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
         return new Response(
           JSON.stringify({
-            id: "resp_resale_2",
+            id: "resp_resale_3",
             output: [
               {
                 type: "function_call",
@@ -240,7 +272,7 @@ describe("runResaleAgentLoop", () => {
     expect(sawFlipPnl).toBe(true);
     expect(sawReasoningEcho).toBe(true);
     expect(result.pnlByVin.size).toBeGreaterThan(0);
-    expect(responsesCalls).toBe(2);
+    expect(responsesCalls).toBe(3);
     expect(result.servFeatures.features).toEqual(
       expect.arrayContaining(["serv_shadow_agent", "multipath"]),
     );

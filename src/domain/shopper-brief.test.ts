@@ -57,6 +57,22 @@ describe("parseShopperBrief + card", () => {
     if (!parsed.ok) return;
     expect(formatShopperBriefCard(parsed.brief)).toMatch(/Budget: \$25,000/);
   });
+
+  it("keeps SERV-emitted hard/soft constraints without chat parsing", () => {
+    const parsed = parseShopperBrief({
+      summary: "Sedan under 15k",
+      budget: { maxUsd: 15_000, userQuote: "15k" },
+      zip: "97201",
+      radiusMi: 75,
+      notes: null,
+      hardConstraints: [{ key: "transmission", value: "automatic" }],
+      softConstraints: [{ key: "color", value: "blue OK" }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.brief.hardConstraints?.[0]?.key).toBe("transmission");
+    expect(formatShopperBriefCard(parsed.brief)).toMatch(/Hard: transmission=automatic/);
+  });
 });
 
 describe("chat abuse limits (content-agnostic)", () => {

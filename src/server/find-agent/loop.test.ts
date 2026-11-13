@@ -262,13 +262,49 @@ describe("runFindAgentLoop", () => {
         }
 
         if (responsesCalls === 2) {
-          // After searches: verdict step — kronos-multipath + shadow, no prompt_guard.
+          // After searches: still search step (bare) — terminal tools defer to selection hop.
+          expect(body.model).toBe(BASE_MODEL);
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(false);
+          expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
+          return new Response(
+            JSON.stringify({
+              id: "resp_tools_2",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_submit_early",
+                  call_id: "call_submit_early",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Buy the RAV4 in budget.",
+                    confidence: "high",
+                    picks: [
+                      {
+                        vin: VIN,
+                        label: "2021 Toyota RAV4",
+                        action: "buy",
+                        offerUsd: 24_000,
+                        why: "Clean asking price under budget.",
+                      },
+                    ],
+                    relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
+                    passReason: null,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (responsesCalls === 3) {
+          // Dedicated selection hop — kronos-multipath + shadow, no prompt_guard.
           expect(body.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
           expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
           expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
           return new Response(
             JSON.stringify({
-              id: "resp_tools_2",
+              id: "resp_tools_3",
               usage: {
                 input_tokens: 100,
                 output_tokens: 40,
@@ -305,7 +341,7 @@ describe("runFindAgentLoop", () => {
 
         return new Response(
           JSON.stringify({
-            id: "resp_tools_3",
+            id: "resp_tools_4",
             output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -338,7 +374,7 @@ describe("runFindAgentLoop", () => {
     expect(result.relaxedConditions[0]?.name).toBe("radius");
     expect(sawReasoningEcho).toBe(true);
     expect(sawBothOutputs).toBe(true);
-    expect(responsesCalls).toBe(2);
+    expect(responsesCalls).toBe(3);
     expect(result.servFeatures.features).toEqual(
       expect.arrayContaining(["serv_shadow_agent", "multipath", "kronos"]),
     );
@@ -403,9 +439,41 @@ describe("runFindAgentLoop", () => {
           );
         }
         if (responsesCalls === 2) {
+          // Search hop: first terminal attempt is deferred to selection hop.
           return new Response(
             JSON.stringify({
               id: "resp_2",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_submit_early",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Invented.",
+                    confidence: "high",
+                    picks: [
+                      {
+                        vin: "INVENTEDVIN000001",
+                        label: "Fake",
+                        action: "buy",
+                        offerUsd: 10_000,
+                        why: "Invented.",
+                      },
+                    ],
+                    relaxedConditions: [],
+                    passReason: null,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (responsesCalls === 3) {
+          // Selection hop: invalid VIN rejected for repair.
+          return new Response(
+            JSON.stringify({
+              id: "resp_3",
               output: [
                 {
                   type: "function_call",
@@ -437,7 +505,7 @@ describe("runFindAgentLoop", () => {
         expect(String(lastOut?.output ?? "")).toContain("validation_failed");
         return new Response(
           JSON.stringify({
-            id: "resp_3",
+            id: "resp_4",
             output: [
               {
                 type: "function_call",
@@ -482,7 +550,7 @@ describe("runFindAgentLoop", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.verdict.picks[0]?.vin).toBe(VIN);
-    expect(responsesCalls).toBe(3);
+    expect(responsesCalls).toBe(4);
   });
 
   it("next_action mode: search then finish", async () => {

@@ -5,7 +5,7 @@
  *
  * Serves:
  *   GET/POST /listings*          → Auto.dev-shaped inventory (STUB)
- *   GET /zip/{zip}               → Auto.dev-shaped ZIP geocode (STUB)
+ *   GET /api/zip/{zip} (and /zip/{zip}) → Auto.dev-shaped ZIP geocode (STUB)
  *   POST /v1/chat/completions    → SERV-shaped chat completions (STUB)
  *   POST /v1/responses           → SERV responses endpoint (STUB)
  *
@@ -707,7 +707,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Auto.dev ZIP geocode — required before /listings when a buyer-center ZIP is set.
-  const zipMatch = url.pathname.match(/^\/zip\/(\d{5})(?:-\d{4})?\/?$/);
+  // Production route is /api/zip/{zip}; keep /zip/{zip} for older stubs.
+  const zipMatch = url.pathname.match(/^\/(?:api\/)?zip\/(\d{5})(?:-\d{4})?\/?$/);
   if (zipMatch) {
     const zip = zipMatch[1];
     const coords = ZIP_LAT_LON[zip];

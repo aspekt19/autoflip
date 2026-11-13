@@ -348,6 +348,7 @@ function buildFindCheckpoint(input: {
   journal: FindAgentJournalEntry[];
   state: FindAgentToolState;
   submitNudgeSent: boolean;
+  selectionHop: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
 }): AgentLoopCheckpoint {
@@ -363,10 +364,13 @@ function buildFindCheckpoint(input: {
     knownVins: [...input.state.knownVins],
     listingsByVin: serializeListingsByVin(input.state.listingsByVin),
     submitNudgeSent: input.submitNudgeSent,
+    selectionHop: input.selectionHop,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
     briefConfirmed: input.state.briefConfirmed === true,
+    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
+    zipGeocodeFailed: input.state.zipGeocodeFailed === true,
   };
 }
 
@@ -381,6 +385,7 @@ function restoreFindStateFromCheckpoint(
   responsesInput: ResponsesInputItem[] | null;
   messages: ChatMessage[] | null;
   submitNudgeSent: boolean;
+  selectionHop: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
   phase: "tools" | "next_action" | null;
@@ -394,6 +399,7 @@ function restoreFindStateFromCheckpoint(
       responsesInput: null,
       messages: null,
       submitNudgeSent: false,
+      selectionHop: false,
       firstTurn: true,
       featureRejections: [],
       phase: null,
@@ -410,6 +416,8 @@ function restoreFindStateFromCheckpoint(
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
+  state.radiusWidenAgreed = checkpoint.radiusWidenAgreed === true;
+  state.zipGeocodeFailed = checkpoint.zipGeocodeFailed === true;
   const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {
@@ -420,6 +428,7 @@ function restoreFindStateFromCheckpoint(
     responsesInput: checkpoint.responsesInput,
     messages: checkpoint.messages as ChatMessage[],
     submitNudgeSent: checkpoint.submitNudgeSent,
+    selectionHop: checkpoint.selectionHop === true,
     firstTurn: checkpoint.firstTurn,
     featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
     phase: checkpoint.phase,
@@ -485,7 +494,9 @@ export function findAgentStableInstructions(): string {
     "As soon as you have budget (or the shopper explicitly said no budget), location, and use/need — call submit_brief immediately. Do not keep asking once those three are known.",
     "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
     "submit_brief card: budget.maxUsd + budget.userQuote verbatim from chat (or explicit no-budget). Code pauses for Confirm/Correct — do not call search_listings until the brief is confirmed.",
-    "After the shopper confirms the brief, call search_listings (and other tools) in this same conversation, then end ONLY with a terminal tool: submit_picks (chosen cars) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts.",
+    "After the shopper confirms the brief, search starts immediately: call search_listings next — do not ask again and do not call submit_brief again. Then end ONLY with a terminal tool: submit_picks (chosen cars) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts.",
+    "Use the confirmed brief ZIP + radius on every search_listings call. If ZIP geocode fails (location_not_recognized), ask_shopper once for a nearby residential ZIP — never silently widen to nationwide.",
+    "Picks outside the confirmed radius are rejected unless the shopper agreed to widen.",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
@@ -771,12 +782,30 @@ async function postResponses(input: {
 
 function listingFactsFromState(
   state: FindAgentToolState,
-): Map<string, { vin: string; priceUsd: number | null; miles: number | null }> {
-  const out = new Map<string, { vin: string; priceUsd: number | null; miles: number | null }>();
+): Map<
+  string,
+  { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
+> {
+  const out = new Map<
+    string,
+    { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
+  >();
   for (const [vin, listing] of state.listingsByVin) {
-    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null, miles: listing.miles ?? null });
+    out.set(vin, {
+      vin,
+      priceUsd: listing.priceUsd ?? null,
+      miles: listing.miles ?? null,
+      distanceMiles: listing.distanceMiles ?? null,
+    });
   }
   return out;
+}
+
+function radiusWidenAgreedFromBrief(brief: ShopperBrief | null | undefined): boolean {
+  if (!brief?.agreedRelaxations?.length) return false;
+  return brief.agreedRelaxations.some((row) =>
+    /radius|distance|nationwide|widen/i.test(`${row.key} ${row.value}`),
+  );
 }
 
 async function finalizeVerdict(input: {
@@ -961,6 +990,8 @@ async function finalizeVerdict(input: {
   let gated = validateFindSubmitPicks(validated.verdict, {
     listingsByVin: listingFactsFromState(input.state),
     budgetUsd: input.budgetUsd,
+    maxRadiusMi: input.state.shopperFacts.radiusMi,
+    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
     searches,
   });
   if (!gated.ok) {
@@ -1019,6 +1050,8 @@ async function finalizeVerdict(input: {
     gated = validateFindSubmitPicks(repaired.verdict, {
       listingsByVin: listingFactsFromState(input.state),
       budgetUsd: input.budgetUsd,
+      maxRadiusMi: input.state.shopperFacts.radiusMi,
+      radiusWidenAgreed: input.state.radiusWidenAgreed === true,
       searches: searchesFromFindJournal(input.journal),
     });
     if (!gated.ok) {
@@ -1065,6 +1098,7 @@ async function runToolsMode(input: {
     responsesInput: ResponsesInputItem[] | null;
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
+    selectionHop?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1090,6 +1124,7 @@ async function runToolsMode(input: {
   let toolRounds = input.resume?.toolRounds ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let selectionHop = input.resume?.selectionHop === true;
   const startRound = input.resume?.roundsCompleted ?? 0;
   let latestBundle = buildAgentServFeatureBundle({
     product: "find",
@@ -1098,6 +1133,7 @@ async function runToolsMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromFindJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     }),
     includePromptGuard: firstTurn,
   });
@@ -1113,6 +1149,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1138,6 +1175,7 @@ async function runToolsMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromFindJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     });
     const bundle = buildAgentServFeatureBundle({
       product: "find",
@@ -1323,6 +1361,28 @@ async function runToolsMode(input: {
         }
 
         if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
+          // Kronos/Multipath/Shadow only on the dedicated selection hop.
+          if (step !== "verdict") {
+            selectionHop = true;
+            input.journal.push({
+              kind: "tool",
+              name: call.name,
+              args,
+              summary: `${call.name} deferred: selection hop required`,
+              ok: false,
+            });
+            return {
+              callId: call.callId,
+              name: call.name as "submit_picks" | "submit_nothing_fits",
+              accepted: false as const,
+              output: {
+                ok: false,
+                error: "selection_hop_required",
+                message:
+                  "Call submit_picks or submit_nothing_fits again on the final selection hop (quality features attach only there). Do not search on that hop.",
+              },
+            };
+          }
           const budgetUsd = effectiveBudgetUsd(input.deps.budgetUsd, input.state.shopperFacts);
           const searches = searchesFromFindJournal(input.journal);
           const submitArgs =
@@ -1337,6 +1397,8 @@ async function runToolsMode(input: {
           const checked = validateFindSubmitPicks(submitArgs, {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd,
+            maxRadiusMi: input.state.shopperFacts.radiusMi,
+            radiusWidenAgreed: input.state.radiusWidenAgreed === true,
             searches,
           });
           if (!checked.ok) {
@@ -1432,6 +1494,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1469,6 +1532,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1511,6 +1575,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1626,6 +1691,7 @@ async function runNextActionMode(input: {
     responsesInput: ResponsesInputItem[] | null;
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
+    selectionHop?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1653,6 +1719,7 @@ async function runNextActionMode(input: {
   const startRound = input.resume?.roundsCompleted ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let selectionHop = input.resume?.selectionHop === true;
   let latestBundle = buildAgentServFeatureBundle({
     product: "find",
     step: resolveAgentServStep({
@@ -1660,6 +1727,7 @@ async function runNextActionMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromFindJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     }),
     includePromptGuard: firstTurn,
   });
@@ -1683,6 +1751,7 @@ async function runNextActionMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromFindJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     });
     const bundle = buildAgentServFeatureBundle({
       product: "find",
@@ -1700,6 +1769,7 @@ async function runNextActionMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1902,6 +1972,7 @@ async function runNextActionMode(input: {
           journal: input.journal,
           state: input.state,
           submitNudgeSent: false,
+          selectionHop,
           firstTurn: false,
           featureRejections: rejections,
         });
@@ -2000,6 +2071,8 @@ async function runNextActionMode(input: {
       const gated = validateFindSubmitPicks(validated.verdict, {
         listingsByVin: listingFactsFromState(input.state),
         budgetUsd: input.deps.budgetUsd ?? null,
+        maxRadiusMi: input.state.shopperFacts.radiusMi,
+        radiusWidenAgreed: input.state.radiusWidenAgreed === true,
         searches,
       });
       if (!gated.ok) {
@@ -2129,10 +2202,11 @@ export async function runFindAgentLoop(input: {
     if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
+    state.radiusWidenAgreed = radiusWidenAgreedFromBrief(pendingBrief);
     responsesInput = [
       ...responsesInput,
       responsesUserMessage(
-        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks. Do not re-ask unless they correct later.`,
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Search starts now — call search_listings next (do not ask again, do not resubmit_brief). Then submit_picks or submit_nothing_fits.`,
       ),
     ];
     messages = [
@@ -2191,6 +2265,7 @@ export async function runFindAgentLoop(input: {
     responsesInput,
     messages,
     submitNudgeSent: restored.submitNudgeSent,
+    selectionHop: restored.selectionHop,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
   };

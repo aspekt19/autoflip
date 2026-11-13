@@ -31,6 +31,8 @@ export type AgentLoopCheckpointV1 = {
   /** Resale-only flip PnL rows keyed by VIN. */
   pnlByVin?: Array<[string, ResaleCandidatePnl]>;
   submitNudgeSent: boolean;
+  /** Dedicated final selection hop (Kronos/Multipath/Shadow). */
+  selectionHop?: boolean;
   firstTurn: boolean;
   featureRejections: Array<Record<string, unknown>>;
   /** SERV-extracted chat facts (budget/ZIP/radius) for anti-fab. */
@@ -47,6 +49,10 @@ export type AgentLoopCheckpointV1 = {
   pendingBriefCallId?: string | null;
   /** Shopper confirmed the brief — search may proceed. */
   briefConfirmed?: boolean;
+  /** Shopper agreed to widen beyond the confirmed radius. */
+  radiusWidenAgreed?: boolean;
+  /** Last ZIP lookup was location_not_recognized (allows one post-confirm ask). */
+  zipGeocodeFailed?: boolean;
 };
 
 export type AgentLoopCheckpoint = AgentLoopCheckpointV1;

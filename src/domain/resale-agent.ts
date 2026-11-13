@@ -353,6 +353,7 @@ export type ResaleSubmitPicksListingFact = {
   vin: string;
   priceUsd: number | null;
   miles?: number | null;
+  distanceMiles?: number | null;
 };
 
 /**
@@ -365,6 +366,8 @@ export function validateResaleSubmitPicks(
   opts: {
     listingsByVin: ReadonlyMap<string, ResaleSubmitPicksListingFact>;
     budgetUsd: number | null;
+    maxRadiusMi?: number | null;
+    radiusWidenAgreed?: boolean;
     pnlByVin?: ReadonlyMap<string, ResaleAgentPnlFact>;
     searches?: readonly AgentSearchJournalRow[];
   },
@@ -379,6 +382,11 @@ export function validateResaleSubmitPicks(
     opts.budgetUsd != null && Number.isFinite(opts.budgetUsd) && opts.budgetUsd > 0
       ? Math.round(opts.budgetUsd)
       : null;
+  const maxRadius =
+    opts.maxRadiusMi != null && Number.isFinite(opts.maxRadiusMi) && opts.maxRadiusMi > 0
+      ? Math.round(opts.maxRadiusMi)
+      : null;
+  const radiusWidenAgreed = opts.radiusWidenAgreed === true;
 
   for (const [index, pick] of validated.verdict.picks.entries()) {
     const vin = pick.vin.toUpperCase();
@@ -399,6 +407,18 @@ export function validateResaleSubmitPicks(
         field: `picks[${index}].price`,
       });
       if (overBudget) issues.push(overBudget);
+      if (
+        maxRadius != null &&
+        !radiusWidenAgreed &&
+        listing.distanceMiles != null &&
+        Number.isFinite(listing.distanceMiles) &&
+        listing.distanceMiles > maxRadius
+      ) {
+        issues.push({
+          field: `picks[${index}].distanceMiles`,
+          message: `VIN ${vin} is ${Math.round(listing.distanceMiles)} mi away — outside confirmed radius ${maxRadius} mi. Pick a closer flip, call submit_nothing_fits, or document an agreed radius widen.`,
+        });
+      }
     }
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({

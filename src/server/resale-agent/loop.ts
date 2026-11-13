@@ -317,6 +317,7 @@ function buildResaleCheckpoint(input: {
   journal: ResaleAgentJournalEntry[];
   state: ResaleAgentToolState;
   submitNudgeSent: boolean;
+  selectionHop: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
 }): AgentLoopCheckpoint {
@@ -333,9 +334,13 @@ function buildResaleCheckpoint(input: {
     listingsByVin: serializeListingsByVin(input.state.listingsByVin),
     pnlByVin: serializePnlByVin(input.state.pnlByVin),
     submitNudgeSent: input.submitNudgeSent,
+    selectionHop: input.selectionHop,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    shopperFacts: { ...input.state.shopperFacts },
     briefConfirmed: input.state.briefConfirmed === true,
+    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
+    zipGeocodeFailed: input.state.zipGeocodeFailed === true,
   };
 }
 
@@ -350,6 +355,7 @@ function restoreResaleStateFromCheckpoint(
   responsesInput: ResponsesInputItem[] | null;
   messages: ChatMessage[] | null;
   submitNudgeSent: boolean;
+  selectionHop: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
   phase: "tools" | "next_action" | null;
@@ -363,6 +369,7 @@ function restoreResaleStateFromCheckpoint(
       responsesInput: null,
       messages: null,
       submitNudgeSent: false,
+      selectionHop: false,
       firstTurn: true,
       featureRejections: [],
       phase: null,
@@ -372,7 +379,16 @@ function restoreResaleStateFromCheckpoint(
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
   state.pnlByVin = deserializePnlByVin(checkpoint.pnlByVin);
+  if (checkpoint.shopperFacts) {
+    state.shopperFacts = {
+      budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
+      zip: checkpoint.shopperFacts.zip ?? null,
+      radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+    };
+  }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
+  state.radiusWidenAgreed = checkpoint.radiusWidenAgreed === true;
+  state.zipGeocodeFailed = checkpoint.zipGeocodeFailed === true;
   const journal = checkpoint.journal as unknown as ResaleAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromResaleJournal(journal));
   return {
@@ -383,6 +399,7 @@ function restoreResaleStateFromCheckpoint(
     responsesInput: checkpoint.responsesInput,
     messages: checkpoint.messages as ChatMessage[],
     submitNudgeSent: checkpoint.submitNudgeSent,
+    selectionHop: checkpoint.selectionHop === true,
     firstTurn: checkpoint.firstTurn,
     featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
     phase: checkpoint.phase,
@@ -442,6 +459,7 @@ export function resaleAgentStableInstructions(): string {
     SERV_TOPIC_SCOPE_RULE,
     "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
     "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
+    "After confirmation, search starts immediately — call search_listings next; do not ask again or call submit_brief again. Use confirmed ZIP+radius; on location_not_recognized ask once for a residential ZIP — never nationwide silently.",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
     "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
@@ -700,10 +718,21 @@ async function postResponses(input: {
 
 function listingFactsFromState(
   state: ResaleAgentToolState,
-): Map<string, { vin: string; priceUsd: number | null; miles: number | null }> {
-  const out = new Map<string, { vin: string; priceUsd: number | null; miles: number | null }>();
+): Map<
+  string,
+  { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
+> {
+  const out = new Map<
+    string,
+    { vin: string; priceUsd: number | null; miles: number | null; distanceMiles: number | null }
+  >();
   for (const [vin, listing] of state.listingsByVin) {
-    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null, miles: listing.miles ?? null });
+    out.set(vin, {
+      vin,
+      priceUsd: listing.priceUsd ?? null,
+      miles: listing.miles ?? null,
+      distanceMiles: listing.distanceMiles ?? null,
+    });
   }
   return out;
 }
@@ -993,6 +1022,7 @@ async function runToolsMode(input: {
     responsesInput: ResponsesInputItem[] | null;
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
+    selectionHop?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1017,6 +1047,7 @@ async function runToolsMode(input: {
   let toolRounds = input.resume?.toolRounds ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let selectionHop = input.resume?.selectionHop === true;
   const startRound = input.resume?.roundsCompleted ?? 0;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
@@ -1025,6 +1056,7 @@ async function runToolsMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromResaleJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     }),
     includePromptGuard: firstTurn,
   });
@@ -1040,6 +1072,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1064,6 +1097,7 @@ async function runToolsMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromResaleJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     });
     const bundle = buildAgentServFeatureBundle({
       product: "resale",
@@ -1240,6 +1274,27 @@ async function runToolsMode(input: {
         }
 
         if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
+          if (step !== "verdict") {
+            selectionHop = true;
+            input.journal.push({
+              kind: "tool",
+              name: call.name,
+              args,
+              summary: `${call.name} deferred: selection hop required`,
+              ok: false,
+            });
+            return {
+              callId: call.callId,
+              name: call.name as "submit_picks" | "submit_nothing_fits",
+              accepted: false as const,
+              output: {
+                ok: false,
+                error: "selection_hop_required",
+                message:
+                  "Call submit_picks or submit_nothing_fits again on the final selection hop (quality features attach only there). Do not search on that hop.",
+              },
+            };
+          }
           const searches = searchesFromResaleJournal(input.journal);
           const submitArgs =
             call.name === "submit_nothing_fits"
@@ -1253,6 +1308,8 @@ async function runToolsMode(input: {
           const checked = validateResaleSubmitPicks(submitArgs, {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd: input.deps.budgetUsd ?? null,
+            maxRadiusMi: input.state.shopperFacts.radiusMi,
+            radiusWidenAgreed: input.state.radiusWidenAgreed === true,
             pnlByVin: pnlFactsFromState(input.state),
             searches,
           });
@@ -1348,6 +1405,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1381,6 +1439,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1424,6 +1483,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1539,6 +1599,7 @@ async function runNextActionMode(input: {
     responsesInput: ResponsesInputItem[] | null;
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
+    selectionHop?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1566,6 +1627,7 @@ async function runNextActionMode(input: {
   const startRound = input.resume?.roundsCompleted ?? 0;
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  let selectionHop = input.resume?.selectionHop === true;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
     step: resolveAgentServStep({
@@ -1573,6 +1635,7 @@ async function runNextActionMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromResaleJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     }),
     includePromptGuard: firstTurn,
   });
@@ -1596,6 +1659,7 @@ async function runNextActionMode(input: {
       briefConfirmed: input.state.briefConfirmed === true,
       searchCount: searchesFromResaleJournal(input.journal).length,
       submitNudgeSent,
+      selectionHop,
     });
     const bundle = buildAgentServFeatureBundle({
       product: "resale",
@@ -1613,6 +1677,7 @@ async function runNextActionMode(input: {
         journal: input.journal,
         state: input.state,
         submitNudgeSent,
+        selectionHop,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1815,6 +1880,7 @@ async function runNextActionMode(input: {
           journal: input.journal,
           state: input.state,
           submitNudgeSent: false,
+          selectionHop,
           firstTurn: false,
           featureRejections: rejections,
         });
@@ -2038,7 +2104,7 @@ export async function runResaleAgentLoop(input: {
     responsesInput = [
       ...responsesInput,
       responsesUserMessage(
-        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks.`,
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Search starts now — call search_listings next (do not ask/resubmit_brief). Then submit_picks or submit_nothing_fits.`,
       ),
     ];
     messages = [...(messages ?? []), { role: "user" as const, content: `Shopper confirmed the search brief:\n${card}` }];
@@ -2048,6 +2114,11 @@ export async function runResaleAgentLoop(input: {
     if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
+    state.radiusWidenAgreed = Boolean(
+      pendingBrief.agreedRelaxations?.some((row) =>
+        /radius|distance|nationwide|widen/i.test(`${row.key} ${row.value}`),
+      ),
+    );
     if (input.checkpoint) {
       input.checkpoint.pendingBrief = null;
       input.checkpoint.pendingBriefCallId = null;
@@ -2089,6 +2160,7 @@ export async function runResaleAgentLoop(input: {
     responsesInput,
     messages,
     submitNudgeSent: restored.submitNudgeSent,
+    selectionHop: restored.selectionHop,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
   };
