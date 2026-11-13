@@ -12,9 +12,12 @@ import {
   RESALE_INTERNAL_BUDGET_MS,
 } from "@/domain/resale-deadline";
 import {
+  AGENT_LOOP_AUTODEV_FULL_CALL_MS,
   AGENT_LOOP_MIN_REMAINING_TO_START_MS,
   AGENT_LOOP_REQUEST_BUDGET_MS,
+  AGENT_LOOP_SERV_FULL_CALL_MS,
 } from "@/domain/agent-loop-deadline";
+import { AUTODEV_DEFAULT_TIMEOUT_MS } from "@/io/autodev";
 
 const HOBBY_MS = 300_000;
 const ROOT = path.resolve(__dirname, "../../..");
@@ -29,7 +32,27 @@ describe("Find/Resale chat: bounded work per invocation", () => {
     expect(RESALE_INTERNAL_BUDGET_MS).toBeLessThanOrEqual(HOBBY_MS);
     expect(RESALE_HANDLER_HARD_CAP_MS).toBeLessThanOrEqual(HOBBY_MS);
     expect(AGENT_LOOP_REQUEST_BUDGET_MS).toBeLessThanOrEqual(HOBBY_MS);
-    expect(AGENT_LOOP_MIN_REMAINING_TO_START_MS).toBeGreaterThan(0);
+    expect(AGENT_LOOP_SERV_FULL_CALL_MS).toBeGreaterThan(0);
+    expect(AGENT_LOOP_MIN_REMAINING_TO_START_MS).toBe(AGENT_LOOP_SERV_FULL_CALL_MS);
+    expect(AGENT_LOOP_AUTODEV_FULL_CALL_MS).toBe(AUTODEV_DEFAULT_TIMEOUT_MS);
+  });
+
+  it("Find/Resale agent loops check hop budget before SERV and Auto.dev (no clipped SERV timeouts)", () => {
+    const findLoop = readSrc("src/server/find-agent/loop.ts");
+    const resaleLoop = readSrc("src/server/resale-agent/loop.ts");
+    const tools = readSrc("src/server/find-agent/tools.ts");
+    const deadline = readSrc("src/domain/agent-loop-deadline.ts");
+
+    expect(deadline).toContain("agentLoopMayStartServCall");
+    expect(deadline).toContain("agentLoopMayStartAutodevCall");
+    expect(deadline).not.toMatch(/AbortSignal\.timeout/);
+    expect(findLoop).toContain("agentLoopMayStartServCall");
+    expect(resaleLoop).toContain("agentLoopMayStartServCall");
+    expect(tools).toContain("agentLoopMayStartAutodevCall");
+    expect(tools).toContain("location_not_recognized");
+    // Chat helpers still return status continue for /api/find/chat and /api/resale/chat.
+    expect(readSrc("src/server/find-chat.ts")).toContain('status: "continue"');
+    expect(readSrc("src/server/resale-chat.ts")).toContain('status: "continue"');
   });
 
   it("Find and Resale chat routes export maxDuration 300 and call one turn helper", () => {

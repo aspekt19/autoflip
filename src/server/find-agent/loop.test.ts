@@ -156,6 +156,16 @@ describe("runFindAgentLoop", () => {
     let sawBothOutputs = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
+      if (url.includes("/zip/")) {
+        const zip = url.split("/zip/")[1]?.slice(0, 5) || "00000";
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip, city: "Test", state: "FL", latitude: 25.7, longitude: -80.2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/listings")) {
         return new Response(JSON.stringify(autodevListingsPayload([listing()])), {
           status: 200,
@@ -326,6 +336,16 @@ describe("runFindAgentLoop", () => {
     let responsesCalls = 0;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
+      if (url.includes("/zip/")) {
+        const zip = url.split("/zip/")[1]?.slice(0, 5) || "00000";
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip, city: "Test", state: "FL", latitude: 25.7, longitude: -80.2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/listings")) {
         return new Response(JSON.stringify(autodevListingsPayload([listing()])), {
           status: 200,
@@ -453,6 +473,16 @@ describe("runFindAgentLoop", () => {
     let servCalls = 0;
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
+      if (url.includes("/zip/")) {
+        const zip = url.split("/zip/")[1]?.slice(0, 5) || "00000";
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip, city: "Test", state: "FL", latitude: 25.7, longitude: -80.2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/listings")) {
         return new Response(JSON.stringify(autodevListingsPayload([listing()])), {
           status: 200,

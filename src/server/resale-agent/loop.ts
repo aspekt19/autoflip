@@ -41,7 +41,7 @@ import {
 } from "@/domain/resale-agent";
 import {
   AGENT_LOOP_BUDGET_CONTINUE,
-  agentLoopMayStartRound,
+  agentLoopMayStartServCall,
   makeAgentLoopDeadline,
   type AgentLoopDeadline,
 } from "@/domain/agent-loop-deadline";
@@ -988,7 +988,7 @@ async function runToolsMode(input: {
   const startRound = input.resume?.roundsCompleted ?? 0;
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
-    if (!agentLoopMayStartRound(input.deadline)) {
+    if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildResaleCheckpoint({
         phase: "tools",
         toolRounds,
@@ -1275,6 +1275,45 @@ async function runToolsMode(input: {
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
 
+    const budgetPaused = settled.some((row) => {
+      const out = row.output;
+      return (
+        out != null &&
+        typeof out === "object" &&
+        !Array.isArray(out) &&
+        (out as { error?: unknown }).error === AGENT_LOOP_BUDGET_CONTINUE
+      );
+    });
+    if (budgetPaused) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Resale loop paused under the request time budget; continue on the next decide call.",
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        ...resaleLoopMeta(bundle, rejections),
+      };
+    }
+
     const asked = settled.find(
       (row) => row.name === "ask_shopper" && "askQuestion" in row && typeof (row as { askQuestion?: unknown }).askQuestion === "string",
     ) as { callId: string; name: "ask_shopper"; askQuestion: string; output: unknown } | undefined;
@@ -1483,7 +1522,7 @@ async function runNextActionMode(input: {
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
-    if (!agentLoopMayStartRound(input.deadline)) {
+    if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildResaleCheckpoint({
         phase: "next_action",
         toolRounds,
@@ -1683,6 +1722,35 @@ async function runNextActionMode(input: {
         role: "user",
         content: `Tool result for search_listings:\n${JSON.stringify(executed.result)}\nContinue with action search or finish.`,
       });
+      if (executed.result?.error === AGENT_LOOP_BUDGET_CONTINUE) {
+        const checkpoint = buildResaleCheckpoint({
+          phase: "next_action",
+          toolRounds,
+          roundsCompleted: round + 1,
+          responsesInput: [],
+          messages,
+          journal: input.journal,
+          state: input.state,
+          submitNudgeSent: false,
+          firstTurn: false,
+          featureRejections: rejections,
+        });
+        return {
+          ok: false,
+          continue: true,
+          error: AGENT_LOOP_BUDGET_CONTINUE,
+          message:
+            "Agentic Resale loop paused under the request time budget; continue on the next decide call.",
+          agentMode: "next_action",
+          requestedMode,
+          toolRounds,
+          verdictReached: false,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+          checkpoint,
+          ...resaleLoopMeta(bundle, rejections),
+        };
+      }
       continue;
     }
 
@@ -1867,6 +1935,7 @@ export async function runResaleAgentLoop(input: {
     seedListings: input.deps.seedListings,
     pnlOptions: input.deps.pnlOptions,
     chatTranscript: input.note,
+    deadline,
   };
 
   const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";

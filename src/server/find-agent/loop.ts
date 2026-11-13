@@ -43,7 +43,7 @@ import {
 } from "@/domain/find-agent";
 import {
   AGENT_LOOP_BUDGET_CONTINUE,
-  agentLoopMayStartRound,
+  agentLoopMayStartServCall,
   makeAgentLoopDeadline,
   type AgentLoopDeadline,
 } from "@/domain/agent-loop-deadline";
@@ -90,6 +90,7 @@ import {
   executeFindAgentTool,
   findAgentResponsesTools,
   parseSearchListingsArgs,
+  toolResultIsRequestBudget,
   type FindAgentToolDeps,
   type FindAgentToolState,
 } from "./tools";
@@ -1056,7 +1057,7 @@ async function runToolsMode(input: {
   const startRound = input.resume?.roundsCompleted ?? 0;
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
-    if (!agentLoopMayStartRound(input.deadline)) {
+    if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildFindCheckpoint({
         phase: "tools",
         toolRounds,
@@ -1353,6 +1354,47 @@ async function runToolsMode(input: {
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
 
+    // Auto.dev deferred under hop budget — pause before another SERV round.
+    const budgetPaused = settled.some((row) => {
+      const out = row.output;
+      return (
+        out != null &&
+        typeof out === "object" &&
+        !Array.isArray(out) &&
+        (out as { error?: unknown }).error === AGENT_LOOP_BUDGET_CONTINUE
+      );
+    });
+    if (budgetPaused) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Find loop paused under the request time budget; continue on the next decide call.",
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+
     const asked = settled.find(
       (row) =>
         row.name === "ask_shopper" &&
@@ -1563,7 +1605,7 @@ async function runNextActionMode(input: {
     });
 
   for (let round = startRound; round < input.maxRounds; round += 1) {
-    if (!agentLoopMayStartRound(input.deadline)) {
+    if (!agentLoopMayStartServCall(input.deadline)) {
       const checkpoint = buildFindCheckpoint({
         phase: "next_action",
         toolRounds,
@@ -1763,6 +1805,35 @@ async function runNextActionMode(input: {
         role: "user",
         content: `Tool result for search_listings:\n${JSON.stringify(executed.result)}\nContinue with action search or finish.`,
       });
+      if (toolResultIsRequestBudget(executed)) {
+        const checkpoint = buildFindCheckpoint({
+          phase: "next_action",
+          toolRounds,
+          roundsCompleted: round + 1,
+          responsesInput: [],
+          messages,
+          journal: input.journal,
+          state: input.state,
+          submitNudgeSent: false,
+          firstTurn: false,
+          featureRejections: rejections,
+        });
+        return {
+          ok: false,
+          continue: true,
+          error: AGENT_LOOP_BUDGET_CONTINUE,
+          message:
+            "Agentic Find loop paused under the request time budget; continue on the next decide call.",
+          agentMode: "next_action",
+          requestedMode,
+          toolRounds,
+          verdictReached: false,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+          checkpoint,
+          ...findLoopMeta(bundle, rejections),
+        };
+      }
       continue;
     }
 
@@ -1950,6 +2021,7 @@ export async function runFindAgentLoop(input: {
     },
     seedListings: input.deps.seedListings,
     chatTranscript: input.note,
+    deadline,
   };
 
   const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
