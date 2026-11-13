@@ -376,9 +376,9 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
           <summary>Repeat run · same snapshot reproduced the same choices</summary>
           <div className="decision-body">
             <p>
-              This second workflow run was triggered unintentionally by pull-request synchronization
-              while the evidence and Proof page were being committed. It was not planned as another
-              paid experiment. The paid workflow has since been changed to manual dispatch only.
+              Three additional workflow runs were triggered unintentionally by pull-request synchronization
+              while the evidence and Proof page were being committed. They were not planned as additional
+              paid experiments. The paid workflow has since been changed to manual dispatch only.
             </p>
             <p>
               Run #{comparison.repeatRun.metadata.runId} · captured {comparison.repeatRun.metadata.capturedAt} ·{" "}
@@ -406,6 +406,16 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
               {comparison.result.completedRunsHarnessEstimateUsd?.toFixed(2)}; this is not a provider invoice,
               and Auto.dev charges are not exposed here.
             </p>
+            {comparison.additionalRuns?.map((run) => (
+              <p key={run.metadata.runId}>
+                Additional run #{run.metadata.runId} ·{" "}
+                <a href={run.metadata.runUrl} target="_blank" rel="noreferrer">workflow run</a> ·
+                features off picked <code>{run.arms.features_off.pickVin}</code> ·
+                features on picked <code>{run.arms.features_on.pickVin}</code> ·
+                {run.criteriaResult} · harness estimate $
+                {(run.arms.features_off.estimatedCostUsd + run.arms.features_on.estimatedCostUsd).toFixed(2)}.
+              </p>
+            ))}
             <p className="hint">{comparison.repeatRun.metadata.reason}</p>
           </div>
         </details>
