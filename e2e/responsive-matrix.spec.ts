@@ -21,7 +21,6 @@ const ROUTES = [
   { path: "/compare", slug: "compare" },
   { path: "/reports", slug: "reports" },
   { path: "/favorites", slug: "saved-cars" },
-  { path: "/report/sample", slug: "report-sample" },
   { path: "/agents", slug: "agents" },
   { path: "/login", slug: "sign-in" },
 ] as const;

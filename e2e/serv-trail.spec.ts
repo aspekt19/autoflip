@@ -1,27 +1,18 @@
 import { expect, test } from "@playwright/test";
 
-test("sample report does not invent a SERV revision when none is recorded", async ({ page }) => {
+test("stale sample report is gone and the home page does not link to it", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto("/report/sample");
-  const trail = page.locator("details.agent-decision-trail");
-  await expect(trail).toBeVisible();
-  await expect(trail).toHaveAttribute("open", "");
-  await expect(trail.getByText(/example not yet recorded/i).first()).toBeVisible();
-  await expect(trail.getByText(/does not invent an agent revision/i)).toBeVisible();
-  // Invented PR107 copy must not appear.
-  await expect(trail.getByText(/saved agent response revised/i)).toHaveCount(0);
-  await expect(trail.getByText(/two newer comps arrived with lower asks/i)).toHaveCount(0);
-  await expect(trail.getByText(/independent review disagreed/i)).toHaveCount(0);
-  await expect(trail.getByText(/\$[0-9]/)).toHaveCount(0);
-  await expect(page.getByText("Fair price").first()).toBeVisible();
-  await expect(page.getByText("$33,699").first()).toBeVisible();
-  await expect(page.getByText("$34,374").first()).toBeVisible();
+  const sample = await page.goto("/report/sample");
+  expect(sample?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "That page is not on Lemonless" })).toBeVisible();
+  // Invented sample copy must not ship as a live report.
+  await expect(page.getByText(/saved agent response revised/i)).toHaveCount(0);
+  await expect(page.getByText(/two newer comps arrived with lower asks/i)).toHaveCount(0);
+  await expect(page.getByText("$33,699")).toHaveCount(0);
+  await expect(page.getByText("$34,374")).toHaveCount(0);
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  );
-  expect(overflow).toBeLessThanOrEqual(1);
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /see a sample report/i })).toHaveCount(0);
 });
 
 test("signed-out Check still hides the form", async ({ page }) => {
