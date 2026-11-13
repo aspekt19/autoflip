@@ -7,6 +7,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import servCompareFile from "../../eval/results/proof-serv-compare-2026-11-13.json";
+import snapshotServAbFile from "../../eval/results/snapshot-serv-ab-2026-11-13.json";
 
 export type ProofRunArm = {
   arm: string;
@@ -115,6 +116,82 @@ export type ProofExample = {
   };
 };
 
+
+export type SnapshotComparisonProof = {
+  metadata: {
+    title: string;
+    runId: number;
+    runUrl: string;
+    artifactId: number;
+    artifactName: string;
+    headSha: string;
+    capturedAt: string;
+    generatedAt: string;
+    snapshotId: string;
+    listingSearches: number;
+    candidateCount: number;
+    providersCalled: string[];
+    providersNotCalled: string[];
+    providerCost: string;
+  };
+  query: string;
+  snapshot: {
+    buyerZip: string;
+    radiusMiles: number;
+    askingPriceSearchCapUsd: number;
+    mileageCap: number;
+    candidates: Array<{
+      vin: string;
+      year: number;
+      make: string;
+      model: string;
+      askingPriceUsd: number;
+      miles: number;
+      location: string;
+      distanceMiles: number;
+      listingReportedAccidents: number | null;
+      titleBrand: string | null;
+    }>;
+    dataCaveats: string[];
+  };
+  arms: Record<"features_off" | "features_on", {
+    responseId: string;
+    requestedModel: string;
+    responseModel: string;
+    latencyMs: number;
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    estimatedCostUsd: number;
+    providerCostUsd: number | null;
+    pick: {
+      vin: string;
+      year: number;
+      make: string;
+      model: string;
+      askingPriceUsd: number;
+      miles: number;
+      distanceMiles: number;
+      listingReportedAccidents: number | null;
+    };
+    openingOfferUsd: number | null;
+    walkAwayUsd: number | null;
+    rationale: string;
+  }>;
+  criteria: Array<{
+    id: string;
+    label: string;
+    featuresOff: string;
+    featuresOn: string;
+    winner: string;
+  }>;
+  result: {
+    score: string;
+    conclusion: string;
+    notableDifference: string;
+    latency: string;
+    cost: string;
+  };
+};
+
 export type ProofPageData = {
   hasLiveComparisons: boolean;
   generatedAt: string | null;
@@ -132,6 +209,8 @@ export type ProofPageData = {
   examples: ProofExample[];
   /** First committed example, when present. Kept so older tests can read one comparison. */
   servCompare: ProofExample | null;
+  /** Separate frozen-snapshot SERV features-off/on comparison, with explicit data caveats. */
+  snapshotComparison: SnapshotComparisonProof | null;
 };
 
 export const CANONICAL_VARIANT_ORDER = [
@@ -402,6 +481,13 @@ export function loadProofPageData(): ProofPageData {
   }
 
   const examples = loadProofExamples();
+  const snapshotRaw = (snapshotServAbFile as unknown) ?? readJson("eval/results/snapshot-serv-ab-2026-11-13.json");
+  const snapshotComparison =
+    snapshotRaw && typeof snapshotRaw === "object" &&
+    typeof (snapshotRaw as SnapshotComparisonProof).query === "string" &&
+    typeof (snapshotRaw as SnapshotComparisonProof).metadata?.runUrl === "string"
+      ? (snapshotRaw as SnapshotComparisonProof)
+      : null;
   return {
     hasLiveComparisons: cases.length > 0,
     generatedAt: examples[0]?.generatedAt ?? generatedAt,
@@ -409,5 +495,6 @@ export function loadProofPageData(): ProofPageData {
     committedTraces,
     examples,
     servCompare: examples[0] ?? null,
+    snapshotComparison,
   };
 }
