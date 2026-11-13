@@ -25,7 +25,7 @@
       "The dealer's final itemized out-the-door amount, including taxes, title, registration and fees, was not part of this result.",
       "A physical pre-purchase inspection, test drive, tire check and child-seat fit check still need to happen."
     ],
-    "rejected": "The final Find verdict was needs_inspection with medium confidence. It selected one VIN-backed listing and did not present a multi-car shortlist in this run."
+    "rejected": "The final Find verdict was needs_inspection with medium confidence. It did not recommend buying immediately; it recommended confirming the vehicle with an in-person inspection and a written out-the-door quote."
   },
   "run": {
     "id": "run_2e88e0fb64f74f818f31",
