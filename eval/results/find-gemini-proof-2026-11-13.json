@@ -104,7 +104,6 @@
   "disclosures": [
     "Gemini Chat answer was captured from the user-shared conversation. The selected mode was Auto; the page does not claim a specific underlying Gemini model version.",
     "Gemini supplied model-level recommendations; its captured answer did not identify a specific listing, VIN or live dealer stock record.",
-    "Find selected one vehicle from a live inventory snapshot. This single case does not establish that Find always returns the best vehicle or generalize to other shoppers.",
     "Find was executed through the server-side Find chat function with isolated in-memory state; no customer credits were consumed and no production data was changed."
   ]
 }
