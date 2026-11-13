@@ -183,7 +183,9 @@
       "AWD was requested but not verified by this Auto.dev search. Neither selected vehicle is cleared as AWD.",
       "Accident counts and title fields come from the listing feed only. No independent history report was obtained; zero reported accidents is not proof of accident-free history.",
       "Safety equipment, exact crash ratings, recalls, fuel economy, maintenance, tire condition and child-seat fit were not checked in this isolated snapshot test.",
-      "No dealer listing URLs were returned in the saved snapshot, so no live listing links are asserted."
+      "No dealer listing URLs were returned in the saved snapshot, so no live listing links are asserted.",
+      "The offer figures are model-generated negotiation suggestions, not verified dealer quotes or appraisals. The features-off rationale describes them as out-the-door amounts but also says the actual out-the-door cost is unverified; treat that wording as internally inconsistent and do not present either figure as a confirmed OTD price.",
+      "The features-on request used the gpt-6.1-sol-serv-kronos-multipath alias, but the response metadata returned gpt-6.1-sol. The run records both values; it does not independently prove billing or execution of each internal SERV transformation."
     ]
   },
   "arms": {
