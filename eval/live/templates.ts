@@ -38,7 +38,8 @@ export const CITIES: readonly CityTemplate[] = [
   { id: "denver", name: "Denver", zip: "80202", radiusMi: 100 },
   { id: "seattle", name: "Seattle", zip: "98101", radiusMi: 50 },
   { id: "chicago", name: "Chicago", zip: "60601", radiusMi: 60 },
-  { id: "atlanta", name: "Atlanta", zip: "30301", radiusMi: 80 },
+  // 30303 = Atlanta city-center; 30301 is PO-box-only and Auto.dev cannot geocode it.
+  { id: "atlanta", name: "Atlanta", zip: "30303", radiusMi: 80 },
   { id: "phoenix", name: "Phoenix", zip: "85001", radiusMi: 90 },
   { id: "miami", name: "Miami", zip: "33101", radiusMi: 70 },
   { id: "minneapolis", name: "Minneapolis", zip: "55401", radiusMi: 80 },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import type { Listing } from "@/domain/types";
@@ -11,6 +12,17 @@ import {
   parseZipArg,
   relaxHintsFromFunnel,
 } from "./tools";
+
+/** Stub Auto.dev ZIP geocode so search_listings tests reach /listings. */
+function zipLookupOk(zip: string, city = "Testville", state = "OH"): Response {
+  return new Response(
+    JSON.stringify({
+      success: true,
+      payload: { zip, city, state, latitude: 39.96, longitude: -83.0 },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
 
 describe("find-agent tool arg validation", () => {
   it("rejects a bad zip", () => {
@@ -146,7 +158,9 @@ describe("search_listings funnel", () => {
 
   it("reports searched filters, provenance constraint roles, and duplicateSearch on identical re-calls", async () => {
     const fetchImpl: typeof fetch = async (input) => {
-      if (String(input).includes("listings")) {
+      const url = String(input);
+      if (url.includes("/zip/")) return zipLookupOk("33101", "Miami", "FL");
+      if (url.includes("listings")) {
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -200,8 +214,10 @@ describe("search_listings funnel", () => {
   it("omits Sedan on the provider URL and returns funnel + relaxHints", async () => {
     let requestedUrl = "";
     const fetchImpl: typeof fetch = async (input) => {
-      requestedUrl = String(input);
-      if (requestedUrl.includes("listings")) {
+      const url = String(input);
+      if (url.includes("/zip/")) return zipLookupOk("43215", "Columbus", "OH");
+      requestedUrl = url;
+      if (url.includes("listings")) {
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -231,8 +247,10 @@ describe("search_listings funnel", () => {
   it("honors SERV page/limit on the provider URL (no silent ≤12 hide-cap)", async () => {
     let requestedUrl = "";
     const fetchImpl: typeof fetch = async (input) => {
-      requestedUrl = String(input);
-      if (requestedUrl.includes("listings")) {
+      const url = String(input);
+      if (url.includes("/zip/")) return zipLookupOk("43215", "Columbus", "OH");
+      requestedUrl = url;
+      if (url.includes("listings")) {
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -265,6 +283,7 @@ describe("search_listings funnel", () => {
     });
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
+      if (url.includes("/zip/")) return zipLookupOk("43215", "Columbus", "OH");
       if (url.includes("listings")) {
         return new Response(
           JSON.stringify({
@@ -343,6 +362,104 @@ describe("search_listings funnel", () => {
     expect(executed.result.attempts).toBe(1);
     expect(String(executed.summary)).toMatch(/status=400/);
     expect(String(executed.summary)).toMatch(/cause=http_error/);
+  });
+
+  it("surfaces location_not_recognized for PO-box ZIP 30301 (never silent provider_raw=0)", async () => {
+    let listingsCalls = 0;
+    const providerBody = { success: false, error: { message: "ZIP not found" } };
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/zip/30301")) {
+        return new Response(JSON.stringify(providerBody), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("listings")) {
+        listingsCalls += 1;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { bodyFamily: "car", priceMaxUsd: 22_500, zip: "30301", radiusMi: 80 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(false);
+    expect(executed.result.error).toBe("location_not_recognized");
+    expect(executed.result.providerResponse).toEqual(providerBody);
+    expect(executed.result.providerStatus).toBe(404);
+    expect(String(executed.result.honesty)).toMatch(/not an empty market/i);
+    expect(executed.result.funnel).toBeUndefined();
+    expect(listingsCalls).toBe(0);
+  });
+
+  it("does not start Auto.dev when the hop budget cannot fit a full call", async () => {
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      return new Response("{}", { status: 500 });
+    };
+    const deadline = makeAgentLoopDeadline(10_000, Date.now() - 5_000); // ~5s left
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", zip: "30303", priceMaxUsd: 22_500 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+        deadline,
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(false);
+    expect(executed.result.error).toBe("request_budget");
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("searches with the provider-resolved ZIP after a successful geocode", async () => {
+    let listingsUrl = "";
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/zip/30303")) {
+        return zipLookupOk("30303", "Atlanta", "GA");
+      }
+      if (url.includes("listings")) {
+        listingsUrl = url;
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { bodyFamily: "car", priceMaxUsd: 22_500, zip: "30303", radiusMi: 80 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(true);
+    expect(listingsUrl).toContain("zip=30303");
+    expect(executed.result.locationResolution).toMatchObject({
+      requestedZip: "30303",
+      resolvedZip: "30303",
+      city: "Atlanta",
+      state: "GA",
+    });
   });
 });
 

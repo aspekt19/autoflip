@@ -15,7 +15,17 @@ import {
   buildThinSearchProxyResult,
   mapBodyStyleForProvider,
 } from "@/domain/serv-boundary";
-import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
+import {
+  agentLoopMayStartAutodevCall,
+  AGENT_LOOP_BUDGET_CONTINUE,
+  type AgentLoopDeadline,
+} from "@/domain/agent-loop-deadline";
+import {
+  autodevSearch,
+  autodevZipLookup,
+  listingsSearchUrl,
+  type AutodevDeps,
+} from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { buyerListingHref } from "@/domain/find-listing-link";
@@ -173,6 +183,11 @@ export type FindAgentToolDeps = {
   seedListings?: readonly Listing[];
   /** Full shopper chat transcript for budget.userQuote verbatim checks. */
   chatTranscript?: string | null;
+  /**
+   * Per-hop wall budget. Checked before every Auto.dev call — if not enough
+   * time remains for a full attempt, tools return request_budget (no fetch).
+   */
+  deadline?: AgentLoopDeadline | null;
 };
 
 /** Default page size when SERV omits limit — not a silent hide-rows cap. */
@@ -832,6 +847,24 @@ export type ExecuteToolResult = {
   summary: string;
 };
 
+function autodevBudgetDeferred(name: FindAgentToolName): ExecuteToolResult {
+  return {
+    name,
+    ok: false,
+    result: {
+      error: AGENT_LOOP_BUDGET_CONTINUE,
+      message:
+        "Request time budget too low to start Auto.dev; continue on the next hop before searching again.",
+    },
+    summary: `${name} deferred: request_budget (Auto.dev not started)`,
+  };
+}
+
+/** True when a tool refused to start Auto.dev under the hop budget. */
+export function toolResultIsRequestBudget(result: ExecuteToolResult): boolean {
+  return result.result?.error === AGENT_LOOP_BUDGET_CONTINUE;
+}
+
 export function createFindAgentToolState(
   seed?: readonly Listing[],
   userHardKeys?: Iterable<SearchFilterKey> | null,
@@ -1014,10 +1047,75 @@ export async function executeFindAgentTool(
         summary: `search_listings rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
       };
     }
-    const query = toListingQuery(parsed.value);
+    if (!agentLoopMayStartAutodevCall(deps.deadline)) {
+      return autodevBudgetDeferred("search_listings");
+    }
     const bodyIntent = resolveBodyIntent(parsed.value);
     const providerBody =
       mapBodyStyleForProvider(bodyIntent) ?? providerBodyStyleParam(bodyIntent) ?? null;
+
+    let resolvedZip = parsed.value.zip;
+    let locationResolution: Record<string, unknown> | null = null;
+    if (parsed.value.zip) {
+      const lookup = await autodevZipLookup(parsed.value.zip, autodevDeps);
+      if (!lookup.ok) {
+        if (lookup.error === "location_not_recognized") {
+          return {
+            name,
+            ok: false,
+            result: {
+              error: "location_not_recognized",
+              message: lookup.message,
+              zip: parsed.value.zip,
+              providerStatus: lookup.status,
+              providerUrl: lookup.url,
+              providerResponse: lookup.raw,
+              honesty:
+                "Provider did not geocode this ZIP (common for PO-box / non-delivery ZIPs). This is not an empty market — ask for a street/residential ZIP or city center ZIP and re-search. Do not claim zero inventory.",
+            },
+            summary: `search_listings location_not_recognized zip=${parsed.value.zip} status=${lookup.status}`,
+          };
+        }
+        if (lookup.error === "demo_limit") {
+          return {
+            name,
+            ok: false,
+            result: { error: lookup.error, message: lookup.message, providerUrl: lookup.url },
+            summary: `search_listings failed: ${lookup.message}`,
+          };
+        }
+        return {
+          name,
+          ok: false,
+          result: {
+            error: "upstream",
+            message: lookup.message,
+            status: lookup.status,
+            cause: lookup.cause,
+            providerUrl: lookup.url,
+            providerResponse: lookup.raw,
+          },
+          summary: `search_listings zip_lookup failed: ${lookup.message}`,
+        };
+      }
+      resolvedZip = lookup.location.zip;
+      locationResolution = {
+        requestedZip: parsed.value.zip,
+        resolvedZip: lookup.location.zip,
+        city: lookup.location.city,
+        state: lookup.location.state,
+        latitude: lookup.location.latitude,
+        longitude: lookup.location.longitude,
+        providerUrl: lookup.url,
+        providerStatus: lookup.status,
+      };
+      // Re-check budget after zip lookup before the listings call.
+      if (!agentLoopMayStartAutodevCall(deps.deadline)) {
+        return autodevBudgetDeferred("search_listings");
+      }
+    }
+
+    const query = toListingQuery({ ...parsed.value, zip: resolvedZip });
     const providerUrl = listingsSearchUrl(query);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
@@ -1031,6 +1129,7 @@ export async function executeFindAgentTool(
             status: search.status,
             cause: search.cause,
             attempts: search.attempts,
+            locationResolution,
           },
           summary: `search_listings failed: ${search.message} (status=${search.status} cause=${search.cause} attempts=${search.attempts})`,
         };
@@ -1038,7 +1137,7 @@ export async function executeFindAgentTool(
       return {
         name,
         ok: false,
-        result: { error: search.error, message: search.message },
+        result: { error: search.error, message: search.message, locationResolution },
         summary: `search_listings failed: ${search.message}`,
       };
     }
@@ -1087,6 +1186,8 @@ export async function executeFindAgentTool(
       result: {
         query: {
           ...parsed.value,
+          zip: resolvedZip,
+          requestedZip: parsed.value.zip ?? null,
           providerBodyStyle: providerBody,
           providerPriceMaxUsd:
             parsed.value.priceMaxUsd != null
@@ -1094,6 +1195,7 @@ export async function executeFindAgentTool(
               : null,
           providerUrl,
         },
+        locationResolution,
         /** Exact filters SERV asked for on this call. */
         searched: constraintInfo.searched,
         /** Per-filter hard vs relaxable roles — SERV decides; code never auto-relaxes. */
@@ -1226,6 +1328,49 @@ export async function executeFindAgentTool(
     let source: "in_hand" | "fresh_search" | "mixed" = "in_hand";
     let listings = inHand;
     if (listings.length < 3) {
+      if (!agentLoopMayStartAutodevCall(deps.deadline)) {
+        return autodevBudgetDeferred("get_market_comps");
+      }
+      let compsZip = args.zip;
+      if (args.zip) {
+        const lookup = await autodevZipLookup(args.zip, autodevDeps);
+        if (!lookup.ok) {
+          if (lookup.error === "location_not_recognized") {
+            return {
+              name,
+              ok: false,
+              result: {
+                error: "location_not_recognized",
+                message: lookup.message,
+                zip: args.zip,
+                providerStatus: lookup.status,
+                providerUrl: lookup.url,
+                providerResponse: lookup.raw,
+                honesty:
+                  "Provider did not geocode this ZIP. This is not an empty comps market — ask for a resolvable street/residential ZIP.",
+              },
+              summary: `get_market_comps location_not_recognized zip=${args.zip}`,
+            };
+          }
+          return {
+            name,
+            ok: false,
+            result: {
+              error: lookup.error === "demo_limit" ? lookup.error : "upstream",
+              message: lookup.message,
+              status: lookup.status,
+              cause: lookup.error === "upstream" ? lookup.cause : undefined,
+              providerUrl: lookup.url,
+              providerResponse: lookup.raw,
+            },
+            summary: `get_market_comps zip_lookup failed: ${lookup.message}`,
+          };
+        }
+        compsZip = lookup.location.zip;
+        if (!agentLoopMayStartAutodevCall(deps.deadline)) {
+          return autodevBudgetDeferred("get_market_comps");
+        }
+      }
       const search = await autodevSearch(
         toListingQuery({
           make: args.make,
@@ -1233,7 +1378,7 @@ export async function executeFindAgentTool(
           yearMin: args.yearMin,
           yearMax: args.yearMax,
           priceMaxUsd: args.priceMaxUsd,
-          zip: args.zip,
+          zip: compsZip,
           radiusMi: args.radiusMi,
           limit: args.limit,
         }),

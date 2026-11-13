@@ -97,6 +97,141 @@ export function listingByVinUrl(vin: string): string {
   return `${autodevOrigin()}/listings/${encodeURIComponent(vin)}`;
 }
 
+/** Auto.dev ZIP → lat/lon/city lookup (buyer-center geocode). */
+export function zipLookupUrl(zip: string): string {
+  return `${autodevOrigin()}/zip/${encodeURIComponent(zip)}`;
+}
+
+export type AutodevZipLocation = {
+  zip: string;
+  city: string | null;
+  state: string | null;
+  latitude: number;
+  longitude: number;
+};
+
+export type AutodevZipLookupResult =
+  | {
+      ok: true;
+      location: AutodevZipLocation;
+      status: number;
+      url: string;
+      raw: unknown;
+    }
+  | {
+      ok: false;
+      error: "location_not_recognized" | "upstream" | "demo_limit";
+      status: number;
+      cause?: AutodevUpstreamCause;
+      message: string;
+      url: string;
+      raw: unknown;
+      quota?: QuotaDecision;
+    };
+
+function readZipLookupPayload(raw: unknown): AutodevZipLocation | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const root = raw as Record<string, unknown>;
+  const payload =
+    root.payload && typeof root.payload === "object" && !Array.isArray(root.payload)
+      ? (root.payload as Record<string, unknown>)
+      : root;
+  const zipRaw = payload.zip ?? payload.postalCode ?? payload.postal;
+  const zip = typeof zipRaw === "string" ? zipRaw.trim().slice(0, 5) : "";
+  if (!/^\d{5}$/.test(zip)) return null;
+  const lat = Number(payload.latitude ?? payload.lat);
+  const lon = Number(payload.longitude ?? payload.lon ?? payload.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  // Reject null-island / missing geocode disguised as zeros.
+  if (lat === 0 && lon === 0) return null;
+  const city = typeof payload.city === "string" && payload.city.trim() ? payload.city.trim() : null;
+  const state = typeof payload.state === "string" && payload.state.trim() ? payload.state.trim() : null;
+  return { zip, city, state, latitude: lat, longitude: lon };
+}
+
+/**
+ * Resolve a buyer-center ZIP via Auto.dev before radius search.
+ * PO-box / unassigned ZIPs often fail geocode — callers must not treat that as empty inventory.
+ */
+export async function autodevZipLookup(
+  zip: string,
+  deps: AutodevDeps,
+): Promise<AutodevZipLookupResult> {
+  const normalized = zip.trim().slice(0, 5);
+  const url = zipLookupUrl(normalized);
+  const quota = deps.reserve ? await deps.reserve() : reserveCall(deps.counter, deps.now);
+  if (!quota.ok) {
+    return {
+      ok: false,
+      error: "demo_limit",
+      status: 0,
+      message: quota.message,
+      url,
+      raw: null,
+      quota,
+    };
+  }
+
+  const timeoutMs = deps.timeoutMs ?? AUTODEV_DEFAULT_TIMEOUT_MS;
+  try {
+    const signal = combineAbortSignals(deps.signal, timeoutMs);
+    const response = await deps.fetch(url, {
+      headers: {
+        Authorization: `Bearer ${deps.apiKey}`,
+        Accept: "application/json",
+      },
+      signal,
+    });
+    const raw: unknown = await response.json().catch(() => null);
+    console.info(
+      `[autodev] zip_lookup zip=${normalized} url=${url} status=${response.status} body=${JSON.stringify(raw)?.slice(0, 800) ?? "null"}`,
+    );
+
+    if (!response.ok) {
+      const unrecognized = response.status === 404 || response.status === 422;
+      return {
+        ok: false,
+        error: unrecognized ? "location_not_recognized" : "upstream",
+        status: response.status,
+        cause: "http_error",
+        message: unrecognized
+          ? `Location not recognized for ZIP ${normalized}.`
+          : upstreamMessage(response.status, "http_error"),
+        url,
+        raw,
+      };
+    }
+
+    const location = readZipLookupPayload(raw);
+    if (!location) {
+      return {
+        ok: false,
+        error: "location_not_recognized",
+        status: response.status,
+        message: `Location not recognized for ZIP ${normalized}.`,
+        url,
+        raw,
+      };
+    }
+    return { ok: true, location, status: response.status, url, raw };
+  } catch (error) {
+    const cause = classifyFetchError(error);
+    const finalCause = cause === "aborted" && !deps.signal?.aborted ? "timeout" : cause;
+    console.info(
+      `[autodev] zip_lookup zip=${normalized} url=${url} status=0 cause=${finalCause}`,
+    );
+    return {
+      ok: false,
+      error: "upstream",
+      status: 0,
+      cause: finalCause,
+      message: upstreamMessage(0, finalCause),
+      url,
+      raw: null,
+    };
+  }
+}
+
 /** Normalize a VDP URL for exact equality checks (no guessing). */
 export function normalizeVdpUrl(raw: string): string {
   try {
@@ -357,8 +492,22 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
   };
 }
 
-export function autodevSearch(query: ListingQuery, deps: AutodevDeps): Promise<AutodevResult> {
-  return cachedGet(listingsSearchUrl(query), deps);
+export async function autodevSearch(query: ListingQuery, deps: AutodevDeps): Promise<AutodevResult> {
+  const url = listingsSearchUrl(query);
+  console.info(`[autodev] listings_search url=${url}`);
+  const result = await cachedGet(url, deps);
+  if (result.ok) {
+    console.info(
+      `[autodev] listings_search ok cached=${result.cached} count=${result.listings.length} url=${url}`,
+    );
+  } else if (result.error === "upstream") {
+    console.info(
+      `[autodev] listings_search upstream status=${result.status} cause=${result.cause} attempts=${result.attempts} url=${url}`,
+    );
+  } else {
+    console.info(`[autodev] listings_search error=${result.error} url=${url}`);
+  }
+  return result;
 }
 
 export function autodevByVin(vin: string, deps: AutodevDeps): Promise<AutodevResult> {

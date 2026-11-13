@@ -95,6 +95,16 @@ describe("runResaleAgentLoop", () => {
     let sawReasoningEcho = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
+      if (url.includes("/zip/")) {
+        const zip = url.split("/zip/")[1]?.slice(0, 5) || "00000";
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip, city: "Test", state: "FL", latitude: 25.7, longitude: -80.2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/listings")) {
         // Cheap ask on the target VIN vs higher comps → positive code mid-profit.
         const peers = [
@@ -237,6 +247,16 @@ describe("runResaleAgentLoop", () => {
     let sawFlipPnl = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
+      if (url.includes("/zip/")) {
+        const zip = url.split("/zip/")[1]?.slice(0, 5) || "00000";
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip, city: "Test", state: "FL", latitude: 25.7, longitude: -80.2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/listings")) {
         const peers = [
           // Asking must be ≥ finish offerUsd (15500) for submit_picks validation.
