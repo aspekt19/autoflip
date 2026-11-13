@@ -82,6 +82,9 @@ export function RunReport({ run }: { run: RunView }) {
                 <p className="support">
                   {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
                   {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}
+                  {car.distanceMiles != null && Number.isFinite(car.distanceMiles)
+                    ? ` · ${Math.round(car.distanceMiles)} mi away`
+                    : ""}
                   {car.drivetrain ? ` · ${car.drivetrain}` : car.drivetrainUnknown ? " · Drivetrain not listed" : ""}
                   {car.place ? ` · ${car.place}` : ""}
                   {car.dealer ? ` · ${car.dealer}` : ""}

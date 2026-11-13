@@ -724,17 +724,11 @@ async function buildListingVerdict(
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
 
-  // Prefer government VIN-decoder fuel over listing JSON-LD when they conflict.
+  // Keep provider/listing fuel as reported when it conflicts with VIN decode —
+  // never assert the decoder value over the listing (hybrids often decode as Gasoline).
   const decodeFuel = gov.vinDecode?.fuel ?? null;
   const listingFuel = fields.fuel.value;
   const fuelNote = fuelConflictNote(listingFuel, decodeFuel);
-  if (fuelNote && decodeFuel) {
-    fields = {
-      ...fields,
-      fuel: { value: decodeFuel, source: "vin_decode" },
-    };
-    subject = { ...subject, fuel: decodeFuel };
-  }
 
   const flags = listingRedFlags({
     fields,

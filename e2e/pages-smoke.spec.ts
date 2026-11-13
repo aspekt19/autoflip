@@ -18,11 +18,11 @@ const PAGES = [
   "/login",
   "/login/finish",
   "/activity",
-  "/report/sample",
+  "/agents",
 ];
 
-/** Consumer pages. /developers is allowed to keep field names and protocol words. */
-const CONSUMER = PAGES.filter((path) => path !== "/developers");
+/** Consumer pages. /agents is allowed to keep field names and protocol words. */
+const CONSUMER = PAGES.filter((path) => path !== "/agents");
 
 const JARGON =
   /\b(find_plan|free-gov|free_gov|vPIC|OpenServ|openserv|webhook|SCOUT_UI_ENABLED|SERV_API_KEY|Upstash|money-button|allowlisted|TypeScript|triage|sERV)\b|\bNHTSA\b|\bclamp\b/;

@@ -49,6 +49,14 @@ export function evalShopperReplyFromQuery(
   query: Pick<GeneratedQuery, "note" | "zip" | "tags"> | null | undefined,
 ): string {
   if (!query) return LIVE_EVAL_GENERIC_SHOPPER_REPLY;
+  // Custom notes (Yura mix / budget-only): do not invent use/body limits or nationwide.
+  if (query.tags?.city === "custom" || query.tags?.budget === "custom") {
+    const zip = query.zip?.trim();
+    const location = zip
+      ? ` Keep ZIP ${zip} and the budget I already gave; do not search nationwide.`
+      : " Keep the budget and location I already gave; do not search nationwide.";
+    return `No other preferences or limits — do not add mileage, year, model, or body limits.${location} Please submit the brief card when ready.`;
+  }
   const parts: string[] = [];
   const budgetTag = query.tags?.budget?.trim();
   if (budgetTag) {

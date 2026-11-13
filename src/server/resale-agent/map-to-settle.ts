@@ -11,11 +11,40 @@ import {
 import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { ResaleSearchInput } from "@/domain/resale-search-input";
+import {
+  RESALE_EVIDENCE_SOURCES,
+  evaluateEvidenceGate,
+  evidenceJournalFromAgentJournal,
+  formatSourcesCheckedLine,
+  type EvidenceSourceRow,
+} from "@/domain/serv-evidence-gate";
 import type { ResaleSearchOkBody } from "@/server/resale-search";
 import type { ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
 import { BASE_MODEL } from "@/server/serv";
 import type { ResaleAgentLoopResult } from "./loop";
 import { summarizeResaleAgentJournal } from "./loop";
+
+function sourcesCheckedFromResaleAgent(
+  agent: Extract<ResaleAgentLoopResult, { ok: true }>,
+): Record<string, EvidenceSourceRow[]> {
+  const listings = new Map<string, { vin: string; year: number; make: string; model: string }>();
+  for (const [vin, listing] of agent.listingsByVin) {
+    listings.set(vin.toUpperCase(), {
+      vin: vin.toUpperCase(),
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+    });
+  }
+  const gate = evaluateEvidenceGate({
+    picks: agent.verdict.picks,
+    listingsByVin: listings,
+    journal: evidenceJournalFromAgentJournal(agent.journal),
+    requiredSources: RESALE_EVIDENCE_SOURCES,
+    repairAlreadySent: true,
+  });
+  return gate.byVin;
+}
 
 function confidenceLabel(c: "high" | "medium" | "low"): "High" | "Medium" | "Low" {
   if (c === "high") return "High";
@@ -115,6 +144,7 @@ export function mapResaleAgentLoopToSettle(input: {
   }
 
   const confidence = confidenceLabel(agent.verdict.confidence);
+  const sourcesCheckedByVin = sourcesCheckedFromResaleAgent(agent);
   const joinedPick = publishedBest
     ? joinChosenListing(publishedBest.vin, agent.listingsByVin)
     : null;
@@ -160,11 +190,24 @@ export function mapResaleAgentLoopToSettle(input: {
     reasons: topPick
       ? [{ evidenceId: `car:${topPick.vin.toUpperCase()}`, text: topPick.why }]
       : [{ evidenceId: "agent:summary", text: agent.verdict.summary }],
-    risks: agent.relaxedConditions.map((r, i) => ({
-      evidenceId: `relax:${i}`,
-      text: `${r.name}: ${r.why}`,
-    })),
-    unknowns: [],
+    risks: [
+      ...agent.relaxedConditions.map((r, i) => ({
+        evidenceId: `relax:${i}`,
+        text: `${r.name}: ${r.why}`,
+      })),
+      ...agent.verdict.picks
+        .filter((p) => Boolean(p.riskNotes?.trim()))
+        .map((p) => ({
+          evidenceId: `pick-risk:${p.vin.toUpperCase()}`,
+          text: p.riskNotes!.trim(),
+        })),
+    ],
+    unknowns: Object.entries(sourcesCheckedByVin)
+      .map(([vin, rows]) => {
+        const line = formatSourcesCheckedLine(rows);
+        return line ? `${vin}: ${line}` : null;
+      })
+      .filter((line): line is string => Boolean(line)),
     no_serv_step: false,
     serv_steps: [
       {
@@ -237,6 +280,7 @@ export function mapResaleAgentLoopToSettle(input: {
     creditNote: publishedBest
       ? resaleCardCopy.creditNote
       : "1 report credit used — SERV explained why nothing fit.",
+    sourcesCheckedByVin,
   };
 
   return { delivery, checkpoint, candidates };

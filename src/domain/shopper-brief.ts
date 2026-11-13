@@ -15,6 +15,12 @@ export type ShopperBriefConstraint = {
   value: string;
 };
 
+/** SERV-stated risk for a user constraint (or brief-level risk). No chat parsing. */
+export type ShopperBriefRiskNote = {
+  key: string;
+  risk: string;
+};
+
 export type ShopperBrief = {
   summary: string;
   budget: ShopperBriefBudget;
@@ -27,6 +33,16 @@ export type ShopperBrief = {
   softConstraints?: ShopperBriefConstraint[];
   /** Relaxations the shopper already agreed to (from SERV, not code inference). */
   agreedRelaxations?: ShopperBriefConstraint[];
+  /**
+   * Risks of each user constraint (and brief-level risks). Resale profit-first:
+   * required on the brief card when the shopper added optional constraints.
+   */
+  riskNotes?: ShopperBriefRiskNote[];
+  /**
+   * Resale: true when the shopper declined optional constraints — brief is
+   * budget + location/radius only (broad profit search; invent no body/type).
+   */
+  budgetOnly?: boolean;
 };
 
 export type BudgetQuoteCheckStatus = "valid" | "null" | "fabricated" | "mismatch";
@@ -129,18 +145,47 @@ export function parseShopperBrief(raw: unknown):
     else zip = z;
   }
   let radiusMi: number | null = null;
-  if (row.radiusMi != null && row.radiusMi !== "") {
+  const hasRadiusKey = Object.prototype.hasOwnProperty.call(row, "radiusMi");
+  if (!hasRadiusKey) {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi is required. Pick a sensible miles default when the shopper named a city/ZIP; use null only when they asked for nationwide.",
+    });
+  } else if (row.radiusMi != null && row.radiusMi !== "") {
     const n = typeof row.radiusMi === "number" ? row.radiusMi : Number(row.radiusMi);
     if (!Number.isFinite(n) || n < 1 || n > 3000) {
       issues.push({ field: "radiusMi", message: "radiusMi must be miles or null for nationwide." });
     } else radiusMi = Math.round(n);
   } else if (row.radiusMi === null) {
     radiusMi = null;
+  } else {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi is required. Pick a sensible miles default when the shopper named a city/ZIP; use null only when they asked for nationwide.",
+    });
+  }
+  // City/ZIP searches must carry a miles radius — nationwide only when the shopper said so (null + no ZIP).
+  if (zip && radiusMi == null && !issues.some((i) => i.field === "radiusMi")) {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi must be a positive miles value when zip is set. Nationwide (null) is only allowed when the shopper asked for nationwide (no city/ZIP).",
+    });
   }
   const notes = typeof row.notes === "string" ? row.notes.trim().slice(0, 400) || null : null;
   const hardConstraints = parseBriefConstraintList(row.hardConstraints);
   const softConstraints = parseBriefConstraintList(row.softConstraints);
   const agreedRelaxations = parseBriefConstraintList(row.agreedRelaxations);
+  const riskNotes = parseBriefRiskNotes(row.riskNotes);
+  let budgetOnly: boolean | undefined;
+  if (Object.prototype.hasOwnProperty.call(row, "budgetOnly")) {
+    if (typeof row.budgetOnly === "boolean") budgetOnly = row.budgetOnly;
+    else {
+      issues.push({ field: "budgetOnly", message: "budgetOnly must be a boolean when set." });
+    }
+  }
   if (issues.length > 0) return { ok: false, issues };
 
   return {
@@ -154,6 +199,8 @@ export function parseShopperBrief(raw: unknown):
       ...(hardConstraints.length ? { hardConstraints } : {}),
       ...(softConstraints.length ? { softConstraints } : {}),
       ...(agreedRelaxations.length ? { agreedRelaxations } : {}),
+      ...(riskNotes.length ? { riskNotes } : {}),
+      ...(budgetOnly !== undefined ? { budgetOnly } : {}),
     },
   };
 }
@@ -171,6 +218,114 @@ function parseBriefConstraintList(raw: unknown): ShopperBriefConstraint[] {
   return out.slice(0, 24);
 }
 
+function parseBriefRiskNotes(raw: unknown): ShopperBriefRiskNote[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ShopperBriefRiskNote[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const key = typeof row.key === "string" ? row.key.trim().slice(0, 80) : "";
+    const risk = typeof row.risk === "string" ? row.risk.trim().slice(0, 280) : "";
+    if (key && risk) out.push({ key, risk });
+  }
+  return out.slice(0, 24);
+}
+
+/** Body/type keys SERV must not invent on a budget-only Resale brief. */
+export const RESALE_INVENTED_BODY_KEYS = new Set([
+  "body",
+  "bodyStyle",
+  "bodyFamily",
+  "body_type",
+  "type",
+  "vehicleType",
+]);
+
+/** search_listings fields that slice inventory by vehicle, not budget/location. */
+export const RESALE_BUDGET_ONLY_SEARCH_STRIP_KEYS = [
+  "bodyStyle",
+  "bodyFamily",
+  "make",
+  "model",
+  "yearMin",
+  "yearMax",
+  "milesMax",
+] as const;
+
+/**
+ * Budget-only Resale: keep budget + ZIP/radius filters; drop invented vehicle
+ * slice filters. Code does not parse chat — it enforces the confirmed brief.
+ */
+export function stripBudgetOnlySearchArgs(raw: unknown): {
+  args: unknown;
+  dropped: string[];
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { args: raw, dropped: [] };
+  }
+  const row = { ...(raw as Record<string, unknown>) };
+  const dropped: string[] = [];
+  for (const key of RESALE_BUDGET_ONLY_SEARCH_STRIP_KEYS) {
+    const value = row[key];
+    if (value != null && value !== "") {
+      dropped.push(key);
+      delete row[key];
+    }
+  }
+  return { args: row, dropped };
+}
+
+/**
+ * Resale profit-first structural checks on a parsed brief (no chat parsing).
+ * Budget + quote required; budget-only → no invented body/type hard constraints.
+ */
+export function validateResaleProfitFirstBrief(
+  brief: ShopperBrief,
+): { ok: true } | { ok: false; issues: Array<{ field: string; message: string }> } {
+  const issues: Array<{ field: string; message: string }> = [];
+  if (brief.budget.maxUsd == null || !Number.isFinite(brief.budget.maxUsd)) {
+    issues.push({
+      field: "budget.maxUsd",
+      message: "Resale requires budget.maxUsd — ask for budget first (profit within budget).",
+    });
+  }
+  if (!brief.budget.userQuote?.trim()) {
+    issues.push({
+      field: "budget.userQuote",
+      message: "Resale requires budget.userQuote — verbatim shopper words for the budget.",
+    });
+  }
+  const hard = brief.hardConstraints ?? [];
+  const budgetOnly = brief.budgetOnly === true || hard.length === 0;
+  if (brief.budgetOnly === true && hard.length > 0) {
+    // Budget-only = budget + location/radius only — no invented body/type/make filters.
+    for (const row of hard) {
+      const inventedBody =
+        RESALE_INVENTED_BODY_KEYS.has(row.key) ||
+        RESALE_INVENTED_BODY_KEYS.has(row.key.toLowerCase());
+      issues.push({
+        field: "hardConstraints",
+        message: inventedBody
+          ? `Budget-only Resale brief must not invent body/type constraint "${row.key}". Search broadly by expected profit.`
+          : `Budget-only Resale brief must not include hard constraint "${row.key}" — invent none; search broadly by expected profit.`,
+      });
+    }
+  } else if (!budgetOnly) {
+    // User-added constraints are hard — each needs a risk note on the brief card.
+    const riskKeys = new Set((brief.riskNotes ?? []).map((r) => r.key));
+    for (const row of hard) {
+      if (!riskKeys.has(row.key)) {
+        issues.push({
+          field: "riskNotes",
+          message: `Missing risk note for hard constraint "${row.key}" — highlight the risk on the brief card.`,
+        });
+      }
+    }
+  }
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true };
+}
+
 export function formatShopperBriefCard(brief: ShopperBrief): string {
   const lines = [brief.summary];
   if (brief.budget.maxUsd != null) {
@@ -180,10 +335,18 @@ export function formatShopperBriefCard(brief: ShopperBrief): string {
     lines.push(`Budget: ${brief.budget.userQuote}`);
   }
   if (brief.zip) {
-    const r = brief.radiusMi != null ? ` · ${brief.radiusMi} mi` : " · nationwide OK";
+    const r =
+      brief.radiusMi != null
+        ? ` · ${brief.radiusMi} mi`
+        : " · radius required (nationwide only if shopper asked)";
     lines.push(`Location: ${brief.zip}${r}`);
   } else if (brief.radiusMi != null) {
     lines.push(`Radius: ${brief.radiusMi} mi`);
+  } else {
+    lines.push("Location: nationwide");
+  }
+  if (brief.budgetOnly === true) {
+    lines.push("Scope: budget + location only — broad search by expected profit (no body/type invented).");
   }
   if (brief.hardConstraints?.length) {
     lines.push(
@@ -198,6 +361,11 @@ export function formatShopperBriefCard(brief: ShopperBrief): string {
   if (brief.agreedRelaxations?.length) {
     lines.push(
       `Agreed relaxations: ${brief.agreedRelaxations.map((c) => `${c.key}=${c.value}`).join("; ")}`,
+    );
+  }
+  if (brief.riskNotes?.length) {
+    lines.push(
+      `Risks: ${brief.riskNotes.map((r) => `${r.key} — ${r.risk}`).join("; ")}`,
     );
   }
   if (brief.notes) lines.push(brief.notes);

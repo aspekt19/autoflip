@@ -87,7 +87,7 @@ export default async function WhereServRunsPage() {
           <Link className="quiet" href="/proof">
             Proof comparisons
           </Link>
-          <Link className="quiet" href="/developers">
+          <Link className="quiet" href="/agents">
             Agent API
           </Link>
           <Link className="ghost" href="/">

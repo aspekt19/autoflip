@@ -24,6 +24,7 @@ import {
   generateQueries,
   resolveSeed,
 } from "./generate";
+import { parseEvalNotes, queriesFromEvalNotes } from "./from-notes";
 import {
   ESTIMATED_USD_PER_QUERY,
   SERV_CALLS_PER_QUERY,
@@ -112,22 +113,8 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
   const maxQueries = Math.max(1, Math.floor(options.maxQueries));
   const maxUsd = Math.max(0.01, options.maxUsd);
   const concurrency = Math.max(1, Math.floor(options.concurrency ?? DEFAULT_CONCURRENCY));
-  const queriesFromNotes: GeneratedQuery[] | null = options.notes?.length
-    ? options.notes.map((note, i) => ({
-        id: `note_${String(i + 1).padStart(2, "0")}`,
-        product: "find" as const,
-        note,
-        zip: null,
-        distanceMiles: null,
-        tags: {
-          product: "find" as const,
-          city: "custom",
-          budget: "custom",
-          body: "custom",
-          need: "custom",
-          messy: false,
-        },
-      }))
+  const queriesFromNotes = options.notes?.length
+    ? queriesFromEvalNotes(parseEvalNotes(options.notes) ?? [], maxQueries)
     : null;
   const queries = queriesFromNotes ?? generateQueries(options.seed, maxQueries);
   const planned = queries.slice(0, maxQueries);

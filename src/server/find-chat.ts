@@ -502,6 +502,7 @@ export async function runFindChatTurn(input: {
     pickAgentVerdict: mapped.agentVerdict,
     offerPool: mapped.offerPool,
     shortlistKeys: mapped.shortlistKeys,
+    sourcesCheckedByVin: mapped.sourcesCheckedByVin,
     agentLoop: {
       agentMode: agent.agentMode,
       toolRounds: agent.toolRounds,

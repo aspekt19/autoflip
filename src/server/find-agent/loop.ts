@@ -42,6 +42,13 @@ import {
   type FindAgentVerdict,
 } from "@/domain/find-agent";
 import {
+  FIND_EVIDENCE_SOURCES,
+  evaluateEvidenceGate,
+  evidenceJournalFromAgentJournal,
+  evidenceRepairAlreadySent,
+  type EvidenceSourceRow,
+} from "@/domain/serv-evidence-gate";
+import {
   AGENT_LOOP_BUDGET_CONTINUE,
   agentLoopMayStartServCall,
   makeAgentLoopDeadline,
@@ -125,6 +132,16 @@ export type FindAgentJournalServCall = {
   usage?: AgentServCallUsage | null;
 };
 
+/** Tools whose outcomes feed the attempt-only evidence gate (slim result kept on journal). */
+const EVIDENCE_JOURNAL_TOOLS = new Set([
+  "get_recalls_complaints",
+  "get_safety_ratings",
+  "get_vin_decode",
+  "get_fuel_economy",
+  "get_market_comps",
+  "get_flip_pnl",
+]);
+
 export type FindAgentJournalToolCall = {
   kind: "tool";
   name: string;
@@ -140,6 +157,8 @@ export type FindAgentJournalToolCall = {
   providerCause?: string;
   /** Attempts including retries before the final provider outcome. */
   providerAttempts?: number;
+  /** Slim tool result for evidence-gate status (data/empty/error/unavailable). */
+  result?: unknown;
 };
 
 /** Extract documented search_listings rows from the agent journal. */
@@ -217,6 +236,7 @@ function journalSearchListingsEntry(
           ...(providerAttempts != null ? { providerAttempts } : {}),
         }
       : {}),
+    ...(EVIDENCE_JOURNAL_TOOLS.has(executed.name) ? { result: executed.result } : {}),
   };
 }
 
@@ -349,6 +369,7 @@ function buildFindCheckpoint(input: {
   state: FindAgentToolState;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
 }): AgentLoopCheckpoint {
@@ -365,6 +386,7 @@ function buildFindCheckpoint(input: {
     listingsByVin: serializeListingsByVin(input.state.listingsByVin),
     submitNudgeSent: input.submitNudgeSent,
     selectionHop: input.selectionHop,
+    forceTerminalTool: input.forceTerminalTool,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
@@ -387,6 +409,7 @@ function restoreFindStateFromCheckpoint(
   messages: ChatMessage[] | null;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
   phase: "tools" | "next_action" | null;
@@ -401,6 +424,7 @@ function restoreFindStateFromCheckpoint(
       messages: null,
       submitNudgeSent: false,
       selectionHop: false,
+      forceTerminalTool: false,
       firstTurn: true,
       featureRejections: [],
       phase: null,
@@ -414,6 +438,7 @@ function restoreFindStateFromCheckpoint(
       budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
       zip: checkpoint.shopperFacts.zip ?? null,
       radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+      budgetOnly: checkpoint.shopperFacts.budgetOnly === true,
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
@@ -438,6 +463,7 @@ function restoreFindStateFromCheckpoint(
     messages: checkpoint.messages as ChatMessage[],
     submitNudgeSent: checkpoint.submitNudgeSent,
     selectionHop: checkpoint.selectionHop === true,
+    forceTerminalTool: checkpoint.forceTerminalTool === true,
     firstTurn: checkpoint.firstTurn,
     featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
     phase: checkpoint.phase,
@@ -514,6 +540,7 @@ export function findAgentStableInstructions(): string {
     "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
+    "Before submit_picks on finalists: attempt get_recalls_complaints, get_safety_ratings, get_vin_decode, get_fuel_economy, and get_market_comps (batch VIN lists; ≤1 call per source per finalist). Empty, error, or unavailable still counts — cite what you checked in why. Result cards show sources checked.",
     "Per-request shopper conversation, confirmed brief, and form constraints arrive in input messages — not in these instructions.",
   ].join(" ");
 }
@@ -713,13 +740,15 @@ function responsesBody(input: {
   input: string | ResponsesInputItem[];
   applicationTools: ReturnType<typeof findAgentResponsesTools>;
   bundle: AgentServFeatureBundle;
+  /** required after text-without-terminal or rejected terminal — forces a tool call. */
+  toolChoice?: "auto" | "required";
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
     model: input.bundle.model,
     instructions: input.instructions,
     input: input.input,
     tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
-    toolChoice: "auto",
+    toolChoice: input.toolChoice ?? "auto",
     reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
     maxTokens: input.bundle.maxOutputTokens,
   });
@@ -808,6 +837,35 @@ function listingFactsFromState(
     });
   }
   return out;
+}
+
+/** Attempt-only evidence gate for Find submit_picks (one repair, then accept with not_checked). */
+export function evaluateFindEvidenceGate(input: {
+  picks: ReadonlyArray<{ vin: string }>;
+  listingsByVin: ReadonlyMap<string, Listing>;
+  journal: readonly FindAgentJournalEntry[];
+}):
+  | { ok: true; byVin: Record<string, EvidenceSourceRow[]>; acceptedWithGaps: boolean }
+  | { ok: false; issues: Array<{ field: string; message: string }>; byVin: Record<string, EvidenceSourceRow[]> } {
+  const listings = new Map<
+    string,
+    { vin: string; year: number; make: string; model: string }
+  >();
+  for (const [vin, listing] of input.listingsByVin) {
+    listings.set(vin.toUpperCase(), {
+      vin: vin.toUpperCase(),
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+    });
+  }
+  return evaluateEvidenceGate({
+    picks: input.picks,
+    listingsByVin: listings,
+    journal: evidenceJournalFromAgentJournal(input.journal),
+    requiredSources: FIND_EVIDENCE_SOURCES,
+    repairAlreadySent: evidenceRepairAlreadySent(input.journal),
+  });
 }
 
 function radiusWidenAgreedFromBrief(brief: ShopperBrief | null | undefined): boolean {
@@ -1108,6 +1166,7 @@ async function runToolsMode(input: {
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
     selectionHop?: boolean;
+    forceTerminalTool?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1134,6 +1193,7 @@ async function runToolsMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  let forceTerminalTool = input.resume?.forceTerminalTool === true || selectionHop;
   const startRound = input.resume?.roundsCompleted ?? 0;
   let latestBundle = buildAgentServFeatureBundle({
     product: "find",
@@ -1159,6 +1219,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1197,6 +1258,7 @@ async function runToolsMode(input: {
       input: responsesInput,
       applicationTools,
       bundle,
+      toolChoice: selectionHop || forceTerminalTool ? "required" : "auto",
     });
     const turn = await postResponses({
       apiKey: input.deps.servKey,
@@ -1252,7 +1314,11 @@ async function runToolsMode(input: {
 
     if (calls.length === 0) {
       if (!submitNudgeSent) {
+        // One repair: require a terminal tool on a bare (search) hop.
+        // Do not set selectionHop here — Kronos/Multipath/Shadow attach only
+        // on the later hop that can accept the terminal (after deferral).
         submitNudgeSent = true;
+        forceTerminalTool = true;
         responsesInput = [
           ...responsesInput,
           responsesUserMessage(
@@ -1373,6 +1439,7 @@ async function runToolsMode(input: {
           // Kronos/Multipath/Shadow only on the dedicated selection hop.
           if (step !== "verdict") {
             selectionHop = true;
+            forceTerminalTool = true;
             input.journal.push({
               kind: "tool",
               name: call.name,
@@ -1411,6 +1478,9 @@ async function runToolsMode(input: {
             searches,
           });
           if (!checked.ok) {
+            // Drop features for repair/retry; next accepted terminal re-enters selection hop.
+            selectionHop = false;
+            forceTerminalTool = true;
             const repair = boundaryRepairMessage({
               issues: checked.issues,
               searches,
@@ -1438,6 +1508,43 @@ async function runToolsMode(input: {
                 searchJournalEvidence: searches,
               },
             };
+          }
+          // Attempt-only evidence gate (Find): one repair if SERV skipped a source entirely.
+          if (call.name === "submit_picks" && checked.verdict.picks.length > 0) {
+            const evidence = evaluateFindEvidenceGate({
+              picks: checked.verdict.picks,
+              listingsByVin: input.state.listingsByVin,
+              journal: input.journal,
+            });
+            if (!evidence.ok) {
+              selectionHop = false;
+              forceTerminalTool = true;
+              const repair = boundaryRepairMessage({
+                issues: evidence.issues,
+                searches,
+                hint:
+                  "Attempt each evidence source once for every finalist (batched VIN lists OK). Empty/error/unavailable still counts. Then call submit_picks again.",
+              });
+              input.journal.push({
+                kind: "tool",
+                name: call.name,
+                args,
+                summary: `submit_picks rejected: evidence_incomplete — ${evidence.issues.map((i) => i.message).join("; ")}`,
+                ok: false,
+              });
+              return {
+                callId: call.callId,
+                name: "submit_picks" as const,
+                accepted: false as const,
+                output: {
+                  ok: false,
+                  error: "evidence_incomplete",
+                  issues: evidence.issues,
+                  message: repair,
+                  sourcesCheckedByVin: evidence.byVin,
+                },
+              };
+            }
           }
           const enriched = enrichFindRelaxed(checked.verdict, input.journal);
           input.journal.push({
@@ -1504,6 +1611,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1542,6 +1650,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1585,6 +1694,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1729,6 +1839,7 @@ async function runNextActionMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  const forceTerminalTool = false;
   let latestBundle = buildAgentServFeatureBundle({
     product: "find",
     step: resolveAgentServStep({
@@ -1779,6 +1890,7 @@ async function runNextActionMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1982,6 +2094,7 @@ async function runNextActionMode(input: {
           state: input.state,
           submitNudgeSent: false,
           selectionHop,
+          forceTerminalTool: false,
           firstTurn: false,
           featureRejections: rejections,
         });
@@ -2211,6 +2324,7 @@ export async function runFindAgentLoop(input: {
     if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
+    if (pendingBrief.budgetOnly === true) state.shopperFacts.budgetOnly = true;
     state.radiusWidenAgreed = radiusWidenAgreedFromBrief(pendingBrief);
     responsesInput = [
       ...responsesInput,
@@ -2275,6 +2389,7 @@ export async function runFindAgentLoop(input: {
     messages,
     submitNudgeSent: restored.submitNudgeSent,
     selectionHop: restored.selectionHop,
+    forceTerminalTool: restored.forceTerminalTool,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
   };

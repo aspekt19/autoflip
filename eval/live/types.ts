@@ -134,6 +134,21 @@ export type LiveEvalCaseResult = {
   chosenListingCount?: number;
 };
 
+/** Check-by-link / Check-by-VIN rows attached to a live-eval report (never charged). */
+export type LiveEvalCheckResult = {
+  id: string;
+  kind: "link" | "vin";
+  ok: boolean;
+  blocked: boolean;
+  charged: false;
+  error: string | null;
+  message: string | null;
+  /** Full Check output when delivered; null when blocked/refused. */
+  check: unknown | null;
+  refusal: unknown | null;
+  elapsedMs: number;
+};
+
 export type LiveEvalReport = {
   mode: LiveEvalMode;
   seed: number;
@@ -148,6 +163,8 @@ export type LiveEvalReport = {
   results: LiveEvalCaseResult[];
   findCount: number;
   resaleCount: number;
+  /** Optional Check-by-link / Check-by-VIN results (workflow params). */
+  checks?: LiveEvalCheckResult[];
 };
 
 export type LiveEvalBatchOptions = {

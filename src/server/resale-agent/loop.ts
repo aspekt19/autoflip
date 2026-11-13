@@ -40,6 +40,13 @@ import {
   type ResaleAgentVerdict,
 } from "@/domain/resale-agent";
 import {
+  RESALE_EVIDENCE_SOURCES,
+  evaluateEvidenceGate,
+  evidenceJournalFromAgentJournal,
+  evidenceRepairAlreadySent,
+  type EvidenceSourceRow,
+} from "@/domain/serv-evidence-gate";
+import {
   AGENT_LOOP_BUDGET_CONTINUE,
   agentLoopMayStartServCall,
   makeAgentLoopDeadline,
@@ -124,6 +131,15 @@ export type ResaleAgentJournalServCall = {
   usage?: AgentServCallUsage | null;
 };
 
+const EVIDENCE_JOURNAL_TOOLS = new Set([
+  "get_recalls_complaints",
+  "get_safety_ratings",
+  "get_vin_decode",
+  "get_fuel_economy",
+  "get_market_comps",
+  "get_flip_pnl",
+]);
+
 export type ResaleAgentJournalToolCall = {
   kind: "tool";
   name: string;
@@ -138,6 +154,8 @@ export type ResaleAgentJournalToolCall = {
   providerCause?: string;
   /** Attempts including retries before the final provider outcome. */
   providerAttempts?: number;
+  /** Slim tool result for evidence-gate status. */
+  result?: unknown;
 };
 
 export type ResaleAgentJournalEntry = ResaleAgentJournalServCall | ResaleAgentJournalToolCall;
@@ -215,6 +233,7 @@ function journalResaleSearchEntry(
           ...(providerAttempts != null ? { providerAttempts } : {}),
         }
       : {}),
+    ...(EVIDENCE_JOURNAL_TOOLS.has(executed.name) ? { result: executed.result } : {}),
   };
 }
 
@@ -318,6 +337,7 @@ function buildResaleCheckpoint(input: {
   state: ResaleAgentToolState;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
 }): AgentLoopCheckpoint {
@@ -335,6 +355,7 @@ function buildResaleCheckpoint(input: {
     pnlByVin: serializePnlByVin(input.state.pnlByVin),
     submitNudgeSent: input.submitNudgeSent,
     selectionHop: input.selectionHop,
+    forceTerminalTool: input.forceTerminalTool,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
@@ -357,6 +378,7 @@ function restoreResaleStateFromCheckpoint(
   messages: ChatMessage[] | null;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
   phase: "tools" | "next_action" | null;
@@ -371,6 +393,7 @@ function restoreResaleStateFromCheckpoint(
       messages: null,
       submitNudgeSent: false,
       selectionHop: false,
+      forceTerminalTool: false,
       firstTurn: true,
       featureRejections: [],
       phase: null,
@@ -385,6 +408,7 @@ function restoreResaleStateFromCheckpoint(
       budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
       zip: checkpoint.shopperFacts.zip ?? null,
       radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+      budgetOnly: checkpoint.shopperFacts.budgetOnly === true,
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
@@ -409,6 +433,7 @@ function restoreResaleStateFromCheckpoint(
     messages: checkpoint.messages as ChatMessage[],
     submitNudgeSent: checkpoint.submitNudgeSent,
     selectionHop: checkpoint.selectionHop === true,
+    forceTerminalTool: checkpoint.forceTerminalTool === true,
     firstTurn: checkpoint.firstTurn,
     featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
     phase: checkpoint.phase,
@@ -464,22 +489,21 @@ function constraintsFromFormEdits(
  */
 export function resaleAgentStableInstructions(): string {
   return [
-    "You are Lemonless Resale. Use ask_shopper in this same chat when budget, location, or flip use/goal is missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search. You are Lemonless Resale's flip shopper agent on SERV.",
+    "You are Lemonless Resale — profit within budget is the core value (exact code P&L math). You are Lemonless Resale's flip shopper agent on SERV.",
     SERV_TOPIC_SCOPE_RULE,
-    "As soon as you have budget (or explicit no budget), location, and use/goal — call submit_brief immediately. Do not keep asking once those three are known.",
-    "submit_brief: budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
+    "Intake (no chat parsing by code — you extract): (1) ask for budget first — required; (2) then ask once whether the shopper wants to add any optional constraints (body, make, miles, etc.). Do not keep asking after that one optional ask.",
+    "If they add nothing: submit_brief with budgetOnly=true, budget.maxUsd + budget.userQuote (verbatim), zip + radiusMi only — invent no body/type/make hardConstraints. After confirm, search broadly for the best flip by expected code profit.",
+    "If they add constraints: put them in hardConstraints (they are hard), and put a risk note for each on riskNotes (shown on the brief card). Never invent constraints the shopper did not state.",
+    "submit_brief: required budget.maxUsd + budget.userQuote, zip, radiusMi, budgetOnly, riskNotes (array; empty OK when budgetOnly). Do not search until the shopper confirms.",
     "After confirmation, search starts immediately — call search_listings next; do not ask again or call submit_brief again. Use confirmed ZIP+radius; on location_not_recognized ask once for a residential ZIP — never nationwide silently.",
-    "You decide which listings to search for profitable flips given budget, region, and flip goal.",
-    "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
-    "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
+    "Budget-only search: omit bodyStyle/bodyFamily/make/model filters unless the shopper hard-constrained them. Rank and pick by code flipPnl / get_flip_pnl expected profit — never invent dollars.",
+    "When results are empty or weak with user hard filters, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes. constraintRoles.hard are shopper origin=user — keep unless the shopper allows otherwise.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
     "End ONLY with a terminal tool: submit_picks (chosen flips) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts/HTTP statuses.",
-    "Finish only with flip picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
-    "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
-    "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
-    "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
+    "submit_picks: rank by code mid-profit (highest first). Each pick needs why + riskNotes (risks of that flip). buy|negotiate only when code mid-profit is positive (> 0); mid ≤ 0 fails for repair — never invent cars, prices, VINs, or dollars.",
+    "Before submit_picks on finalists: attempt get_recalls_complaints, get_safety_ratings, get_vin_decode, get_fuel_economy, get_market_comps, and get_flip_pnl (batch VIN lists; ≤1 call per source per finalist). Empty, error, or unavailable still counts — cite sources in why/riskNotes. Result cards show sources checked.",
     "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
-    "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
+    "Parallel tool calls are fine.",
     "Per-request shopper conversation, confirmed brief, and form constraints arrive in input messages — not in these instructions.",
   ].join(" ");
 }
@@ -699,13 +723,15 @@ function responsesBody(input: {
   input: string | ResponsesInputItem[];
   applicationTools: ReturnType<typeof resaleAgentResponsesTools>;
   bundle: AgentServFeatureBundle;
+  /** required after text-without-terminal or rejected terminal — forces a tool call. */
+  toolChoice?: "auto" | "required";
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
     model: input.bundle.model,
     instructions: input.instructions,
     input: input.input,
     tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
-    toolChoice: "auto",
+    toolChoice: input.toolChoice ?? "auto",
     reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
     maxTokens: input.bundle.maxOutputTokens,
   });
@@ -744,6 +770,35 @@ function listingFactsFromState(
     });
   }
   return out;
+}
+
+/** Attempt-only evidence gate for Resale submit_picks (includes get_flip_pnl). */
+export function evaluateResaleEvidenceGate(input: {
+  picks: ReadonlyArray<{ vin: string }>;
+  listingsByVin: ReadonlyMap<string, Listing>;
+  journal: readonly ResaleAgentJournalEntry[];
+}):
+  | { ok: true; byVin: Record<string, EvidenceSourceRow[]>; acceptedWithGaps: boolean }
+  | { ok: false; issues: Array<{ field: string; message: string }>; byVin: Record<string, EvidenceSourceRow[]> } {
+  const listings = new Map<
+    string,
+    { vin: string; year: number; make: string; model: string }
+  >();
+  for (const [vin, listing] of input.listingsByVin) {
+    listings.set(vin.toUpperCase(), {
+      vin: vin.toUpperCase(),
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+    });
+  }
+  return evaluateEvidenceGate({
+    picks: input.picks,
+    listingsByVin: listings,
+    journal: evidenceJournalFromAgentJournal(input.journal),
+    requiredSources: RESALE_EVIDENCE_SOURCES,
+    repairAlreadySent: evidenceRepairAlreadySent(input.journal),
+  });
 }
 
 function pushServJournal(input: {
@@ -1032,6 +1087,7 @@ async function runToolsMode(input: {
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
     selectionHop?: boolean;
+    forceTerminalTool?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1057,6 +1113,7 @@ async function runToolsMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  let forceTerminalTool = input.resume?.forceTerminalTool === true || selectionHop;
   const startRound = input.resume?.roundsCompleted ?? 0;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
@@ -1082,6 +1139,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1119,6 +1177,7 @@ async function runToolsMode(input: {
       input: responsesInput,
       applicationTools,
       bundle,
+      toolChoice: selectionHop || forceTerminalTool ? "required" : "auto",
     });
     const turn = await postResponses({
       apiKey: input.deps.servKey,
@@ -1174,7 +1233,11 @@ async function runToolsMode(input: {
 
     if (calls.length === 0) {
       if (!submitNudgeSent) {
+        // One repair: require a terminal tool on a bare (search) hop.
+        // Do not set selectionHop here — Kronos/Multipath/Shadow attach only
+        // on the later hop that can accept the terminal (after deferral).
         submitNudgeSent = true;
+        forceTerminalTool = true;
         responsesInput = [
           ...responsesInput,
           responsesUserMessage(
@@ -1285,6 +1348,7 @@ async function runToolsMode(input: {
         if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
           if (step !== "verdict") {
             selectionHop = true;
+            forceTerminalTool = true;
             input.journal.push({
               kind: "tool",
               name: call.name,
@@ -1323,6 +1387,9 @@ async function runToolsMode(input: {
             searches,
           });
           if (!checked.ok) {
+            // Drop features for repair/retry; next accepted terminal re-enters selection hop.
+            selectionHop = false;
+            forceTerminalTool = true;
             const repair = boundaryRepairMessage({
               issues: checked.issues,
               searches,
@@ -1350,6 +1417,42 @@ async function runToolsMode(input: {
                 searchJournalEvidence: searches,
               },
             };
+          }
+          if (call.name === "submit_picks" && checked.verdict.picks.length > 0) {
+            const evidence = evaluateResaleEvidenceGate({
+              picks: checked.verdict.picks,
+              listingsByVin: input.state.listingsByVin,
+              journal: input.journal,
+            });
+            if (!evidence.ok) {
+              selectionHop = false;
+              forceTerminalTool = true;
+              const repair = boundaryRepairMessage({
+                issues: evidence.issues,
+                searches,
+                hint:
+                  "Attempt each evidence source once for every finalist (include get_flip_pnl; batched VIN lists OK). Empty/error/unavailable still counts. Then call submit_picks again.",
+              });
+              input.journal.push({
+                kind: "tool",
+                name: call.name,
+                args,
+                summary: `submit_picks rejected: evidence_incomplete — ${evidence.issues.map((i) => i.message).join("; ")}`,
+                ok: false,
+              });
+              return {
+                callId: call.callId,
+                name: "submit_picks" as const,
+                accepted: false as const,
+                output: {
+                  ok: false,
+                  error: "evidence_incomplete",
+                  issues: evidence.issues,
+                  message: repair,
+                  sourcesCheckedByVin: evidence.byVin,
+                },
+              };
+            }
           }
           const enriched = enrichResaleRelaxed(checked.verdict, input.journal);
           input.journal.push({
@@ -1415,6 +1518,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1449,6 +1553,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1493,6 +1598,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1637,6 +1743,7 @@ async function runNextActionMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  const forceTerminalTool = false;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
     step: resolveAgentServStep({
@@ -1687,6 +1794,7 @@ async function runNextActionMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1890,6 +1998,7 @@ async function runNextActionMode(input: {
           state: input.state,
           submitNudgeSent: false,
           selectionHop,
+          forceTerminalTool: false,
           firstTurn: false,
           featureRejections: rejections,
         });
@@ -2123,6 +2232,8 @@ export async function runResaleAgentLoop(input: {
     if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
       state.shopperFacts.radiusMi = pendingBrief.radiusMi;
     }
+    state.shopperFacts.budgetOnly =
+      pendingBrief.budgetOnly === true || !(pendingBrief.hardConstraints?.length);
     state.radiusWidenAgreed = Boolean(
       pendingBrief.agreedRelaxations?.some((row) =>
         /radius|distance|nationwide|widen/i.test(`${row.key} ${row.value}`),
@@ -2170,6 +2281,7 @@ export async function runResaleAgentLoop(input: {
     messages,
     submitNudgeSent: restored.submitNudgeSent,
     selectionHop: restored.selectionHop,
+    forceTerminalTool: restored.forceTerminalTool,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
   };

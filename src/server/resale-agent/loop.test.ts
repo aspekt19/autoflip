@@ -73,8 +73,14 @@ describe("resale-agent guardrails (domain)", () => {
       summary: "Pick the Civic.",
       confidence: "medium",
       picks: [
-        { vin: VIN, action: "negotiate", offerUsd: 15_500, why: "Fits." },
-        { vin: "INVENTEDVIN000001", action: "buy", offerUsd: 10_000, why: "Invented." },
+        { vin: VIN, action: "negotiate", offerUsd: 15_500, why: "Fits.", riskNotes: null },
+        {
+          vin: "INVENTEDVIN000001",
+          action: "buy",
+          offerUsd: 10_000,
+          why: "Invented.",
+          riskNotes: null,
+        },
       ],
       relaxedConditions: [],
     });
@@ -203,6 +209,7 @@ describe("runResaleAgentLoop", () => {
                         action: "negotiate",
                         offerUsd: 11_000,
                         why: "Code flipPnl mid-profit clears target.",
+                        riskNotes: null,
                       },
                     ],
                     relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
@@ -214,16 +221,21 @@ describe("runResaleAgentLoop", () => {
           );
         }
 
-        expect(body.model).toBe(`${BASE_MODEL}-serv-multipath`);
-        expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
-        expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
+        // Selection hop uses multipath+shadow; evidence-repair hop is bare + tool_choice required.
+        const selection = body.model === `${BASE_MODEL}-serv-multipath`;
+        if (selection) {
+          expect(body.tools?.map((t) => t.name)[0]).toBe("serv_shadow_agent");
+          expect(body.tools?.some((t) => t.name === "serv_prompt_guard")).toBe(false);
+        } else {
+          expect(body.model).toBe(BASE_MODEL);
+        }
         return new Response(
           JSON.stringify({
-            id: "resp_resale_3",
+            id: `resp_resale_${responsesCalls}`,
             output: [
               {
                 type: "function_call",
-                call_id: "call_submit_1",
+                call_id: `call_submit_${responsesCalls}`,
                 name: "submit_picks",
                 arguments: JSON.stringify({
                   summary: "Negotiate the Civic — code PnL looks positive.",
@@ -234,6 +246,7 @@ describe("runResaleAgentLoop", () => {
                       action: "negotiate",
                       offerUsd: 11_000,
                       why: "Code flipPnl mid-profit clears target.",
+                      riskNotes: "Days on market unknown — verify with seller.",
                     },
                   ],
                   relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
@@ -272,7 +285,7 @@ describe("runResaleAgentLoop", () => {
     expect(sawFlipPnl).toBe(true);
     expect(sawReasoningEcho).toBe(true);
     expect(result.pnlByVin.size).toBeGreaterThan(0);
-    expect(responsesCalls).toBe(3);
+    expect(responsesCalls).toBeGreaterThanOrEqual(3);
     expect(result.servFeatures.features).toEqual(
       expect.arrayContaining(["serv_shadow_agent", "multipath"]),
     );
@@ -381,7 +394,15 @@ describe("runResaleAgentLoop", () => {
                   searchWhy: null,
                   summary: "Negotiate the Civic.",
                   confidence: "medium",
-                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 9_000, why: "Code PnL." }],
+                  picks: [
+                    {
+                      vin: VIN,
+                      action: "negotiate",
+                      offerUsd: 9_000,
+                      why: "Code PnL.",
+                      riskNotes: null,
+                    },
+                  ],
                   relaxedConditions: [],
                 }),
               },

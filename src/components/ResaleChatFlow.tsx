@@ -62,6 +62,16 @@ export function ResaleChatFlow() {
   const confirmedBrief = (result.confirmedBrief ?? null) as ShopperBrief | null;
   const runId = typeof result.runId === "string" ? result.runId : null;
   const journal = (result.journal ?? null) as ResaleDecisionJournal | null;
+  const agentPicks = Array.isArray(
+    (result.agentVerdict as { picks?: unknown } | null | undefined)?.picks,
+  )
+    ? ((result.agentVerdict as { picks: Array<{ vin?: string; why?: string; riskNotes?: string | null }> })
+        .picks)
+    : [];
+  const sourcesByVin = (result.sourcesCheckedByVin ?? {}) as Record<
+    string,
+    Array<{ source?: string; status?: string; label?: string }>
+  >;
   const cars = best ? [best, ...alternatives] : alternatives;
 
   return (
@@ -94,6 +104,9 @@ export function ResaleChatFlow() {
             const l = car.listing;
             const distance = l.distanceMiles;
             const vdp = typeof l.vdp === "string" && l.vdp.trim() ? l.vdp.trim() : null;
+            const pick = agentPicks.find(
+              (p) => (p.vin ?? "").toUpperCase() === (car.vin ?? "").toUpperCase(),
+            );
             return (
               <article key={car.vin || `${l.year}-${l.make}-${l.model}`} className="listing-card">
                 <div className="listing-body">
@@ -128,6 +141,16 @@ export function ResaleChatFlow() {
                       {car.profitMidUsd != null ? formatUsd(car.profitMidUsd) : "—"})
                     </li>
                   </ul>
+                  {pick?.why ? <p>{pick.why}</p> : null}
+                  {pick?.riskNotes ? <p className="hint">Risk: {pick.riskNotes}</p> : null}
+                  {car.vin && sourcesByVin[car.vin.toUpperCase()]?.length ? (
+                    <p className="hint">
+                      Sources:{" "}
+                      {sourcesByVin[car.vin.toUpperCase()]!
+                        .map((s) => `${s.label ?? s.source} (${(s.status ?? "").replace(/_/g, " ")})`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
                   {vdp ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">

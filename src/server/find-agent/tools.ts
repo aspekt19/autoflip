@@ -27,7 +27,7 @@ import {
   listingsSearchUrl,
   type AutodevDeps,
 } from "@/io/autodev";
-import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
+import { complaintsFor, decodeVin, fuelFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { buyerListingHref } from "@/domain/find-listing-link";
 import type { Listing } from "@/domain/types";
@@ -46,6 +46,8 @@ export const FIND_AGENT_TOOL_NAMES = [
   "search_listings",
   "get_recalls_complaints",
   "get_safety_ratings",
+  "get_vin_decode",
+  "get_fuel_economy",
   "get_market_comps",
   "submit_picks",
   "submit_nothing_fits",
@@ -151,6 +153,8 @@ export type FindAgentShopperFacts = {
   budgetUsd: number | null;
   zip: string | null;
   radiusMi: number | null;
+  /** Resale: confirmed brief is budget + location only (broad profit search). */
+  budgetOnly?: boolean;
 };
 
 export type FindAgentToolState = {
@@ -349,6 +353,27 @@ export function parseMakeModelYearArgs(raw: unknown): ToolArgResult<MakeModelYea
   return { ok: true, value: { make: make!, model: model!, year: year! } };
 }
 
+/** Batch VIN list for get_vin_decode / get_fuel_economy (≤20). */
+export function parseVinListArgs(raw: unknown): ToolArgResult<{ vins: string[] }> {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, issues: [{ field: "args", message: "args must be an object with vins[]." }] };
+  }
+  const row = raw as Record<string, unknown>;
+  if (!Array.isArray(row.vins)) {
+    return { ok: false, issues: [{ field: "vins", message: "vins must be an array of VIN strings." }] };
+  }
+  const vins: string[] = [];
+  for (const item of row.vins) {
+    if (typeof item !== "string") continue;
+    const vin = item.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (vin.length >= 11 && vin.length <= 17) vins.push(vin);
+  }
+  if (vins.length === 0) {
+    return { ok: false, issues: [{ field: "vins", message: "vins must include at least one plausible VIN." }] };
+  }
+  return { ok: true, value: { vins: [...new Set(vins)].slice(0, 20) } };
+}
+
 export function parseMarketCompsArgs(raw: unknown): ToolArgResult<MarketCompsArgs> {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, issues: [{ field: "args", message: "get_market_comps args must be an object." }] };
@@ -520,7 +545,11 @@ export function findAgentChatTools(): Array<{
               required: ["maxUsd", "userQuote"],
             },
             zip: { type: ["string", "null"] },
-            radiusMi: { type: ["number", "null"] },
+            radiusMi: {
+              type: ["number", "null"],
+              description:
+                "Required. Miles search radius — pick a sensible default when the shopper named a city/ZIP and state it on the brief card. Null only when the shopper asked for nationwide (no city).",
+            },
             notes: { type: ["string", "null"] },
             hardConstraints: {
               type: "array",
@@ -591,6 +620,38 @@ export function findAgentChatTools(): Array<{
     {
       type: "function",
       function: {
+        name: "get_vin_decode",
+        description:
+          "Batch vPIC VIN decode for finalist VINs (≤20). One call per VIN set. Empty/error still counts as attempted evidence.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            vins: { type: "array", items: { type: "string" } },
+          },
+          required: ["vins"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_fuel_economy",
+        description:
+          "Batch FuelEconomy.gov lookup for finalist VINs (≤20) using listing year/make/model. One call per VIN set. Empty/error still counts as attempted evidence.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            vins: { type: "array", items: { type: "string" } },
+          },
+          required: ["vins"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "get_market_comps",
         description:
           "Same-model asking-price comps and a rough price band from listings already in hand or a fresh narrow search. Not true sold prices.",
@@ -602,7 +663,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final find verdict with chosen cars. Code validates real VINs from tool results, offer ≤ budget, offer ≤ asking, and at least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits). On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars. To pass with no pick, call submit_nothing_fits instead.",
+          "Submit the final find verdict with chosen cars. Before submit, attempt evidence tools for each finalist (recalls/complaints, safety, VIN decode, fuel economy, market comps) — empty/error/unavailable still count. Code validates real VINs, offer ≤ budget/asking, and at least one buy|negotiate|inspect_first action (pass-only picks fail — use submit_nothing_fits). Cite sources in why. On validation failure fix and call submit_picks again. Do not invent cars.",
         parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
@@ -1417,6 +1478,153 @@ export async function executeFindAgentTool(
         detailUrl: ratings.detailUrl,
       },
       summary: `safety ${year} ${make} ${model}: available=${ratings.available} variants=${ratings.variants.length}`,
+    };
+  }
+
+  if (name === "get_vin_decode") {
+    const parsed = parseVinListArgs(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name,
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `get_vin_decode rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    const decodes: Array<Record<string, unknown>> = [];
+    let okCount = 0;
+    let emptyCount = 0;
+    let errorCount = 0;
+    for (const vin of parsed.value.vins) {
+      try {
+        const decoded = await decodeVin(vin, govDeps);
+        if (!decoded) {
+          emptyCount += 1;
+          decodes.push({ vin, available: false, empty: true, decode: null });
+          continue;
+        }
+        okCount += 1;
+        decodes.push({
+          vin,
+          available: true,
+          decode: {
+            year: decoded.year,
+            make: decoded.make,
+            model: decoded.model,
+            trim: decoded.trim ?? null,
+            driveType: decoded.driveType ?? null,
+            engine: decoded.engine ?? null,
+            fuel: decoded.fuel ?? null,
+            bodyClass: decoded.bodyClass ?? null,
+            errorCode: decoded.errorCode,
+            errorText: decoded.errorText ?? null,
+          },
+        });
+      } catch {
+        errorCount += 1;
+        decodes.push({ vin, available: false, error: "vin_decode_failed", decode: null });
+      }
+    }
+    return {
+      name,
+      ok: true,
+      result: {
+        decodes,
+        empty: okCount === 0,
+        honesty: "vPIC DecodeVinValues. Empty/error still counts as an attempted evidence source.",
+      },
+      summary: `get_vin_decode → ${parsed.value.vins.length} vins ok=${okCount} empty=${emptyCount} error=${errorCount}`,
+    };
+  }
+
+  if (name === "get_fuel_economy") {
+    const parsed = parseVinListArgs(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name,
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `get_fuel_economy rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    const vehicles: Array<Record<string, unknown>> = [];
+    let okCount = 0;
+    let emptyCount = 0;
+    let missingListing = 0;
+    for (const vin of parsed.value.vins) {
+      const listing = state.listingsByVin.get(vin);
+      if (!listing) {
+        missingListing += 1;
+        vehicles.push({
+          vin,
+          available: false,
+          error: "vin_not_in_search_results",
+          fuel: null,
+        });
+        continue;
+      }
+      try {
+        const fuel = await fuelFor(
+          listing.year,
+          listing.make,
+          listing.model,
+          listing.engine ?? null,
+          govDeps,
+        );
+        if (!fuel) {
+          emptyCount += 1;
+          vehicles.push({
+            vin,
+            year: listing.year,
+            make: listing.make,
+            model: listing.model,
+            available: false,
+            empty: true,
+            fuel: null,
+          });
+          continue;
+        }
+        okCount += 1;
+        vehicles.push({
+          vin,
+          year: listing.year,
+          make: listing.make,
+          model: listing.model,
+          available: true,
+          fuel: {
+            source: fuel.source,
+            match: fuel.match,
+            combMpg: fuel.combMpg,
+            annualFuelCostUsd: fuel.annualFuelCostUsd,
+            annualFuelCostLowUsd: fuel.annualFuelCostLowUsd,
+            annualFuelCostHighUsd: fuel.annualFuelCostHighUsd,
+            vehicleClass: fuel.vehicleClass,
+            configsConsidered: fuel.configsConsidered,
+            costBasis: fuel.costBasis ?? null,
+          },
+        });
+      } catch {
+        vehicles.push({
+          vin,
+          year: listing.year,
+          make: listing.make,
+          model: listing.model,
+          available: false,
+          error: "fuel_economy_failed",
+          fuel: null,
+        });
+      }
+    }
+    return {
+      name,
+      ok: true,
+      result: {
+        vehicles,
+        empty: okCount === 0,
+        honesty:
+          "FuelEconomy.gov via listing year/make/model. Empty/error still counts as an attempted evidence source.",
+      },
+      summary: `get_fuel_economy → ${parsed.value.vins.length} vins ok=${okCount} empty=${emptyCount} missing=${missingListing}`,
     };
   }
 

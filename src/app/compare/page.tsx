@@ -117,8 +117,8 @@ export default function ComparePage() {
           </table>
         </div>
         <div className="btn-row compare-actions">
-          <Link className="action" href="/report/sample">
-            See a sample report
+          <Link className="action" href="/check">
+            Check a car
           </Link>
           <Link className="quiet" href="/find">
             Find a car

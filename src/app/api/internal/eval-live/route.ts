@@ -9,9 +9,12 @@
  * Body:
  *   { action: "start", seed?, maxQueries?, notes? } → create batch, return batchId (no turn yet)
  *   { action: "step", batchId } → one chat hop for the current query
+ *   { action: "check", kind: "link"|"vin", listingUrl?, vin? } → Check-by-link / Check-by-VIN
+ *     (same auth; never free-check quota / credits; blocked link reported as blocked)
  *   { seed?, maxQueries?, notes? } without action → start + first hop (compat)
  */
 import { HTTP_MAX_QUERIES } from "../../../../../eval/live/harness";
+import { parseEvalNotes, queriesFromEvalNotes } from "../../../../../eval/live/from-notes";
 import { generateQueries, resolveSeed } from "../../../../../eval/live/generate";
 import { liveKeysFromEnv } from "../../../../../eval/live/run-one";
 import {
@@ -29,6 +32,7 @@ import {
   storeEvalLiveBatch,
   withEvalLiveActive,
 } from "@/server/eval-live-batch";
+import { runEvalLiveCheck } from "@/server/eval-live-check";
 import { bearer, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +45,16 @@ type Body = {
   seed?: unknown;
   maxQueries?: unknown;
   notes?: unknown;
+  kind?: unknown;
+  listingUrl?: unknown;
+  vin?: unknown;
+  optionalZip?: unknown;
 };
 
 function parseStart(raw: unknown): {
   seed: number;
   maxQueries: number;
-  notes: string[] | undefined;
+  notes: ReturnType<typeof parseEvalNotes>;
 } {
   const body = raw && typeof raw === "object" ? (raw as Body) : {};
   const seed =
@@ -62,34 +70,12 @@ function parseStart(raw: unknown): {
         ? Number(body.maxQueries.trim())
         : HTTP_MAX_QUERIES;
   const maxQueries = Math.max(1, Math.min(HTTP_MAX_QUERIES, requested));
-  const notes = Array.isArray(body.notes)
-    ? body.notes
-        .filter((n): n is string => typeof n === "string" && n.trim().length > 0)
-        .map((n) => n.trim())
-    : undefined;
+  const notes = parseEvalNotes(body.notes);
   return {
     seed,
     maxQueries,
     notes: notes && notes.length > 0 ? notes.slice(0, maxQueries) : undefined,
   };
-}
-
-function queriesFromNotes(notes: string[], maxQueries: number): GeneratedQuery[] {
-  return notes.slice(0, maxQueries).map((note, i) => ({
-    id: `note_${String(i + 1).padStart(2, "0")}`,
-    product: "find" as const,
-    note,
-    zip: null,
-    distanceMiles: null,
-    tags: {
-      product: "find" as const,
-      city: "custom",
-      budget: "custom",
-      body: "custom",
-      need: "custom",
-      messy: false,
-    },
-  }));
 }
 
 async function authorize(request: Request): Promise<Response | null> {
@@ -124,7 +110,7 @@ export async function POST(request: Request) {
   const raw = (await request.json().catch(() => null)) as Body | null;
   const actionRaw = typeof raw?.action === "string" ? raw.action.trim().toLowerCase() : "";
   const action =
-    actionRaw === "start" || actionRaw === "step"
+    actionRaw === "start" || actionRaw === "step" || actionRaw === "check"
       ? actionRaw
       : typeof raw?.batchId === "string" && raw.batchId.trim()
         ? "step"
@@ -135,6 +121,29 @@ export async function POST(request: Request) {
   const maxUsd = Math.min(3, Number.isFinite(maxUsdRaw) ? maxUsdRaw : 1.5);
   const runtime = runtimeDeps();
   const userId = "internal-eval-live";
+
+  if (action === "check") {
+    const kindRaw = typeof raw?.kind === "string" ? raw.kind.trim().toLowerCase() : "";
+    const kind = kindRaw === "link" || kindRaw === "vin" ? kindRaw : null;
+    if (!kind) {
+      return Response.json(
+        { error: "invalid_body", message: 'action=check requires kind "link" or "vin".' },
+        { status: 400 },
+      );
+    }
+    const result = await runEvalLiveCheck({
+      kind,
+      listingUrl: typeof raw?.listingUrl === "string" ? raw.listingUrl : null,
+      vin: typeof raw?.vin === "string" ? raw.vin : null,
+      optionalZip: typeof raw?.optionalZip === "string" ? raw.optionalZip : null,
+    });
+    return Response.json({
+      ...result,
+      charged: false,
+      done: true,
+      check: result,
+    });
+  }
 
   async function runNextHop(batchId: string) {
     const batch = await readEvalLiveBatch(kv, batchId);
@@ -238,7 +247,7 @@ export async function POST(request: Request) {
 
   const parsed = parseStart(raw);
   const queries = parsed.notes
-    ? queriesFromNotes(parsed.notes, parsed.maxQueries)
+    ? queriesFromEvalNotes(parsed.notes, parsed.maxQueries)
     : generateQueries(parsed.seed, parsed.maxQueries);
   const batch = createEvalLiveBatch({
     seed: parsed.seed,

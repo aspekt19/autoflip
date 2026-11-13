@@ -15,11 +15,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/credits",
     "/account",
     "/login",
-    "/developers",
+    "/agents",
     "/where-serv-runs",
     "/proof",
     "/verify",
-    "/report/sample",
     "/privacy",
     "/terms",
   ];

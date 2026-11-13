@@ -109,7 +109,7 @@ export default function ProofPage() {
           <Link className="quiet" href="/compare">
             Saved comparison
           </Link>
-          <Link className="ghost" href="/developers">
+          <Link className="ghost" href="/agents">
             Agent API
           </Link>
         </p>

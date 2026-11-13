@@ -38,6 +38,7 @@ describe("pages smoke — every nav route", () => {
       "/reports",
       "/where-serv-runs",
       "/proof",
+      "/agents",
     ]);
   });
 
