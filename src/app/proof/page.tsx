@@ -189,7 +189,7 @@ export default function ProofPage() {
           <ul className="refuse">
             <li>Three live inventory searches in ZIP 80202 within 75 miles; two returned 20 listings and one returned none.</li>
             <li>SERV made {proof.run.servCalls} calls and {proof.run.toolCalls} tool calls across {proof.run.toolRounds} tool rounds.</li>
-            <li>VIN decode, safety, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
+            <li>VIN decode, safety, recall/complaint, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
             <li>The run completed in {duration} seconds with a {proof.run.confidence}-confidence, needs-inspection verdict.</li>
           </ul>
 
