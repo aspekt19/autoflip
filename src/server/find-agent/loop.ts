@@ -1542,12 +1542,28 @@ async function runToolsMode(input: {
             // Drop features for repair/retry; next accepted terminal re-enters selection hop.
             selectionHop = false;
             forceTerminalTool = true;
+            const candidateFacts = [...input.state.listingsByVin.values()]
+              .slice(0, 25)
+              .map((listing) => ({
+                vin: listing.vin,
+                year: listing.year,
+                make: listing.make,
+                model: listing.model,
+                trim: listing.trim ?? null,
+                priceUsd: listing.priceUsd ?? null,
+                miles: listing.miles ?? null,
+                drivetrain: listing.drivetrain ?? null,
+                distanceMiles: listing.distanceMiles ?? null,
+                accidentCount: listing.accidentCount ?? null,
+                titleBrand: listing.titleBrand ?? null,
+                usageType: listing.usageType ?? null,
+              }));
             const repair = boundaryRepairMessage({
               issues: checked.issues,
               searches,
               hint:
                 call.name === "submit_nothing_fits"
-                  ? "Fix the reason (or run search_listings first), then call submit_nothing_fits again."
+                  ? `Fix the reason and call submit_nothing_fits again. Use the exact VINs and listing facts below for candidates you actually considered; rejectedCandidates must contain { vin, reason } rows with a concrete, evidence-based reason. If the evidence does not establish a hard requirement (for example, clean accident/title history), say it is unverified rather than claiming it is clean. If a candidate remains viable but needs checks, use submit_picks with action=inspect_first instead of rejecting it. Candidate facts: ${JSON.stringify(candidateFacts)}`
                   : "Fix these issues and call submit_picks or submit_nothing_fits again.",
             });
             input.journal.push({
