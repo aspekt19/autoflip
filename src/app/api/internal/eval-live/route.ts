@@ -14,6 +14,7 @@
  *   { seed?, maxQueries?, notes? } without action → start + first hop (compat)
  */
 import { HTTP_MAX_QUERIES } from "../../../../../eval/live/harness";
+import { parseEvalNotes, queriesFromEvalNotes } from "../../../../../eval/live/from-notes";
 import { generateQueries, resolveSeed } from "../../../../../eval/live/generate";
 import { liveKeysFromEnv } from "../../../../../eval/live/run-one";
 import {
@@ -53,7 +54,7 @@ type Body = {
 function parseStart(raw: unknown): {
   seed: number;
   maxQueries: number;
-  notes: string[] | undefined;
+  notes: ReturnType<typeof parseEvalNotes>;
 } {
   const body = raw && typeof raw === "object" ? (raw as Body) : {};
   const seed =
@@ -69,34 +70,12 @@ function parseStart(raw: unknown): {
         ? Number(body.maxQueries.trim())
         : HTTP_MAX_QUERIES;
   const maxQueries = Math.max(1, Math.min(HTTP_MAX_QUERIES, requested));
-  const notes = Array.isArray(body.notes)
-    ? body.notes
-        .filter((n): n is string => typeof n === "string" && n.trim().length > 0)
-        .map((n) => n.trim())
-    : undefined;
+  const notes = parseEvalNotes(body.notes);
   return {
     seed,
     maxQueries,
     notes: notes && notes.length > 0 ? notes.slice(0, maxQueries) : undefined,
   };
-}
-
-function queriesFromNotes(notes: string[], maxQueries: number): GeneratedQuery[] {
-  return notes.slice(0, maxQueries).map((note, i) => ({
-    id: `note_${String(i + 1).padStart(2, "0")}`,
-    product: "find" as const,
-    note,
-    zip: null,
-    distanceMiles: null,
-    tags: {
-      product: "find" as const,
-      city: "custom",
-      budget: "custom",
-      body: "custom",
-      need: "custom",
-      messy: false,
-    },
-  }));
 }
 
 async function authorize(request: Request): Promise<Response | null> {
@@ -268,7 +247,7 @@ export async function POST(request: Request) {
 
   const parsed = parseStart(raw);
   const queries = parsed.notes
-    ? queriesFromNotes(parsed.notes, parsed.maxQueries)
+    ? queriesFromEvalNotes(parsed.notes, parsed.maxQueries)
     : generateQueries(parsed.seed, parsed.maxQueries);
   const batch = createEvalLiveBatch({
     seed: parsed.seed,

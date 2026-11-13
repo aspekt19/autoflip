@@ -40,6 +40,10 @@ on:
         description: "Optional Check-by-VIN (17-char; same eval auth; no quota)"
         required: false
         type: string
+      notes:
+        description: "Optional JSON array of shopper notes, e.g. [{"product":"find","note":"...","zip":"80202"},{"product":"resale","note":"...","zip":"60601"}]"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -91,6 +95,7 @@ jobs:
           INPUT_MAX_QUERIES: ${{ github.event.inputs.max_queries }}
           INPUT_LISTING_URL: ${{ github.event.inputs.listingUrl }}
           INPUT_VIN: ${{ github.event.inputs.vin }}
+          INPUT_NOTES: ${{ github.event.inputs.notes }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -123,6 +128,15 @@ jobs:
               );
           const listingUrl = String(process.env.INPUT_LISTING_URL || "").trim();
           const vin = String(process.env.INPUT_VIN || "").trim().toUpperCase();
+          const notesRaw = String(process.env.INPUT_NOTES || "").trim();
+          let notes;
+          if (notesRaw) {
+            try {
+              notes = JSON.parse(notesRaw);
+            } catch {
+              throw new Error("INPUT_NOTES must be a JSON array of notes or {product,note,zip} objects");
+            }
+          }
 
           const url = `${origin}/api/internal/eval-live`;
           const headers = {
@@ -155,8 +169,8 @@ jobs:
             // Per-query chat hop ceiling matches eval/live/drive-chat.ts.
             const maxHopsPerQuery = 40;
             const maxHops = maxQueries * maxHopsPerQuery + 4;
-            console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} url=${url}`);
-            let report = await post({ action: "start", seed, maxQueries });
+            console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} notes=${notes ? notes.length : 0} url=${url}`);
+            let report = await post({ action: "start", seed, maxQueries, notes });
             const batchId = report.batchId;
             if (!batchId) throw new Error("start did not return batchId");
             let hops = 0;
