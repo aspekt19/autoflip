@@ -318,6 +318,7 @@ function buildResaleCheckpoint(input: {
   state: ResaleAgentToolState;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
 }): AgentLoopCheckpoint {
@@ -335,6 +336,7 @@ function buildResaleCheckpoint(input: {
     pnlByVin: serializePnlByVin(input.state.pnlByVin),
     submitNudgeSent: input.submitNudgeSent,
     selectionHop: input.selectionHop,
+    forceTerminalTool: input.forceTerminalTool,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
@@ -357,6 +359,7 @@ function restoreResaleStateFromCheckpoint(
   messages: ChatMessage[] | null;
   submitNudgeSent: boolean;
   selectionHop: boolean;
+  forceTerminalTool: boolean;
   firstTurn: boolean;
   featureRejections: AgentServFeatureRejection[];
   phase: "tools" | "next_action" | null;
@@ -371,6 +374,7 @@ function restoreResaleStateFromCheckpoint(
       messages: null,
       submitNudgeSent: false,
       selectionHop: false,
+      forceTerminalTool: false,
       firstTurn: true,
       featureRejections: [],
       phase: null,
@@ -409,6 +413,7 @@ function restoreResaleStateFromCheckpoint(
     messages: checkpoint.messages as ChatMessage[],
     submitNudgeSent: checkpoint.submitNudgeSent,
     selectionHop: checkpoint.selectionHop === true,
+    forceTerminalTool: checkpoint.forceTerminalTool === true,
     firstTurn: checkpoint.firstTurn,
     featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
     phase: checkpoint.phase,
@@ -699,13 +704,15 @@ function responsesBody(input: {
   input: string | ResponsesInputItem[];
   applicationTools: ReturnType<typeof resaleAgentResponsesTools>;
   bundle: AgentServFeatureBundle;
+  /** required after text-without-terminal or rejected terminal — forces a tool call. */
+  toolChoice?: "auto" | "required";
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
     model: input.bundle.model,
     instructions: input.instructions,
     input: input.input,
     tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
-    toolChoice: "auto",
+    toolChoice: input.toolChoice ?? "auto",
     reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
     maxTokens: input.bundle.maxOutputTokens,
   });
@@ -1032,6 +1039,7 @@ async function runToolsMode(input: {
     messages: ChatMessage[] | null;
     submitNudgeSent: boolean;
     selectionHop?: boolean;
+    forceTerminalTool?: boolean;
     firstTurn: boolean;
     featureRejections: AgentServFeatureRejection[];
   } | null;
@@ -1057,6 +1065,7 @@ async function runToolsMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  let forceTerminalTool = input.resume?.forceTerminalTool === true || selectionHop;
   const startRound = input.resume?.roundsCompleted ?? 0;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
@@ -1082,6 +1091,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1119,6 +1129,7 @@ async function runToolsMode(input: {
       input: responsesInput,
       applicationTools,
       bundle,
+      toolChoice: selectionHop || forceTerminalTool ? "required" : "auto",
     });
     const turn = await postResponses({
       apiKey: input.deps.servKey,
@@ -1174,7 +1185,11 @@ async function runToolsMode(input: {
 
     if (calls.length === 0) {
       if (!submitNudgeSent) {
+        // One repair: require a terminal tool. Features attach only on the
+        // dedicated selection hop (set here) — not on later validation retries.
         submitNudgeSent = true;
+        selectionHop = true;
+        forceTerminalTool = true;
         responsesInput = [
           ...responsesInput,
           responsesUserMessage(
@@ -1285,6 +1300,7 @@ async function runToolsMode(input: {
         if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
           if (step !== "verdict") {
             selectionHop = true;
+            forceTerminalTool = true;
             input.journal.push({
               kind: "tool",
               name: call.name,
@@ -1323,6 +1339,9 @@ async function runToolsMode(input: {
             searches,
           });
           if (!checked.ok) {
+            // Drop features for repair/retry; next accepted terminal re-enters selection hop.
+            selectionHop = false;
+            forceTerminalTool = true;
             const repair = boundaryRepairMessage({
               issues: checked.issues,
               searches,
@@ -1415,6 +1434,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1449,6 +1469,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1493,6 +1514,7 @@ async function runToolsMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1637,6 +1659,7 @@ async function runNextActionMode(input: {
   let firstTurn = input.resume?.firstTurn ?? true;
   let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
   let selectionHop = input.resume?.selectionHop === true;
+  const forceTerminalTool = false;
   let latestBundle = buildAgentServFeatureBundle({
     product: "resale",
     step: resolveAgentServStep({
@@ -1687,6 +1710,7 @@ async function runNextActionMode(input: {
         state: input.state,
         submitNudgeSent,
         selectionHop,
+        forceTerminalTool,
         firstTurn,
         featureRejections: rejections,
       });
@@ -1890,6 +1914,7 @@ async function runNextActionMode(input: {
           state: input.state,
           submitNudgeSent: false,
           selectionHop,
+          forceTerminalTool: false,
           firstTurn: false,
           featureRejections: rejections,
         });
@@ -2170,6 +2195,7 @@ export async function runResaleAgentLoop(input: {
     messages,
     submitNudgeSent: restored.submitNudgeSent,
     selectionHop: restored.selectionHop,
+    forceTerminalTool: restored.forceTerminalTool,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
   };

@@ -120,12 +120,22 @@ describe("agent-serv-features", () => {
         selectionHop: true,
       }),
     ).toBe("verdict");
+    // Text→terminal repair (submitNudgeSent) stays bare until selectionHop.
     expect(
       resolveAgentServStep({
         requireBriefConfirm: false,
         briefConfirmed: true,
         searchCount: 1,
         submitNudgeSent: true,
+      }),
+    ).toBe("search");
+    expect(
+      resolveAgentServStep({
+        requireBriefConfirm: false,
+        briefConfirmed: true,
+        searchCount: 1,
+        submitNudgeSent: true,
+        selectionHop: true,
       }),
     ).toBe("verdict");
   });

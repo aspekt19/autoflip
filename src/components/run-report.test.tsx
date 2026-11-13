@@ -71,6 +71,7 @@ describe("RunReport layout", () => {
               vdp: "https://dealer.example/civic",
               city: "New York",
               state: "NY",
+              distanceMiles: 42.4,
               picked: true,
             },
           ],
@@ -81,6 +82,7 @@ describe("RunReport layout", () => {
     const title = screen.getByRole("heading", { level: 2, name: /2018 Honda Civic/i });
     expect(title).toHaveClass("run-car-title");
     expect(container.querySelectorAll(".run-car")).toHaveLength(1);
+    expect(screen.getByText(/42 mi away/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New search" })).toHaveAttribute("href", "/resale");
     expect(screen.getByText("No flip worth it here")).toBeInTheDocument();
   });

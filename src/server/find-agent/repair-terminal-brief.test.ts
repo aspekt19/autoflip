@@ -81,6 +81,12 @@ describe("B) typed terminal tools", () => {
     );
     expect(toolsBlock).toMatch(/missing_terminal/);
     expect(toolsBlock).not.toMatch(/finalizeVerdict\(/);
+    // Text-without-terminal repair forces tool_choice=required on /v1/responses.
+    expect(toolsBlock).toMatch(/toolChoice: selectionHop \|\| forceTerminalTool \? "required"/);
+    expect(resaleLoop).toMatch(/toolChoice: selectionHop \|\| forceTerminalTool \? "required"/);
+    // Validation failure drops selectionHop so Kronos/Shadow stay off repair retries.
+    expect(toolsBlock).toMatch(/selectionHop = false/);
+    expect(resaleLoop).toMatch(/selectionHop = false/);
   });
 
   it("Radar uses verdict_decide — not Find/Resale terminal tools (documented audit)", () => {

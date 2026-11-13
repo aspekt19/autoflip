@@ -9,8 +9,8 @@
  *
  * Step policy:
  * - intake / search: bare BASE_MODEL (standard SERV transform), no shadow
- * - verdict (after searches / terminal nudge): Find → kronos-multipath + shadow;
- *   Resale → multipath + shadow
+ * - verdict (dedicated selection hop only — not text→terminal repair / retries):
+ *   Find → kronos-multipath + shadow; Resale → multipath + shadow
  * - serv_prompt_guard only on the first user message of a chat (first SERV call)
  *
  * Application tools stay stable and in fixed order; only serv_* markers vary by step.
@@ -191,19 +191,22 @@ function featuresFor(bundle: {
  * Resolve which agent step this SERV call is.
  * Chat path: intake until brief confirmed. Search hops stay bare (even after
  * searchCount > 0). Kronos/Multipath/Shadow only on the dedicated final
- * selection hop (submit_picks / submit_nothing_fits) or after a terminal nudge.
+ * selection hop that can accept submit_picks / submit_nothing_fits — never on
+ * text→terminal repair or validation-retry hops (submitNudgeSent alone does not
+ * flip to verdict).
  */
 export function resolveAgentServStep(input: {
   requireBriefConfirm: boolean;
   briefConfirmed: boolean;
   /** Kept for call-site compatibility; does not flip to verdict by itself. */
   searchCount: number;
+  /** Kept for call-site compatibility; does not flip to verdict by itself. */
   submitNudgeSent: boolean;
   /** True only on the dedicated final selection hop. */
   selectionHop?: boolean;
 }): AgentServStep {
   if (input.requireBriefConfirm && !input.briefConfirmed) return "intake";
-  if (input.selectionHop === true || input.submitNudgeSent) return "verdict";
+  if (input.selectionHop === true) return "verdict";
   return "search";
 }
 

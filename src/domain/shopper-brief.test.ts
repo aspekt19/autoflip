@@ -56,6 +56,37 @@ describe("parseShopperBrief + card", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(formatShopperBriefCard(parsed.brief)).toMatch(/Budget: \$25,000/);
+    expect(formatShopperBriefCard(parsed.brief)).toMatch(/50 mi/);
+    expect(formatShopperBriefCard(parsed.brief)).not.toMatch(/nationwide OK/i);
+  });
+
+  it("requires radiusMi when zip/city is set (no silent nationwide)", () => {
+    const missing = parseShopperBrief({
+      summary: "SUV near Phoenix",
+      budget: { maxUsd: 20_000, userQuote: "20k" },
+      zip: "85001",
+      notes: null,
+    });
+    expect(missing.ok).toBe(false);
+    const nullRadius = parseShopperBrief({
+      summary: "SUV near Phoenix",
+      budget: { maxUsd: 20_000, userQuote: "20k" },
+      zip: "85001",
+      radiusMi: null,
+      notes: null,
+    });
+    expect(nullRadius.ok).toBe(false);
+    const nationwide = parseShopperBrief({
+      summary: "SUV nationwide",
+      budget: { maxUsd: 20_000, userQuote: "20k" },
+      zip: null,
+      radiusMi: null,
+      notes: null,
+    });
+    expect(nationwide.ok).toBe(true);
+    if (nationwide.ok) {
+      expect(formatShopperBriefCard(nationwide.brief)).toMatch(/nationwide/i);
+    }
   });
 
   it("keeps SERV-emitted hard/soft constraints without chat parsing", () => {

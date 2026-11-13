@@ -44,4 +44,17 @@ describe("POST /api/internal/eval-live auth", () => {
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("not_configured");
   });
+
+  it("requires the same Bearer secret for action=check (no unauthenticated Check)", async () => {
+    process.env.RADAR_CRON_SECRET = "eval-live-radar-test";
+    delete process.env.CRON_SECRET;
+    const res = await POST(
+      new Request("http://localhost/api/internal/eval-live", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "check", kind: "vin", vin: "4T1BF1FK0EU848445" }),
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
 });

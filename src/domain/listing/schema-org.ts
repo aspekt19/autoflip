@@ -127,7 +127,11 @@ export function isPlausibleSellerName(name: string | null | undefined): boolean 
   return true;
 }
 
-/** Prefer government/decode fuel over page claim when they conflict. */
+/**
+ * Note when listing/provider fuel disagrees with VIN decode.
+ * Does not assert a winner — callers keep the provider value as reported and
+ * surface this note for SERV/UI (no trim parsing beyond showing raw strings).
+ */
 export function fuelConflictNote(listingFuel: string | null, decodeFuel: string | null): string | null {
   if (!listingFuel || !decodeFuel) return null;
   const a = listingFuel.toLowerCase();
@@ -137,12 +141,12 @@ export function fuelConflictNote(listingFuel: string | null, decodeFuel: string 
   const listingGas = /\bgas|gasoline|petrol|diesel\b/.test(a);
   const decodeGas = /\bgas|gasoline|petrol|diesel|regular|premium\b/.test(b);
   if ((listingHybrid && decodeGas && !decodeHybrid) || (listingGas && decodeHybrid && !listingHybrid)) {
-    return `Listing fuel “${listingFuel}” conflicts with the VIN decoder fuel “${decodeFuel}”. Using the VIN decoder value.`;
+    return `Listing fuel “${listingFuel}” conflicts with the VIN decoder fuel “${decodeFuel}”. Showing the listing/provider value as reported — verify before deciding.`;
   }
   if (a !== b && !b.includes(a) && !a.includes(b.split(/\s+/)[0] ?? a)) {
     // Soft conflict for other mismatches
     if (listingHybrid !== decodeHybrid) {
-      return `Listing fuel “${listingFuel}” conflicts with the VIN decoder fuel “${decodeFuel}”. Using the VIN decoder value.`;
+      return `Listing fuel “${listingFuel}” conflicts with the VIN decoder fuel “${decodeFuel}”. Showing the listing/provider value as reported — verify before deciding.`;
     }
   }
   return null;

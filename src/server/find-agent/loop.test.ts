@@ -470,7 +470,13 @@ describe("runFindAgentLoop", () => {
           );
         }
         if (responsesCalls === 3) {
-          // Selection hop: invalid VIN rejected for repair.
+          // Selection hop: invalid VIN rejected for repair (features drop after this).
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: string;
+            tools?: Array<{ name?: string }>;
+          };
+          expect(body.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(true);
           return new Response(
             JSON.stringify({
               id: "resp_3",
@@ -500,12 +506,58 @@ describe("runFindAgentLoop", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        const body = JSON.parse(String(init?.body ?? "{}")) as { input?: Array<Record<string, unknown>> };
-        const lastOut = [...(body.input ?? [])].reverse().find((item) => item.type === "function_call_output");
-        expect(String(lastOut?.output ?? "")).toContain("validation_failed");
+        if (responsesCalls === 4) {
+          // Bare repair hop (no Kronos/Shadow) with tool_choice required — terminal deferred again.
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: string;
+            tool_choice?: string;
+            tools?: Array<{ name?: string }>;
+            input?: Array<Record<string, unknown>>;
+          };
+          expect(body.model).toBe(BASE_MODEL);
+          expect(body.tool_choice).toBe("required");
+          expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(false);
+          const lastOut = [...(body.input ?? [])].reverse().find((item) => item.type === "function_call_output");
+          expect(String(lastOut?.output ?? "")).toContain("validation_failed");
+          return new Response(
+            JSON.stringify({
+              id: "resp_4",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_submit_ok_early",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Fixed.",
+                    confidence: "medium",
+                    picks: [
+                      {
+                        vin: VIN,
+                        label: "2021 Toyota RAV4",
+                        action: "negotiate",
+                        offerUsd: 23_000,
+                        why: "Real VIN.",
+                      },
+                    ],
+                    relaxedConditions: [],
+                    passReason: null,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // Final selection hop with features — accepted terminal.
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          model?: string;
+          tools?: Array<{ name?: string }>;
+        };
+        expect(body.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
+        expect(body.tools?.some((t) => t.name === "serv_shadow_agent")).toBe(true);
         return new Response(
           JSON.stringify({
-            id: "resp_4",
+            id: "resp_5",
             output: [
               {
                 type: "function_call",
@@ -550,7 +602,7 @@ describe("runFindAgentLoop", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.verdict.picks[0]?.vin).toBe(VIN);
-    expect(responsesCalls).toBe(4);
+    expect(responsesCalls).toBe(5);
   });
 
   it("next_action mode: search then finish", async () => {

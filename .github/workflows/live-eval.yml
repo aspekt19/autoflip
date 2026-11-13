@@ -1,4 +1,4 @@
-# Live eval (4 queries: 2 Find + 2 Resale) — manually triggered.
+# Live eval (4 queries: 2 Find + 2 Resale) + optional Check-by-link / Check-by-VIN.
 #
 # Auth / URL (values are never printed):
 #   Bearer token = secrets.CRON_SECRET, or secrets.RADAR_CRON_SECRET if the
@@ -9,6 +9,8 @@
 #
 # Optional:
 #   EVAL_LIVE_SEED  — Numeric seed for reproducible notes (default: run id hash).
+#   listingUrl / vin — Check-by-link and Check-by-VIN (same auth; no new secrets,
+#   no user quota, no payments). Blocked link fetch is reported as blocked.
 #
 # Stepping: action=start then action=step repeatedly. Each step is one chat
 # turn (send / ask-reply / brief-confirm / continue) — never a full query —
@@ -29,6 +31,14 @@ on:
         description: "Max queries (1–4; default 4 = 2 Find + 2 Resale)"
         required: false
         default: "4"
+        type: string
+      listingUrl:
+        description: "Optional Check-by-link listing URL (same eval auth; no quota)"
+        required: false
+        type: string
+      vin:
+        description: "Optional Check-by-VIN (17-char; same eval auth; no quota)"
+        required: false
         type: string
 
 permissions:
@@ -79,6 +89,8 @@ jobs:
           EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
           INPUT_SEED: ${{ github.event.inputs.seed }}
           INPUT_MAX_QUERIES: ${{ github.event.inputs.max_queries }}
+          INPUT_LISTING_URL: ${{ github.event.inputs.listingUrl }}
+          INPUT_VIN: ${{ github.event.inputs.vin }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -109,6 +121,8 @@ jobs:
                 BigInt("0x" + crypto.createHash("sha256").update(String(process.env.GITHUB_RUN_ID || "0")).digest("hex").slice(0, 12)) %
                   1_000_000_000n,
               );
+          const listingUrl = String(process.env.INPUT_LISTING_URL || "").trim();
+          const vin = String(process.env.INPUT_VIN || "").trim().toUpperCase();
 
           const url = `${origin}/api/internal/eval-live`;
           const headers = {
@@ -165,12 +179,40 @@ jobs:
             if (!report.done) {
               throw new Error(`live-eval hit hop ceiling (${maxHops}) before batch done`);
             }
+
+            const checks = [];
+            if (listingUrl) {
+              console.log(`check-by-link url=${listingUrl.slice(0, 80)}`);
+              const linkCheck = await post({ action: "check", kind: "link", listingUrl });
+              const row = linkCheck.check || linkCheck;
+              checks.push(row);
+              console.log(
+                `check-by-link ok=${row.ok} blocked=${row.blocked ?? false} error=${row.error || "—"} elapsedMs=${row.elapsedMs ?? 0}`,
+              );
+            }
+            if (vin) {
+              console.log(`check-by-vin vin=${vin}`);
+              const vinCheck = await post({ action: "check", kind: "vin", vin });
+              const row = vinCheck.check || vinCheck;
+              checks.push(row);
+              console.log(
+                `check-by-vin ok=${row.ok} blocked=${row.blocked ?? false} error=${row.error || "—"} elapsedMs=${row.elapsedMs ?? 0}`,
+              );
+            }
+            if (checks.length) {
+              report.checks = checks;
+            }
+
             const outPath = `eval/results/live/gha-${seed}-report.json`;
             fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
-            console.log(`Wrote ${outPath} results=${(report.results || []).length} done=${report.done}`);
+            console.log(`Wrote ${outPath} results=${(report.results || []).length} checks=${checks.length} done=${report.done}`);
             const failed = (report.results || []).filter((r) => !r.ok);
-            if (failed.length) {
-              console.error(`live-eval finished with ${failed.length} failing quer(y/ies).`);
+            // Blocked Check-by-link is reported, not a workflow failure.
+            const checkFailed = checks.filter((c) => !c.ok && !c.blocked);
+            if (failed.length || checkFailed.length) {
+              console.error(
+                `live-eval finished with ${failed.length} failing quer(y/ies) and ${checkFailed.length} failing check(s).`,
+              );
               process.exit(1);
             }
           })().catch((err) => {

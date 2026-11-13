@@ -81,7 +81,7 @@ describe("no re-brief after confirm", () => {
 });
 
 describe("verdict features only on final hop", () => {
-  it("keeps search step after searchCount>0 until selectionHop/nudge", () => {
+  it("keeps search step after searchCount>0 until selectionHop (nudge alone is not verdict)", () => {
     expect(
       resolveAgentServStep({
         requireBriefConfirm: true,
@@ -95,7 +95,15 @@ describe("verdict features only on final hop", () => {
         requireBriefConfirm: true,
         briefConfirmed: true,
         searchCount: 4,
-        submitNudgeSent: false,
+        submitNudgeSent: true,
+      }),
+    ).toBe("search");
+    expect(
+      resolveAgentServStep({
+        requireBriefConfirm: true,
+        briefConfirmed: true,
+        searchCount: 4,
+        submitNudgeSent: true,
         selectionHop: true,
       }),
     ).toBe("verdict");
@@ -119,8 +127,21 @@ describe("confirmed brief + picks run record shape", () => {
     const card = formatShopperBriefCard(parsed.brief);
     expect(card).toMatch(/Budget: \$30,000/);
     expect(card).toMatch(/98101/);
+    expect(card).toMatch(/40 mi/);
+    expect(card).not.toMatch(/nationwide OK/i);
     expect(card).toMatch(/Hard: body=SUV/);
     expect(card).toMatch(/Agreed relaxations/);
+  });
+
+  it("rejects zip + null radiusMi (no nationwide OK for a city search)", () => {
+    const parsed = parseShopperBrief({
+      summary: "Coupe near Phoenix",
+      budget: { maxUsd: 18_000, userQuote: "18k" },
+      zip: "85001",
+      radiusMi: null,
+      notes: null,
+    });
+    expect(parsed.ok).toBe(false);
   });
 
   it("rejects picks outside confirmed radius unless widen agreed", () => {

@@ -30,6 +30,8 @@ describe("schema.org normalization", () => {
 
   it("flags hybrid vs gasoline fuel conflicts and prefers decoder wording", () => {
     expect(fuelConflictNote("Hybrid", "Gasoline")).toMatch(/conflicts/i);
+    expect(fuelConflictNote("Hybrid", "Gasoline")).toMatch(/as reported/i);
+    expect(fuelConflictNote("Hybrid", "Gasoline")).not.toMatch(/Using the VIN decoder/i);
     expect(fuelConflictNote("Gasoline", "Gasoline")).toBeNull();
     expect(normalizeFuelLabel("https://schema.org/Hybrid")).toBe("Hybrid");
   });

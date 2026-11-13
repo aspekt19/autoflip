@@ -129,13 +129,34 @@ export function parseShopperBrief(raw: unknown):
     else zip = z;
   }
   let radiusMi: number | null = null;
-  if (row.radiusMi != null && row.radiusMi !== "") {
+  const hasRadiusKey = Object.prototype.hasOwnProperty.call(row, "radiusMi");
+  if (!hasRadiusKey) {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi is required. Pick a sensible miles default when the shopper named a city/ZIP; use null only when they asked for nationwide.",
+    });
+  } else if (row.radiusMi != null && row.radiusMi !== "") {
     const n = typeof row.radiusMi === "number" ? row.radiusMi : Number(row.radiusMi);
     if (!Number.isFinite(n) || n < 1 || n > 3000) {
       issues.push({ field: "radiusMi", message: "radiusMi must be miles or null for nationwide." });
     } else radiusMi = Math.round(n);
   } else if (row.radiusMi === null) {
     radiusMi = null;
+  } else {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi is required. Pick a sensible miles default when the shopper named a city/ZIP; use null only when they asked for nationwide.",
+    });
+  }
+  // City/ZIP searches must carry a miles radius — nationwide only when the shopper said so (null + no ZIP).
+  if (zip && radiusMi == null && !issues.some((i) => i.field === "radiusMi")) {
+    issues.push({
+      field: "radiusMi",
+      message:
+        "radiusMi must be a positive miles value when zip is set. Nationwide (null) is only allowed when the shopper asked for nationwide (no city/ZIP).",
+    });
   }
   const notes = typeof row.notes === "string" ? row.notes.trim().slice(0, 400) || null : null;
   const hardConstraints = parseBriefConstraintList(row.hardConstraints);
@@ -180,10 +201,15 @@ export function formatShopperBriefCard(brief: ShopperBrief): string {
     lines.push(`Budget: ${brief.budget.userQuote}`);
   }
   if (brief.zip) {
-    const r = brief.radiusMi != null ? ` · ${brief.radiusMi} mi` : " · nationwide OK";
+    const r =
+      brief.radiusMi != null
+        ? ` · ${brief.radiusMi} mi`
+        : " · radius required (nationwide only if shopper asked)";
     lines.push(`Location: ${brief.zip}${r}`);
   } else if (brief.radiusMi != null) {
     lines.push(`Radius: ${brief.radiusMi} mi`);
+  } else {
+    lines.push("Location: nationwide");
   }
   if (brief.hardConstraints?.length) {
     lines.push(

@@ -33,6 +33,12 @@ export type AgentLoopCheckpointV1 = {
   submitNudgeSent: boolean;
   /** Dedicated final selection hop (Kronos/Multipath/Shadow). */
   selectionHop?: boolean;
+  /**
+   * Force tool_choice=required so SERV must call submit_picks / submit_nothing_fits
+   * (text-without-terminal repair, or after a rejected terminal). Bare hops only —
+   * features stay off until selectionHop.
+   */
+  forceTerminalTool?: boolean;
   firstTurn: boolean;
   featureRejections: Array<Record<string, unknown>>;
   /** SERV-extracted chat facts (budget/ZIP/radius) for anti-fab. */

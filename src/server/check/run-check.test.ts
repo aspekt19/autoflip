@@ -402,8 +402,10 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.fields?.drivetrain.value).toBe("FWD");
     expect(result.result.fields?.sellerName.value).toBeNull();
     expect(result.result.fuelConflict).toMatch(/conflicts/i);
-    expect(result.result.fields?.fuel.value).toMatch(/Gasoline/i);
-    expect(result.result.fields?.fuel.source).toBe("vin_decode");
+    expect(result.result.fuelConflict).toMatch(/as reported/i);
+    // Keep listing/provider fuel as reported — do not overwrite with VIN decode.
+    expect(result.result.fields?.fuel.value).toMatch(/Hybrid/i);
+    expect(result.result.fields?.fuel.source).not.toBe("vin_decode");
     expect(result.result.questions[0]).toMatch(/still for sale/i);
   });
 

@@ -520,7 +520,11 @@ export function findAgentChatTools(): Array<{
               required: ["maxUsd", "userQuote"],
             },
             zip: { type: ["string", "null"] },
-            radiusMi: { type: ["number", "null"] },
+            radiusMi: {
+              type: ["number", "null"],
+              description:
+                "Required. Miles search radius — pick a sensible default when the shopper named a city/ZIP and state it on the brief card. Null only when the shopper asked for nationwide (no city).",
+            },
             notes: { type: ["string", "null"] },
             hardConstraints: {
               type: "array",
