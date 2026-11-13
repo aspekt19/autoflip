@@ -66,6 +66,16 @@ describe("evalShopperReplyFromQuery", () => {
     });
     expect(reply.toLowerCase()).toMatch(/no (budget|zip|other)/);
   });
+
+  it("does not regex the free-text note for a budget when tags omit one", () => {
+    const reply = evalShopperReplyFromQuery({
+      note: "up to forty five thousand near me",
+      zip: null,
+      tags: { product: "find", city: "x", budget: "", body: "", need: "", messy: false },
+    });
+    expect(reply.toLowerCase()).not.toMatch(/forty/);
+    expect(reply.toLowerCase()).toMatch(/already wrote|no budget/);
+  });
 });
 
 describe("driveServChatEval", () => {

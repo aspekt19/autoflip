@@ -56,11 +56,8 @@ export function evalShopperReplyFromQuery(
     const dollars = k ? `$${Number(k[1]) * 1000}` : /^\d+$/.test(budgetTag) ? `$${budgetTag}` : budgetTag;
     parts.push(`Budget is about ${dollars}.`);
   } else {
-    const budgetFromNote = /\$\s*[\d,]+|\bunder\s+[\d,]+\b|\bup to\s+(?:forty|fifteen|eight|twelve)\b/i.exec(
-      query.note,
-    );
-    if (budgetFromNote) parts.push(`Budget as in my note (${budgetFromNote[0]}).`);
-    else parts.push("No budget preference beyond what I already wrote.");
+    // Do not regex the note — tags already carry the budget when the generator set one.
+    parts.push("No budget preference beyond what I already wrote.");
   }
   if (query.zip?.trim()) {
     parts.push(`ZIP ${query.zip.trim()} is fine.`);
