@@ -135,7 +135,6 @@ function bodyPrice(field: string, lookup: (id: string) => { amountCents: number 
 }
 
 const registrationDiscovery = declareDiscoveryExtension({
-  method: "POST",
   bodyType: "json",
   input: { label: "My vehicle research agent" },
   inputSchema: {
@@ -147,7 +146,6 @@ const registrationDiscovery = declareDiscoveryExtension({
 });
 
 const creditsDiscovery = declareDiscoveryExtension({
-  method: "POST",
   bodyType: "json",
   input: { pack: "pack_3" },
   inputSchema: {
@@ -160,7 +158,6 @@ const creditsDiscovery = declareDiscoveryExtension({
 });
 
 const plansDiscovery = declareDiscoveryExtension({
-  method: "POST",
   bodyType: "json",
   input: { planId: "radar" },
   inputSchema: {
@@ -173,7 +170,6 @@ const plansDiscovery = declareDiscoveryExtension({
 });
 
 const reportDiscovery = declareDiscoveryExtension({
-  method: "POST",
   bodyType: "json",
   input: { vin: "4T1BF1FK0EU848445" },
   inputSchema: {
