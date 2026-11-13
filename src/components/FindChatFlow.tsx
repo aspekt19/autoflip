@@ -8,6 +8,7 @@ import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatUsd } from "@/domain/format";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
+import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 
 /**
  * Find intake is one SERV chat window. Results reuse existing card/report shapes
@@ -122,15 +123,8 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     </p>
                   ) : null}
                   {why ? <p>{why}</p> : null}
-                  {vin && sourcesByVin[vin]?.length ? (
-                    <p className="hint">
-                      Sources:{" "}
-                      {sourcesByVin[vin]!
-                        .map((s) => `${s.label ?? s.source} (${(s.status ?? "").replace(/_/g, " ")})`)
-                        .join(" · ")}
-                    </p>
-                  ) : null}
-                  {vdp ? (
+                  <SourcesCheckedLine items={vin ? sourcesByVin[vin] : null} />
+                  {vdp && /^https?:\/\//i.test(vdp) ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">
                         Listing

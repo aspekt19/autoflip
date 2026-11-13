@@ -23,7 +23,18 @@ import type {
   CheckVerdictLabel,
   ExtractedListingFields,
 } from "@/domain/listing/types";
-import { extractedFieldsFromFeedListing } from "@/domain/listing/from-feed";
+import {
+  extractedFieldsFromFeedListing,
+  fillExtractedGapsFromNormalized,
+} from "@/domain/listing/from-feed";
+import {
+  ensureCheckSourceChecklist,
+  listingFromNormalizedRecord,
+  mergeVehicleSources,
+  provenanceRowsFromRecord,
+  type VehicleSourceAttempt,
+} from "@/domain/normalized-vehicle";
+import { lookupFindFuelEvidence, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import {
   listingUrlHints,
   listingUrlHintsSummary,
@@ -47,7 +58,7 @@ import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/doma
 import { valuationReuseNote } from "@/domain/vin-day-valuation";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
-  complaintCountFor,
+  complaintsFor,
   decodeVin,
   fuelFor,
   recallsFor,
@@ -107,6 +118,8 @@ export type CheckResultPayload = {
   similarCars: SimilarCarView[];
   fields: ExtractedListingFields | null;
   provenance: FieldProvenanceRow[];
+  /** Per-source attempt checklist (feed/page/vPIC/fuel/recalls/complaints/safety/comps). */
+  sourceAttempts: VehicleSourceAttempt[];
   vin: string | null;
   vinDecode: VinDecode | null;
   recalls: RecallRecord[];
@@ -337,23 +350,79 @@ async function searchComps(input: {
 
 async function govBundle(
   vin: string | null,
-  subject: Pick<Listing, "year" | "make" | "model" | "engine">,
+  subject: Pick<
+    Listing,
+    | "year"
+    | "make"
+    | "model"
+    | "engine"
+    | "drivetrain"
+    | "fuel"
+    | "fuelTypeSecondary"
+    | "electrificationLevel"
+    | "trim"
+  >,
   gov: GovDeps,
 ): Promise<{
   vinDecode: VinDecode | null;
   recalls: RecallRecord[];
   recallsAvailable: boolean;
   complaintCount: number | null;
+  complaintsAvailable: boolean;
   fuel: FuelFact | null;
   safetySummary: string | null;
+  safetyAvailable: boolean;
 }> {
-  const [vinDecode, recallLookup, complaintCount, fuel, safety] = await Promise.all([
+  const [vinDecode, recallLookup, complaintsLookup, safety] = await Promise.all([
     vin && isValidVin(vin) ? decodeVin(vin, gov) : Promise.resolve(null),
     recallsFor(subject.make, subject.model, subject.year, gov),
-    complaintCountFor(subject.make, subject.model, subject.year, gov),
-    fuelFor(subject.year, subject.make, subject.model, subject.engine, gov),
+    complaintsFor(subject.make, subject.model, subject.year, gov),
     safetyRatingsFor(subject.make, subject.model, subject.year, gov),
   ]);
+  // Fuel: match on merged powertrain identity (ElectrificationLevel / secondary /
+  // trim / title) + drivetrain — never FuelTypePrimary alone (hybrids often say Gasoline).
+  const drive = vinDecode?.driveType ?? subject.drivetrain ?? null;
+  const fuelType = vinDecode?.fuel ?? subject.fuel ?? null;
+  const fuelTypeSecondary =
+    vinDecode?.fuelTypeSecondary ?? subject.fuelTypeSecondary ?? null;
+  const electrificationLevel =
+    vinDecode?.electrificationLevel ?? subject.electrificationLevel ?? null;
+  const trim = vinDecode?.trim ?? subject.trim ?? null;
+  const engine = vinDecode?.engine ?? subject.engine ?? null;
+  const modelForFuel =
+    // Prefer vPIC model when it carries Hybrid/PHEV tokens the listing omitted.
+    vinDecode?.model && /\b(hybrid|phev|prime|plug)\b/i.test(vinDecode.model)
+      ? vinDecode.model
+      : subject.model;
+  const strictVpic = Boolean(
+    vinDecode?.driveType ||
+      vinDecode?.electrificationLevel ||
+      vinDecode?.fuelTypeSecondary ||
+      vinDecode?.fuel,
+  );
+  let fuel: FuelFact | null = null;
+  try {
+    const evidence = await lookupFindFuelEvidence(
+      {
+        year: subject.year,
+        make: subject.make,
+        model: modelForFuel,
+        trim,
+        engine,
+        drivetrain: drive,
+        fuelType,
+        fuelTypeSecondary,
+        electrificationLevel,
+        title: [subject.year, subject.make, subject.model, trim].filter(Boolean).join(" "),
+        strictVpicMatch: strictVpic,
+      },
+      { deps: { fetch: gov.fetch } },
+    );
+    fuel = fuelFactFromFindEvidence(evidence);
+  } catch {
+    // Fall back to legacy engine-only menu when the Find matcher cannot run.
+    fuel = await fuelFor(subject.year, subject.make, subject.model, engine, gov);
+  }
   let safetySummary: string | null = null;
   if (!safety.available) {
     safetySummary = "NHTSA crash ratings were unavailable for this year, make, and model.";
@@ -371,9 +440,11 @@ async function govBundle(
     vinDecode,
     recalls: recallLookup.records,
     recallsAvailable: recallLookup.available,
-    complaintCount,
+    complaintCount: complaintsLookup.available ? complaintsLookup.count : null,
+    complaintsAvailable: complaintsLookup.available,
     fuel,
     safetySummary,
+    safetyAvailable: safety.available,
   };
 }
 
@@ -650,16 +721,12 @@ async function buildListingVerdict(
     };
   }
 
-  const zip =
-    input.optionalZip?.replace(/\D/g, "").slice(0, 5) ||
-    fields.zip.value ||
-    listing.zip ||
-    null;
-
   // Prefer provider subject when VIN is known (richer history fields).
-  let subject = listing;
+  let feed: Listing | null = null;
   let providerListings: Listing[] = [];
+  let feedAttempted = false;
   if (fields.vin.value && input.deps.autodevKey && input.deps.autodev) {
+    feedAttempted = true;
     const byVin = await autodevByVin(fields.vin.value, {
       fetch: fetchImpl,
       cache: input.deps.autodev.cache,
@@ -671,21 +738,31 @@ async function buildListingVerdict(
       timeoutMs: input.deps.autodev.timeoutMs,
     });
     if (byVin.ok && byVin.listings[0]) {
-      const feed = byVin.listings[0];
-      subject = {
-        ...feed,
-        priceUsd: listing.priceUsd ?? feed.priceUsd,
-        miles: listing.miles ?? feed.miles,
-        zip: listing.zip ?? feed.zip,
-        state: listing.state ?? feed.state,
-        dealer: listing.dealer ?? feed.dealer,
-        vdp: listing.vdp ?? feed.vdp,
-        askingPriceKind: listing.askingPriceKind ?? feed.askingPriceKind,
-        askingPriceProvenance: listing.askingPriceProvenance ?? feed.askingPriceProvenance,
-        askingPriceSellerPageAccess: "obtained",
-      };
+      feed = byVin.listings[0];
       providerListings = byVin.listings;
     }
+  }
+
+  // First-pass merge (page + feed) so gov lookups use the richest MMY/drive/fuel.
+  const vinKey = (fields.vin.value && isValidVin(fields.vin.value) ? fields.vin.value : listing.vin).toUpperCase();
+  let record = mergeVehicleSources({
+    vin: vinKey,
+    page: listing,
+    feed,
+    pageAttempted: true,
+    feedAttempted,
+  });
+  let subject = listingFromNormalizedRecord(record, {
+    ...(feed ?? listing),
+    askingPriceSellerPageAccess: "obtained",
+  });
+  // Typed ZIP wins when the shopper provided one.
+  const zip =
+    input.optionalZip?.replace(/\D/g, "").slice(0, 5) ||
+    record.zip.value ||
+    null;
+  if (zip && subject.zip !== zip) {
+    subject = { ...subject, zip };
   }
 
   const comps = await searchComps({
@@ -722,18 +799,59 @@ async function buildListingVerdict(
         ).badge
       : priceBadge(subject, pool);
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
+  // Re-merge with vPIC + fuel + complaints so provenance and display fields are complete.
+  const compsAttempt: VehicleSourceAttempt = {
+    source: "market_comps",
+    label: "Market comps",
+    status:
+      comps.listings.length > 0
+        ? "queried_with_data"
+        : comps.sample
+          ? "empty"
+          : "empty",
+  };
+  record = mergeVehicleSources({
+    vin: vinKey,
+    page: listing,
+    feed,
+    vpic: gov.vinDecode,
+    fuel: gov.fuel,
+    complaintCount: gov.complaintCount,
+    complaintsAttempted: true,
+    complaintsAvailable: gov.complaintsAvailable,
+    recallCount: gov.recallsAvailable ? gov.recalls.length : null,
+    recallsAttempted: true,
+    recallsAvailable: gov.recallsAvailable,
+    safetyAttempted: true,
+    safetyAvailable: gov.safetyAvailable,
+    pageAttempted: true,
+    feedAttempted,
+    vpicAttempted: Boolean(fields.vin.value && isValidVin(fields.vin.value)),
+    fuelAttempted: true,
+    extraAttempts: [compsAttempt],
+  });
+  subject = listingFromNormalizedRecord(record, {
+    ...(feed ?? listing),
+    askingPriceSellerPageAccess: "obtained",
+    zip: zip ?? record.zip.value,
+    fuelTypeSecondary: gov.vinDecode?.fuelTypeSecondary ?? feed?.fuelTypeSecondary ?? listing.fuelTypeSecondary,
+    electrificationLevel:
+      gov.vinDecode?.electrificationLevel ?? feed?.electrificationLevel ?? listing.electrificationLevel,
+  });
+  const mergedFields = fillExtractedGapsFromNormalized(fields, record);
+  const sourceAttempts = ensureCheckSourceChecklist(record.sourceAttempts);
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
 
   // Keep provider/listing fuel as reported when it conflicts with VIN decode —
   // never assert the decoder value over the listing (hybrids often decode as Gasoline).
   const decodeFuel = gov.vinDecode?.fuel ?? null;
-  const listingFuel = fields.fuel.value;
+  const listingFuel = mergedFields.fuel.value;
   const fuelNote = fuelConflictNote(listingFuel, decodeFuel);
 
   const flags = listingRedFlags({
-    fields,
-    description: fields.description.value,
-    pageText: input.pageText ?? fields.description.value,
+    fields: mergedFields,
+    description: mergedFields.description.value,
+    pageText: input.pageText ?? mergedFields.description.value,
     subject,
     compsPool: pool,
   });
@@ -789,7 +907,7 @@ async function buildListingVerdict(
     parkIt,
     parkOutside,
     historyMissing: subject.accidentCount === null || subject.ownerCount === null,
-    titleBrandHit: fields.titleStatus.value?.match(
+    titleBrandHit: mergedFields.titleStatus.value?.match(
       /\b(salvage|rebuilt|flood|lemon|junk|branded title)\b/i,
     )?.[0] ?? null,
   });
@@ -840,11 +958,11 @@ async function buildListingVerdict(
   // Code no longer maps badge/flags → Check action. Neutral trail until SERV delivers.
   const trailLabel = "Awaiting SERV shopper verdict";
   let confidence = checkConfidence({
-    fields,
-    hasVin: Boolean(fields.vin.value),
+    fields: mergedFields,
+    hasVin: Boolean(mergedFields.vin.value),
     govRan: Boolean(gov.vinDecode) || gov.recallsAvailable,
     compCount: badge.sampleSize ?? readiness?.offer.compCount ?? 0,
-    listingSourceCount: provenanceRows(fields).filter((row) => row.value != null).length,
+    listingSourceCount: provenanceRowsFromRecord(record).filter((row) => row.value != null).length,
   });
 
   const knownIssues = knownModelYearIssues({
@@ -885,7 +1003,7 @@ async function buildListingVerdict(
   ].filter((part): part is string => Boolean(part)));
 
   const topComps = (readiness?.offer.similarCars ?? []).slice(0, 8);
-  const unknown = unknownList(fields, [
+  const unknown = unknownList(mergedFields, [
     "Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run",
   ]);
   const fairValueUsd = badge.fairValueUsd ?? readiness?.offer.fairMidUsd ?? null;
@@ -906,7 +1024,7 @@ async function buildListingVerdict(
     recallsAvailable: gov.recallsAvailable,
     recallCount: gov.recalls.length,
     complaintCount: gov.complaintCount,
-    hasVin: Boolean(fields.vin.value),
+    hasVin: Boolean(mergedFields.vin.value),
     redFlagCount: flags.length,
     unknown,
   });
@@ -962,9 +1080,15 @@ async function buildListingVerdict(
       walkAwayUsd: readiness?.offer.walkAwayUsd ?? null,
       walkAwayLabel: readiness?.offer.walkAwayLabel ?? null,
       similarCars: topComps,
-      fields,
-      provenance: provenanceRows(fields),
-      vin: fields.vin.value,
+      fields: mergedFields,
+      provenance: [
+        ...provenanceRowsFromRecord(record),
+        ...provenanceRows(mergedFields).filter(
+          (row) => !provenanceRowsFromRecord(record).some((r) => r.field === row.field),
+        ),
+      ],
+      sourceAttempts,
+      vin: mergedFields.vin.value,
       vinDecode: gov.vinDecode,
       recalls: gov.recalls,
       recallsAvailable: gov.recallsAvailable,
@@ -1054,27 +1178,61 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   }
 
   const feed = listingsForVin[0] ?? null;
-  let subject: Listing = feed
-    ? {
-        ...feed,
-        year: feed.year || stub.year,
-        make: feed.make || stub.make,
-        model: feed.model || stub.model,
-        trim: feed.trim ?? stub.trim,
-        // Prefer typed ZIP when the feed has none.
-        zip: stub.zip || feed.zip,
-        // Feed price is feed_only — a VDP URL alone is not seller-page access.
-        askingPriceKind: feed.priceUsd != null ? (feed.askingPriceKind ?? "purchase_ask") : feed.askingPriceKind ?? null,
-        askingPriceProvenance:
-          feed.priceUsd != null ? (feed.askingPriceProvenance ?? "feed_only") : feed.askingPriceProvenance ?? null,
-        askingPriceSellerPageAccess: feed.askingPriceSellerPageAccess ?? "not_attempted",
-      }
-    : stub;
+  const feedAttempted = Boolean(deps.autodevKey && deps.autodev);
+  // Merge stub (vPIC) + feed into one per-VIN record before gov enrichment.
+  let record = mergeVehicleSources({
+    vin,
+    page: null,
+    feed: feed ?? stub,
+    vpic: decode,
+    feedAttempted,
+    vpicAttempted: true,
+  });
+  let subject = listingFromNormalizedRecord(record, {
+    ...(feed ?? stub),
+    zip: stub.zip || record.zip.value,
+    askingPriceKind:
+      feed?.priceUsd != null ? (feed.askingPriceKind ?? "purchase_ask") : feed?.askingPriceKind ?? null,
+    askingPriceProvenance:
+      feed?.priceUsd != null
+        ? (feed.askingPriceProvenance ?? "feed_only")
+        : feed?.askingPriceProvenance ?? null,
+    askingPriceSellerPageAccess: feed?.askingPriceSellerPageAccess ?? "not_attempted",
+  });
 
   const hasAsk = subject.priceUsd != null && subject.priceUsd > 0;
   const hasMiles = subject.miles != null && subject.miles >= 0;
 
-  const bundle = await govBundle(vin, subject, gov);
+  const bundle = await govBundle(vin, {
+    ...subject,
+    fuelTypeSecondary: decode.fuelTypeSecondary ?? subject.fuelTypeSecondary,
+    electrificationLevel: decode.electrificationLevel ?? subject.electrificationLevel,
+  }, gov);
+  record = mergeVehicleSources({
+    vin,
+    feed: feed ?? stub,
+    vpic: bundle.vinDecode ?? decode,
+    fuel: bundle.fuel,
+    complaintCount: bundle.complaintCount,
+    complaintsAttempted: true,
+    complaintsAvailable: bundle.complaintsAvailable,
+    recallCount: bundle.recallsAvailable ? bundle.recalls.length : null,
+    recallsAttempted: true,
+    recallsAvailable: bundle.recallsAvailable,
+    safetyAttempted: true,
+    safetyAvailable: bundle.safetyAvailable,
+    pageAttempted: false,
+    feedAttempted,
+    vpicAttempted: true,
+    fuelAttempted: true,
+  });
+  subject = listingFromNormalizedRecord(record, {
+    ...(feed ?? stub),
+    zip: stub.zip || record.zip.value,
+    askingPriceSellerPageAccess: feed?.askingPriceSellerPageAccess ?? "not_attempted",
+    fuelTypeSecondary: (bundle.vinDecode ?? decode).fuelTypeSecondary ?? null,
+    electrificationLevel: (bundle.vinDecode ?? decode).electrificationLevel ?? null,
+  });
   const knownIssues = knownModelYearIssues({
     year: subject.year,
     make: subject.make,
@@ -1340,29 +1498,25 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     return servVerdictUnavailable(headline.reason);
   }
 
+  // Comps attempt: queried when we had ask+miles; otherwise not applicable → empty/not attempted.
+  const vinCompsAttempt: VehicleSourceAttempt = {
+    source: "market_comps",
+    label: "Market comps",
+    status: hasAsk && hasMiles
+      ? pool.length > 1 || (badge?.sampleSize ?? 0) > 0
+        ? "queried_with_data"
+        : "empty"
+      : "not_attempted",
+  };
+  const sourceAttempts = ensureCheckSourceChecklist([
+    ...record.sourceAttempts.filter((a) => a.source !== "market_comps"),
+    vinCompsAttempt,
+  ]);
+
   const provenance: FieldProvenanceRow[] = [
     { field: "vin", value: vin, source: "typed VIN" },
-    { field: "year", value: subject.year, source: "government VIN decoder" },
-    { field: "make", value: subject.make, source: "government VIN decoder" },
-    { field: "model", value: subject.model, source: "government VIN decoder" },
+    ...provenanceRowsFromRecord(record).filter((row) => row.field !== "vin"),
   ];
-  if (hasAsk) {
-    provenance.push({
-      field: "priceUsd",
-      value: subject.priceUsd,
-      source: "from data feed listing",
-    });
-  }
-  if (hasMiles) {
-    provenance.push({
-      field: "miles",
-      value: subject.miles,
-      source: "from data feed listing",
-    });
-  }
-  if (feed?.dealer) {
-    provenance.push({ field: "sellerName", value: feed.dealer, source: "from data feed listing" });
-  }
 
   return {
     ok: true,
@@ -1388,6 +1542,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       similarCars: topComps,
       fields: null,
       provenance,
+      sourceAttempts,
       vin,
       vinDecode: bundle.vinDecode ?? decode,
       recalls: bundle.recalls,

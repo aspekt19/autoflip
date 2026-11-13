@@ -11,6 +11,7 @@ import {
   formatSourcesCheckedLine,
   type EvidenceSourceRow,
 } from "@/domain/serv-evidence-gate";
+import { clipBuyerText, normalizedListingUrl } from "@/domain/normalized-vehicle";
 import type { FindAgentLoopResult } from "./loop";
 import type { Listing } from "@/domain/types";
 import { BASE_MODEL } from "@/server/serv";
@@ -35,7 +36,7 @@ function candidateFromListing(listing: Listing, key: string): BestDealCandidate 
     city: listing.city,
     state: listing.state,
     dealer: listing.dealer,
-    vdp: listing.vdp,
+    vdp: normalizedListingUrl(listing.vdp, listing.dealerUrl).value,
     drivetrain: listing.drivetrain,
     engine: listing.engine,
     fuel: listing.fuel,
@@ -112,9 +113,9 @@ export function mapFindAgentLoopToDecide(input: {
       ? {
           label: pickLabel || pick.key,
           runnerUpLabel: ranked[1] ? `${ranked[1].year} ${ranked[1].make} ${ranked[1].model}` : null,
-          reasons: [input.agent.verdict.summary.slice(0, 200)],
+          reasons: [clipBuyerText(input.agent.verdict.summary, 200)],
           confidence: input.agent.verdict.confidence,
-          confidenceLine: input.agent.verdict.summary.slice(0, 280),
+          confidenceLine: clipBuyerText(input.agent.verdict.summary, 280),
           confirmBeforeBuying: [],
         }
       : null,

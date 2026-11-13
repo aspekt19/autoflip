@@ -9,6 +9,7 @@ import { formatUsd } from "@/domain/format";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
+import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 
 export function ResaleChatFlow() {
   const account = useAccountLoad();
@@ -143,15 +144,10 @@ export function ResaleChatFlow() {
                   </ul>
                   {pick?.why ? <p>{pick.why}</p> : null}
                   {pick?.riskNotes ? <p className="hint">Risk: {pick.riskNotes}</p> : null}
-                  {car.vin && sourcesByVin[car.vin.toUpperCase()]?.length ? (
-                    <p className="hint">
-                      Sources:{" "}
-                      {sourcesByVin[car.vin.toUpperCase()]!
-                        .map((s) => `${s.label ?? s.source} (${(s.status ?? "").replace(/_/g, " ")})`)
-                        .join(" · ")}
-                    </p>
-                  ) : null}
-                  {vdp ? (
+                  <SourcesCheckedLine
+                    items={car.vin ? sourcesByVin[car.vin.toUpperCase()] : null}
+                  />
+                  {vdp && /^https?:\/\//i.test(vdp) ? (
                     <p>
                       <a href={vdp} target="_blank" rel="noreferrer">
                         Listing

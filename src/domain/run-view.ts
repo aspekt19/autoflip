@@ -25,6 +25,9 @@ import {
   type StepStatus,
   type VerdictId,
 } from "./buyer-copy-table";
+import { buyerListingHref } from "./find-listing-link";
+import type { VehicleSourceAttempt } from "./normalized-vehicle";
+import { formatSourceAttemptLine } from "./normalized-vehicle";
 
 export type RunListingView = {
   vin: string;
@@ -54,6 +57,8 @@ export type RunListingView = {
   implausible?: boolean;
   drivetrainUnknown?: boolean;
   bodyUnknown?: boolean;
+  /** Per-source attempt checklist for this VIN (queried / empty / unavailable|error). */
+  sourcesChecked?: VehicleSourceAttempt[] | null;
 };
 
 export type RunStepView = {
@@ -100,7 +105,16 @@ export type RunReportModel = {
   limits: string[];
   journal: { title: string; sentence: string }[];
   sources: string[];
-  listings: Array<RunListingView & { title: string; place: string | null; linkLabel: string | null }>;
+  listings: Array<
+    RunListingView & {
+      title: string;
+      place: string | null;
+      linkLabel: string | null;
+      /** http(s) only — null when the feed had no real listing URL. */
+      listingHref: string | null;
+      sourcesLine: string | null;
+    }
+  >;
   permalink: string;
   technicalIds: string[];
   viewerIsOwner: boolean;
@@ -170,6 +184,39 @@ export function runReportModel(view: RunView): RunReportModel {
         ? "1 credit was used."
         : `${view.creditsCharged} credits were used.`
       : "No credit was used.";
+  const listings = view.listings.map((car) => {
+    // Never render Auto.dev fragment ids (#9000…) as dealer links.
+    const href = buyerListingHref(car.vdp);
+    const host = href ? hostOf(href) : null;
+    const place = [car.city, car.state].filter(Boolean).join(", ") || null;
+    const mileageFlag = veryHighMileageLabel(car.miles);
+    const sourcesLine =
+      car.sourcesChecked && car.sourcesChecked.length > 0
+        ? formatSourceAttemptLine(car.sourcesChecked)
+        : null;
+    return {
+      ...car,
+      vdp: href,
+      title: carTitle(car),
+      place,
+      listingHref: href,
+      linkLabel: host ? `Listing on ${host}` : null,
+      sourcesLine,
+      summary:
+        joinBuyerParts([
+          car.summary,
+          car.reason,
+          car.offerLabel,
+          mileageFlag,
+        ]) || null,
+    };
+  });
+  // Prefer per-VIN attempt checklists over the legacy generic "Cars for sale" block.
+  const checklistSources = listings
+    .map((car) => (car.sourcesLine ? `${carTitle(car)}: ${car.sourcesLine}` : null))
+    .filter((line): line is string => Boolean(line));
+  const sources =
+    checklistSources.length > 0 ? checklistSources : view.sources.map((id) => sourceCopy(id));
   return {
     kicker: kindCopy(view.kind),
     title,
@@ -186,25 +233,8 @@ export function runReportModel(view: RunView): RunReportModel {
     clarifications: view.clarifications,
     limits: view.limits,
     journal,
-    sources: view.sources.map((id) => sourceCopy(id)),
-    listings: view.listings.map((car) => {
-      const host = car.vdp ? hostOf(car.vdp) : null;
-      const place = [car.city, car.state].filter(Boolean).join(", ") || null;
-      const mileageFlag = veryHighMileageLabel(car.miles);
-      return {
-        ...car,
-        title: carTitle(car),
-        place,
-        linkLabel: host ? `Listing on ${host}` : car.vdp ? "Dealer listing" : null,
-        summary:
-          joinBuyerParts([
-            car.summary,
-            car.reason,
-            car.offerLabel,
-            mileageFlag,
-          ]) || null,
-      };
-    }),
+    sources,
+    listings,
     permalink: view.permalink,
     technicalIds: view.steps.map((step) => step.responseId).filter((id): id is string => Boolean(id)),
     viewerIsOwner: view.viewerIsOwner,
@@ -273,7 +303,10 @@ export function renderRunPermalinkHtml(view: RunView): string {
     ].filter(Boolean);
     if (facts.length) parts.push(`<p>${esc(facts.join(" · "))}</p>`);
     if (car.dealer) parts.push(`<p>${esc(car.dealer)}</p>`);
-    if (car.vdp && car.linkLabel) parts.push(`<a href="${esc(car.vdp)}">${esc(car.linkLabel)}</a>`);
+    if (car.listingHref && car.linkLabel) {
+      parts.push(`<a href="${esc(car.listingHref)}">${esc(car.linkLabel)}</a>`);
+    }
+    if (car.sourcesLine) parts.push(`<p class="sources-checked">${esc(car.sourcesLine)}</p>`);
     parts.push("</section>");
   }
   if (model.viewerIsOwner) {

@@ -7,6 +7,7 @@ import { runReportModel } from "@/domain/run-view";
 import { pickHeading } from "@/domain/run-view";
 import { formatNumber, formatUsd } from "@/domain/format";
 import { RunClarificationForm } from "./RunClarificationForm";
+import { SourcesCheckedLine } from "./SourcesCheckedLine";
 
 function newSearchHref(kind: RunView["kind"]): string {
   if (kind === "resale") return "/resale";
@@ -89,11 +90,12 @@ export function RunReport({ run }: { run: RunView }) {
                   {car.place ? ` · ${car.place}` : ""}
                   {car.dealer ? ` · ${car.dealer}` : ""}
                 </p>
-                {car.vdp && car.linkLabel ? (
+                {car.listingHref && car.linkLabel ? (
                   <p>
-                    <a href={car.vdp}>{car.linkLabel}</a>
+                    <a href={car.listingHref}>{car.linkLabel}</a>
                   </p>
                 ) : null}
+                <SourcesCheckedLine items={car.sourcesChecked} />
               </article>
             );
           })}
