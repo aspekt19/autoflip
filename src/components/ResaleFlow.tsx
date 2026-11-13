@@ -215,7 +215,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       headline: body.headline ?? "Resale search",
       message: body.message ?? "",
       nextStep: body.nextStepHint ?? "",
-      creditNote: body.creditNote ?? "1 report credit per delivered resale search.",
+      creditNote: body.creditNote ?? "1 report credit reserved before Resale search starts.",
       balance: body.balance,
       budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : Number(budget),
       zip: zip.trim() || null,
@@ -545,7 +545,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       </p>
       {credits != null ? (
         <p className="hint">
-          Credits on this account: {credits}. This search uses 1 report credit when results are delivered.
+          Credits on this account: {credits}. This search reserves 1 report credit before it starts.
         </p>
       ) : null}
 

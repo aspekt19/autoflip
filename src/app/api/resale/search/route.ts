@@ -112,8 +112,8 @@ export async function POST(request: Request) {
           typeof result.delivery.creditNote === "string"
             ? result.delivery.creditNote
             : charged
-              ? "1 report credit per delivered resale search."
-              : "Credit not charged.",
+              ? "1 report credit used for this delivered Resale verdict."
+              : "No report credit charged — reservation released.",
         done: true,
         step: 4,
         nextStep: null,

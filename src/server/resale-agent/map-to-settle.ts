@@ -279,7 +279,7 @@ export function mapResaleAgentLoopToSettle(input: {
     // Charge on chosen flip OR documented nothing-fits (agent summary present).
     creditNote: publishedBest
       ? resaleCardCopy.creditNote
-      : "1 report credit used — SERV explained why nothing fit.",
+      : "No report credit charged — nothing fit; the reserved credit was released.",
     sourcesCheckedByVin,
   };
 

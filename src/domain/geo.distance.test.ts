@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   enrichListingDistanceFromCenter,
+  enrichListingDistanceFromDealerZip,
   roundedDistanceMiles,
 } from "./geo";
 
@@ -45,5 +46,54 @@ describe("enrichListingDistanceFromCenter", () => {
       { latitude: 39.96, longitude: -83.0 },
     );
     expect(enriched.distanceMiles).toBe(12);
+  });
+});
+
+describe("enrichListingDistanceFromDealerZip", () => {
+  it("computes user ZIP → dealer ZIP miles when feed omits distance and lat/lon", async () => {
+    const center = { latitude: 39.9612, longitude: -82.9988, zip: "43215" };
+    // ~1° latitude north of Columbus ≈ 69 mi
+    const lookups = new Map([
+      ["44101", { latitude: 40.96, longitude: -81.7 }],
+    ]);
+    const [enriched] = await enrichListingDistanceFromDealerZip(
+      [
+        {
+          vin: "1HGCM82633A004352",
+          distanceMiles: null,
+          zip: "44101",
+          latitude: null,
+          longitude: null,
+        },
+      ],
+      center,
+      async (zip) => lookups.get(zip) ?? null,
+    );
+    expect(enriched.distanceMiles).toEqual(expect.any(Number));
+    expect(enriched.distanceMiles!).toBeGreaterThan(50);
+    expect(enriched.distanceMiles!).toBeLessThan(120);
+  });
+
+  it("leaves distance unknown when the listing has no dealer ZIP", async () => {
+    const [enriched] = await enrichListingDistanceFromDealerZip(
+      [{ vin: "x", distanceMiles: null, zip: null }],
+      { latitude: 39.96, longitude: -83.0 },
+      async () => ({ latitude: 40.96, longitude: -81.7 }),
+    );
+    expect(enriched.distanceMiles).toBeNull();
+  });
+
+  it("keeps an existing feed distance without calling ZIP lookup", async () => {
+    let calls = 0;
+    const [enriched] = await enrichListingDistanceFromDealerZip(
+      [{ vin: "x", distanceMiles: 18, zip: "44101" }],
+      { latitude: 39.96, longitude: -83.0 },
+      async () => {
+        calls += 1;
+        return { latitude: 40.96, longitude: -81.7 };
+      },
+    );
+    expect(enriched.distanceMiles).toBe(18);
+    expect(calls).toBe(0);
   });
 });

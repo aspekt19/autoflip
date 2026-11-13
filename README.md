@@ -191,7 +191,27 @@ curl -s https://autoflip-umber.vercel.app/api/v1/report \
 
 ## Deal Radar
 
-Deal Radar is paid-only — no free tier and no trial. Radar $100/mo (5 watches, daily checks, 5 report credits, 1500 SERV cap) and Radar Pro $250/mo (20 watches, daily checks, 15 credits, 6000 SERV). Credit packs never unlock radar. The daily Vercel cron (`vercel.json`, `0 14 * * *`) re-runs Auto.dev listing search, diffs seen listing ids, and runs SERV `verdict_decide` (challenge on the top candidate only) for due watches. The Deal Radar page also has Run now. Alerts are in-app (Telegram optional when configured). MCP `deal_radar` is a one-shot listing scan (not a saved watch and not a Radar unlock). The cron route accepts `Authorization: Bearer` `CRON_SECRET` (Vercel Cron) or `RADAR_CRON_SECRET`. Details: `src/server/radar-cycle.ts`, `src/server/radar-serv.ts`.
+Deal Radar is paid-only — no free tier and no trial. Radar **$100/mo = 1 watched search** (~300 SERV reviews/mo) and Radar Pro **$250/mo = 3 watched searches** (~900 SERV reviews/mo). Plans do **not** include report credits — buy packs separately. Credit packs never unlock radar. The daily Vercel cron (`vercel.json`, `0 14 * * *`) re-runs Auto.dev listing search, diffs seen listing ids, and runs SERV `verdict_decide` (challenge on the top candidate only) for due watches. The Deal Radar page also has Run now. Alerts are in-app; optional Telegram via `@autoflip_radar_bot` (display name Lemonless Radar) when `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_WEBHOOK_SECRET` are set. MCP `deal_radar` is a one-shot listing scan (not a saved watch and not a Radar unlock). The cron route accepts `Authorization: Bearer` `CRON_SECRET` (Vercel Cron) or `RADAR_CRON_SECRET`. Details: `src/server/radar-cycle.ts`, `src/server/radar-serv.ts`.
+
+### Telegram webhook (owner — do not run against prod from agents)
+
+Prod env names (values never read by agents): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`.
+
+Set the bot webhook once (owner machine / secrets manager), pointing at production:
+
+```bash
+# Replace TOKEN and SECRET from your secrets store — do not commit values.
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  -d "url=${NEXT_PUBLIC_APP_URL}/api/telegram/webhook" \
+  -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
+  -d "allowed_updates=[\"message\"]"
+```
+
+BotFather display name: **Lemonless Radar**. Username: `@autoflip_radar_bot`.
+
+## Billing (fully paid)
+
+Sign-in required for Find, Resale, Check, Radar, and agent/MCP tools. Only free allotment: **3 Checks / account / UTC month** (link or VIN). Every Find and Resale search **reserves 1 report credit before SERV runs**; balance &lt; 1 → search does not start (buy-credits CTA). Credit is **committed** when a chosen result is delivered and **released** on nothing-fits, error, or no car. Shared gate: `src/server/search-billing-gate.ts` (site, chat, API v1, MCP).
 
 ## Deploy
 

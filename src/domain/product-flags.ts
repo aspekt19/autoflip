@@ -1,7 +1,7 @@
 /**
  * Product surface availability.
- * Resale + Deal Radar are always on (kept product). Scout and Telegram stay off —
- * no env kill-switches that hide Resale/Radar between the shopper and SERV.
+ * Resale + Deal Radar + Telegram connect are always on (kept product).
+ * Scout stays off — no env kill-switches that hide Resale/Radar between the shopper and SERV.
  */
 
 export type ProductFlags = {
@@ -11,7 +11,7 @@ export type ProductFlags = {
   dealRadar: boolean;
   /** Scout investigation UI. Always off. */
   scout: boolean;
-  /** Telegram connect buttons. Always off — alerts are in-app. */
+  /** Telegram connect on Deal Radar. Always on — bot must still be configured. */
   telegram: boolean;
 };
 
@@ -23,7 +23,7 @@ export function resolveProductFlags(
     resaleEvaluate: true,
     dealRadar: true,
     scout: false,
-    telegram: false,
+    telegram: true,
   };
 }
 
@@ -35,7 +35,7 @@ export function productFlagsUnavailableMessage(surface: keyof ProductFlags): str
     return "Scout is not available in this preview.";
   }
   if (surface === "telegram") {
-    return "Telegram alerts are not available in this preview.";
+    return "Telegram is not configured on this preview. Alerts stay in the app.";
   }
   return "That resale tool is not available in this preview.";
 }

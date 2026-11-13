@@ -55,3 +55,53 @@ export function enrichListingDistanceFromCenter<T extends {
     return { ...row, distanceMiles: miles };
   });
 }
+
+function normalizedUsZip(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const zip = raw.replace(/\D/g, "").slice(0, 5);
+  return /^\d{5}$/.test(zip) ? zip : null;
+}
+
+/**
+ * When the feed omitted distance (and lat/lon enrichment did not fill it), compute
+ * miles from the buyer-center point → dealer ZIP via a ZIP geocode lookup
+ * (same /api/zip path as search). Distance stays unknown only when the listing
+ * has no dealer ZIP or the lookup fails.
+ */
+export async function enrichListingDistanceFromDealerZip<T extends {
+  distanceMiles?: number | null;
+  zip?: string | null;
+}>(
+  listings: readonly T[],
+  center: { latitude?: number | null; longitude?: number | null } | null | undefined,
+  lookupZip: (zip: string) => Promise<GeoPoint | null>,
+): Promise<T[]> {
+  if (!isUsableGeoPoint(center)) return [...listings];
+  const needZips = new Set<string>();
+  for (const row of listings) {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) continue;
+    const zip = normalizedUsZip(row.zip);
+    if (zip) needZips.add(zip);
+  }
+  if (needZips.size === 0) return [...listings];
+
+  const points = new Map<string, GeoPoint>();
+  await Promise.all(
+    [...needZips].map(async (zip) => {
+      const point = await lookupZip(zip);
+      if (isUsableGeoPoint(point)) points.set(zip, point);
+    }),
+  );
+  if (points.size === 0) return [...listings];
+
+  return listings.map((row) => {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) return row;
+    const zip = normalizedUsZip(row.zip);
+    if (!zip) return row;
+    const dealer = points.get(zip);
+    if (!dealer) return row;
+    const miles = roundedDistanceMiles(center, dealer);
+    if (miles == null) return row;
+    return { ...row, distanceMiles: miles };
+  });
+}

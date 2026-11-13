@@ -24,7 +24,7 @@ function pageFile(href: string): string {
 
 describe("pages smoke — every nav route", () => {
   const links = primaryNavLinks({
-    flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
+    flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: true },
   });
   const navRoutes = links.map((link) => link.href);
 

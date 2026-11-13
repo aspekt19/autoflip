@@ -27,16 +27,16 @@ describe("Deal Radar paid-only allowance", () => {
     }
   });
 
-  it("enforces shared Find+Resale watch cap on Radar", async () => {
+  it("enforces shared Find+Resale watch cap on Radar (1 watch)", async () => {
     const kv = new MemoryKv();
     await writePlans(kv, "user-1", {
       ...emptyPlans(),
       planId: "radar",
-      personal: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
-      flip: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+      personal: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 1 },
+      flip: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 1 },
     });
-    expect((await allowance(kv, "user-1", 4)).ok).toBe(true);
-    const atCap = await allowance(kv, "user-1", 5);
+    expect((await allowance(kv, "user-1", 0)).ok).toBe(true);
+    const atCap = await allowance(kv, "user-1", 1);
     expect(atCap.ok).toBe(false);
     if (!atCap.ok) expect(atCap.code).toBe("limit");
   });
@@ -99,13 +99,13 @@ describe("plan cadence", () => {
     const radar = {
       ...emptyPlans(),
       planId: "radar",
-      personal: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
-      flip: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+      personal: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 1 },
+      flip: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 1 },
     };
-    expect(effectiveRadarLimits(radar).servCallCapPerMonth).toBe(1500);
+    expect(effectiveRadarLimits(radar).servCallCapPerMonth).toBe(300);
     expect((await servAllowanceRemaining(kv, "u1", radar)).ok).toBe(true);
-    await incrementServUsage(kv, "u1", 1500);
-    expect(await readServUsage(kv, "u1")).toBe(1500);
+    await incrementServUsage(kv, "u1", 300);
+    expect(await readServUsage(kv, "u1")).toBe(300);
     const blocked = await servAllowanceRemaining(kv, "u1", radar);
     expect(blocked.ok).toBe(false);
 
@@ -128,10 +128,10 @@ describe("subscription webhook mapping", () => {
       expect(sub.userId).toBe("user-1");
       expect(sub.plans.planId).toBe("radar");
       expect(sub.plans.personal.status).toBe("active");
-      expect(sub.plans.personal.searchLimit).toBe(5);
-      expect(sub.plans.flip.searchLimit).toBe(5);
-      expect(sub.grantReportCredits).toBe(5);
-      expect(sub.grantIdempotencyKey).toMatch(/^plan-credits:user-1:radar:/);
+      expect(sub.plans.personal.searchLimit).toBe(1);
+      expect(sub.plans.flip.searchLimit).toBe(1);
+      expect(sub.grantReportCredits).toBe(0);
+      expect(sub.grantIdempotencyKey).toBeNull();
     }
     const credits = billingEffect(started, "checkout.session.completed", {
       mode: "payment",
@@ -206,7 +206,7 @@ describe("subscription webhook mapping", () => {
     expect(paidInvoice.kind).toBe("plans");
     if (paidInvoice.kind === "plans") {
       expect(paidInvoice.plans.planId).toBe("radar");
-      expect(paidInvoice.grantReportCredits).toBe(5);
+      expect(paidInvoice.grantReportCredits).toBe(0);
     }
   });
 

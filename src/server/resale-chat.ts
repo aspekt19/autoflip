@@ -1,6 +1,7 @@
 /**
  * Resale chat intake — one SERV conversation (ask_shopper + search tools).
- * Credit only when a verdict is delivered.
+ * Briefing turns stay free. Confirming the brief reserves 1 credit BEFORE search SERV;
+ * commit on a chosen flip; release on nothing-fits / error.
  */
 import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
 import {
@@ -12,7 +13,7 @@ import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { RESALE_INTERNAL_BUDGET_MS } from "@/domain/resale-deadline";
 import type { ResaleSearchInput } from "@/domain/resale-search-input";
 import { TtlCache } from "@/io/cache";
-import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
+import { creditBalance } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import { runResaleAgentLoop, summarizeResaleAgentJournal } from "@/server/resale-agent/loop";
@@ -22,6 +23,12 @@ import {
   resaleSearchSpendKey,
   storeResaleSearchDelivery,
 } from "@/server/resale-search-credit";
+import {
+  commitSearchCreditOnDelivery,
+  creditsRequiredBody,
+  releaseSearchCredit,
+  reserveSearchCreditBeforeServ,
+} from "@/server/search-billing-gate";
 import { syncResaleRun } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
 
@@ -35,6 +42,8 @@ type Session = {
   pendingBrief: ShopperBrief | null;
   confirmedBrief: ShopperBrief | null;
   spendKey: string;
+  idempotencyKey: string;
+  reserved: boolean;
   charged: boolean;
   result: Record<string, unknown> | null;
   updatedAt: string;
@@ -49,6 +58,8 @@ async function load(kv: Kv, id: string): Promise<Session | null> {
     const parsed = JSON.parse(raw) as Session;
     parsed.confirmedBrief = parsed.confirmedBrief ?? null;
     parsed.pendingBrief = parsed.pendingBrief ?? null;
+    parsed.reserved = parsed.reserved ?? false;
+    parsed.idempotencyKey = parsed.idempotencyKey ?? parsed.sessionId;
     return parsed;
   } catch {
     return null;
@@ -85,6 +96,16 @@ export async function runResaleChatTurn(input: {
     if (!userText) {
       return { ok: false, status: 400, body: { ok: false, error: "message_required", message: "Send a message." } };
     }
+    if (!input.skipCredit) {
+      const bal = await creditBalance(input.kv, input.userId);
+      if (bal < 1) {
+        return {
+          ok: false,
+          status: 403,
+          body: creditsRequiredBody({ balance: bal, surface: "resale" }),
+        };
+      }
+    }
     const idem = findSearchIdempotencyKey({ clientKey: null });
     session = {
       sessionId: crypto.randomUUID(),
@@ -95,7 +116,9 @@ export async function runResaleChatTurn(input: {
       pendingQuestion: null,
       pendingBrief: null,
       confirmedBrief: null,
+      idempotencyKey: idem,
       spendKey: resaleSearchSpendKey(input.userId, idem),
+      reserved: false,
       charged: false,
       result: null,
       updatedAt: new Date().toISOString(),
@@ -128,6 +151,27 @@ export async function runResaleChatTurn(input: {
     });
     session.status = "searching";
     session.pendingQuestion = null;
+    if (!input.skipCredit && !session.reserved && !session.charged) {
+      const reserved = await reserveSearchCreditBeforeServ(
+        input.kv,
+        "resale",
+        input.userId,
+        session.idempotencyKey,
+      );
+      if (!reserved.ok) {
+        return {
+          ok: false,
+          status: 403,
+          body: {
+            ...creditsRequiredBody({ balance: reserved.balance, surface: "resale" }),
+            sessionId: session.sessionId,
+            messages: session.messages,
+          },
+        };
+      }
+      session.reserved = true;
+      session.spendKey = reserved.spendKey;
+    }
   } else if (userText) {
     session.messages.push({ role: "user", content: userText, at: new Date().toISOString() });
     session.status = "searching";
@@ -228,6 +272,10 @@ export async function runResaleChatTurn(input: {
   if (!agent.ok) {
     // Boundary / terminal failures never 502 — honest couldn't-finish after repairs.
     const honesty = agent.message?.trim() || "We couldn't finish this flip search.";
+    if (session.reserved && !session.charged && !input.skipCredit) {
+      await releaseSearchCredit(input.kv, input.userId, session.spendKey);
+      session.reserved = false;
+    }
     session.status = "done";
     session.messages.push({ role: "assistant", content: honesty, at: new Date().toISOString() });
     const journalMeta = summarizeResaleAgentJournal(agent.journal ?? []);
@@ -238,7 +286,7 @@ export async function runResaleChatTurn(input: {
       agentVerdict: null,
       message: honesty,
       charged: false,
-      creditNote: "No report credit charged — incomplete chat stays free.",
+      creditNote: "No report credit charged — incomplete search released the reservation.",
       transcript: session.messages,
       journalMeta,
       passReason: null,
@@ -284,13 +332,21 @@ export async function runResaleChatTurn(input: {
     agent.verdict.picks.find((p) => p.action !== "pass") ?? null;
   const bestVin = actionablePick?.vin?.toUpperCase() ?? null;
   const best = bestVin ? agent.pnlByVin.get(bestVin) ?? null : null;
-  const shouldCharge = Boolean(best) || (agent.verdict.picks.length === 0 && Boolean(agent.verdict.summary?.trim()));
+  // Commit only a chosen flip — nothing-fits releases.
+  const shouldCharge = Boolean(best);
   let charged = session.charged;
-  if (shouldCharge && !charged && !input.skipCredit) {
-    if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
-    else charged = (await creditSpend(input.kv, input.userId, session.spendKey)).ok;
+  let balance = await creditBalance(input.kv, input.userId);
+  if (!input.skipCredit && session.reserved) {
+    if (shouldCharge && !charged) {
+      const committed = await commitSearchCreditOnDelivery(input.kv, input.userId, session.spendKey);
+      charged = committed.committed;
+      balance = committed.balance;
+    } else if (!shouldCharge) {
+      balance = (await releaseSearchCredit(input.kv, input.userId, session.spendKey)).balance;
+      session.reserved = false;
+      charged = false;
+    }
   }
-  const balance = await creditBalance(input.kv, input.userId);
   const summary = agent.verdict.summary?.trim() || "Resale search finished.";
   session.messages.push({ role: "assistant", content: summary, at: new Date().toISOString() });
   const journalMeta = summarizeResaleAgentJournal(agent.journal);
@@ -353,7 +409,9 @@ export async function runResaleChatTurn(input: {
     balance,
     creditNote: charged
       ? "1 report credit used for this delivered Resale verdict."
-      : "No report credit charged — chat turns without a delivered verdict stay free.",
+      : best
+        ? "No report credit charged — reservation could not be committed."
+        : "No report credit charged — nothing fit; the reserved credit was released.",
     transcript: session.messages,
     journalMeta,
     passReason,

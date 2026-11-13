@@ -1,11 +1,11 @@
 /**
  * Agent find_cars — async create / status / get over the same Find/Resale SERV path as the site.
  * Personal mode uses the site decide path (free-gov → triage → decide → challenge).
- * Balance is checked before work; one report credit settles only after cars are delivered.
+ * Reserve 1 credit BEFORE SERV; commit on delivered cars; release on nothing-fits/error.
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { StructuredNeed } from "@/domain/need";
-import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
+import { creditEventSeen } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { findSearchIdempotencyKey, findSearchSpendKey, storeFindSearchDelivery } from "@/server/find-search-credit";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
@@ -16,6 +16,11 @@ import {
 } from "@/server/find-search-context";
 import { understandNeed, type UnderstandDeps } from "@/server/understand-need";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
+import {
+  commitSearchCreditOnDelivery,
+  releaseSearchCredit,
+  reserveSearchCreditBeforeServ,
+} from "@/server/search-billing-gate";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
@@ -174,13 +179,17 @@ export async function createAgentFindRun(
   }
 
   const spendKey = findSearchSpendKey(caller.userId, `agent-find:${clientKey}`);
-  if (await creditEventSeen(deps.kv, spendKey)) {
-    // Prior successful settle for this idempotency key — recreate a completed pointer if needed.
-  } else {
-    const balance = await creditBalance(deps.kv, caller.userId);
-    if (balance < 1) {
+  // Reserve BEFORE SERV — same shared gate as site Find / Resale.
+  if (!(await creditEventSeen(deps.kv, spendKey))) {
+    const reserved = await reserveSearchCreditBeforeServ(
+      deps.kv,
+      "find",
+      caller.userId,
+      `agent-find:${clientKey}`,
+    );
+    if (!reserved.ok) {
       await deps.kv.delete(idem);
-      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
+      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, reserved.balance) };
     }
   }
 
@@ -260,6 +269,7 @@ export async function advanceAgentFindRun(
       deps,
     );
     if (!understood.ok) {
+      await releaseSearchCredit(deps.kv, fresh.user_id, fresh.spend_key);
       fresh.error = agentError({
         error_code: understood.error,
         message: understood.message,
@@ -294,6 +304,7 @@ export async function advanceAgentFindRun(
     const servKey = runtimeServKey(deps);
 
     if (mode === "flip") {
+      await releaseSearchCredit(deps.kv, fresh.user_id, fresh.spend_key);
       fresh.error = agentError({
         error_code: "agent_loop_required",
         message:
@@ -344,6 +355,7 @@ export async function advanceAgentFindRun(
       );
     }
     if (!decided.ok) {
+      await releaseSearchCredit(deps.kv, fresh.user_id, fresh.spend_key);
       fresh.error = agentError({
         error_code: decided.error,
         message: decided.message,
@@ -407,14 +419,17 @@ export async function advanceAgentFindRun(
 
     let creditSpent = false;
     if (shouldCharge) {
-      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
+      const committed = await commitSearchCreditOnDelivery(deps.kv, fresh.user_id, fresh.spend_key);
+      if (!committed.committed) {
+        await releaseSearchCredit(deps.kv, fresh.user_id, fresh.spend_key);
+        fresh.error = insufficientCreditsEnvelope(deps.origin, committed.balance);
         await mark(fresh, "failed", "failed");
         await saveRun(deps.kv, fresh);
         return fresh;
       }
       creditSpent = true;
+    } else {
+      await releaseSearchCredit(deps.kv, fresh.user_id, fresh.spend_key);
     }
 
     const top = listings.slice(0, 8).map((row) => ({

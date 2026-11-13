@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { clipBuyerText } from "@/domain/normalized-vehicle";
 import {
   applyFindAgentGuardrails,
   findAgentLoopEnabled,
@@ -35,6 +36,38 @@ describe("validateFindAgentVerdict + guardrails", () => {
   it("rejects missing summary", () => {
     const bad = validateFindAgentVerdict({ confidence: "low", picks: [], relaxedConditions: [], passReason: null });
     expect(bad.ok).toBe(false);
+  });
+
+  it("stores SERV why untruncated (>400 chars); clipBuyerText only at display", () => {
+    const longWhy =
+      "This Camry fits budget and radius with clean title history, fair ask versus local comps, " +
+      "and low complaint volume for the year — ".repeat(8) +
+      "final decision: buy near asking after a short inspection for open recalls and service records.";
+    expect(longWhy.length).toBeGreaterThan(400);
+    const ok = validateFindAgentVerdict({
+      summary: "Camry fits.",
+      confidence: "high",
+      picks: [
+        {
+          vin: "1HGCM82633A004352",
+          label: "Camry",
+          action: "buy",
+          offerUsd: 11_500,
+          why: longWhy,
+        },
+      ],
+      relaxedConditions: [],
+      passReason: null,
+    });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.verdict.picks[0]?.why).toBe(longWhy);
+    expect(ok.verdict.picks[0]?.why.length).toBeGreaterThan(400);
+    const clipped = clipBuyerText(ok.verdict.picks[0]!.why, 400);
+    expect(clipped.length).toBeLessThan(longWhy.length);
+    expect(clipped.endsWith("…") || /[.!?]$/.test(clipped)).toBe(true);
+    // Word-boundary clip — never a hard mid-word cut like "failure r."
+    expect(clipped).not.toMatch(/\b\w\.$/);
   });
 
   it("drops invented VIN", () => {

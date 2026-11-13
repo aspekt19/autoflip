@@ -37,7 +37,7 @@ describe("resale promise", () => {
     const page = readFileSync(new URL("../app/resale/page.tsx", import.meta.url), "utf8");
     const flow = readFileSync(new URL("../components/ResaleFlow.tsx", import.meta.url), "utf8");
     expect(`${page}\n${flow}`).not.toMatch(/verdict every time|never a dead end|still a verdict/i);
-    expect(page).toMatch(/no verdict/i);
+    expect(page).toMatch(/nothing-fits|nothing fit|released/i);
   });
 });
 

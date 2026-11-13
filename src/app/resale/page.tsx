@@ -34,8 +34,8 @@ export default function ResalePage() {
         <h1>Resale</h1>
         <p className="lead">
           Chat with SERV about the flip you want. SERV asks whatever it needs, then searches live inventory in the
-          same conversation. If nothing fits, you get that explanation and no verdict. A delivered verdict uses 1 report
-          credit. Chat turns without a verdict are free. Not a profit guarantee.
+          same conversation. Confirming the brief reserves 1 report credit before search; a chosen flip commits it;
+          nothing-fits or errors release it. Briefing turns stay free. Not a profit guarantee.
         </p>
         <div className="onboarding-note">
           <strong>How it works</strong>

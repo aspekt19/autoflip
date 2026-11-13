@@ -758,11 +758,11 @@ export function normalizeRelaxedConditions(input: {
 export type ServChargeOutcome = "chosen" | "nothing_fits" | "incomplete";
 
 /**
- * Credit is owed only when SERV settled a chosen listing/flip OR a documented
- * nothing-fits. Incomplete / failed / unavailable → no charge (refund if held).
+ * Credit is committed only when SERV delivered a chosen listing/flip.
+ * Nothing-fits / incomplete / failed → release reservation (no charge).
  */
 export function servOutcomeChargesCredit(outcome: ServChargeOutcome | null | undefined): boolean {
-  return outcome === "chosen" || outcome === "nothing_fits";
+  return outcome === "chosen";
 }
 
 /** Derive charge outcome from a settled agent verdict shape. */

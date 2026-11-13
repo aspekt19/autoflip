@@ -1,7 +1,8 @@
 /**
  * Deal Radar paid plans (Stripe TEST mode only).
  * No free radar tier and no trial — watches require an active plan.
- * One-time credit packs ($9 / $25) stay on /credits and grant report credits only (no radar).
+ * Plans do NOT include report credits — buy credit packs separately.
+ * One-time credit packs ($9 / $25) stay on /credits and /pricing (same buy UI).
  */
 
 export const PLAN_CATALOG = [
@@ -10,26 +11,27 @@ export const PLAN_CATALOG = [
     name: "Radar",
     amountCents: 10_000,
     /** Combined Find + Resale watched searches. */
-    watchLimit: 5,
+    watchLimit: 1,
     /** Due interval for every watch under this plan. */
     intervalHours: 24,
-    servCallCapPerMonth: 1500,
-    reportCreditsPerMonth: 5,
+    /** ~300 SERV reviews per watched search per month. */
+    servCallCapPerMonth: 300,
+    reportCreditsPerMonth: 0,
     lookupKey: "autoflip_radar_monthly",
     detail:
-      "5 watched searches (Find or Resale). Checks daily. Up to 1,500 reviews a month. Includes 5 report credits a month. Stripe test mode.",
+      "1 watched search (Find or Resale). Checks daily. Up to 300 reviews a month. No report credits included — buy packs separately. Stripe test mode.",
   },
   {
     id: "radar_pro",
     name: "Radar Pro",
     amountCents: 25_000,
-    watchLimit: 20,
+    watchLimit: 3,
     intervalHours: 24,
-    servCallCapPerMonth: 6000,
-    reportCreditsPerMonth: 15,
+    servCallCapPerMonth: 900,
+    reportCreditsPerMonth: 0,
     lookupKey: "autoflip_radar_pro_monthly",
     detail:
-      "20 watched searches (Find or Resale). Checks daily. Up to 6,000 reviews a month. Includes 15 report credits a month. Stripe test mode.",
+      "3 watched searches (Find or Resale). Checks daily. Up to 900 reviews a month. No report credits included — buy packs separately. Stripe test mode.",
   },
 ] as const;
 

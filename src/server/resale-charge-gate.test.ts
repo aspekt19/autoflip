@@ -10,7 +10,7 @@ describe("resaleDeliveryChargesCredit", () => {
     ).toBe(true);
   });
 
-  it("charges for documented nothing-fits (agent summary + emptyReason)", () => {
+  it("releases (does not charge) for documented nothing-fits", () => {
     expect(
       resaleDeliveryChargesCredit({
         best: null,
@@ -19,7 +19,7 @@ describe("resaleDeliveryChargesCredit", () => {
         reviewNote: "Nothing fit after relaxations.",
         message: "No flip was published.",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("skips charge for incomplete empty (no agent explanation)", () => {

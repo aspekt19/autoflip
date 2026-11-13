@@ -52,7 +52,7 @@ export function HomeStage() {
           <li>
             <strong>02 Read the listing</strong>
             <span>
-              Photo, price, miles, and a Good, Fair, or High price badge from similar asking prices. Find costs 1 report credit per delivered search.
+              Photo, price, miles, and a Good, Fair, or High price badge from similar asking prices. Find reserves 1 report credit before search starts; released if nothing fits.
             </span>
           </li>
           <li>

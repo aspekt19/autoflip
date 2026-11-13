@@ -228,7 +228,8 @@ describe("agent find_cars async (mocked match)", () => {
     if (!createdRun.ok) return;
     expect(createdRun.run.run_id).toBeTruthy();
     expect(createdRun.run.status).toBe("queued");
-    expect(await creditBalance(kv, "find-user")).toBe(2);
+    // Reserve before SERV — 1 credit held at create.
+    expect(await creditBalance(kv, "find-user")).toBe(1);
 
     // Force understandNeed to succeed without SERV by using explicit structured text + no serv key.
     const advanced = await advanceAgentFindRun(createdRun.run.run_id, {
@@ -238,7 +239,7 @@ describe("agent find_cars async (mocked match)", () => {
       fetch: vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown as typeof fetch,
     });
     expect(advanced).not.toBeNull();
-    // Without listings provider the match fails → no charge.
+    // Without listings provider the match fails → reservation released.
     if (advanced?.status === "failed") {
       expect(advanced.error?.credit_spent).toBe(false);
       expect(await creditBalance(kv, "find-user")).toBe(2);
