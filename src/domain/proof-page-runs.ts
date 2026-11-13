@@ -210,6 +210,27 @@ export type SnapshotComparisonProof = {
     criteriaResult: string;
     costEstimateUsd: number;
   };
+  additionalRuns?: Array<{
+    metadata: {
+      runId: number;
+      runUrl: string;
+      artifactId: number;
+      headSha: string;
+      capturedAt: string;
+      generatedAt: string;
+    };
+    sameCandidateSet: boolean;
+    arms: Record<"features_off" | "features_on", {
+      responseId: string;
+      latencyMs: number;
+      totalTokens: number;
+      estimatedCostUsd: number;
+      pickVin: string;
+      openingOfferUsd: number | null;
+      walkAwayUsd: number | null;
+    }>;
+    criteriaResult: string;
+  }>;
   result: {
     totalCompletedRuns?: number;
     totalListingSearches?: number;
