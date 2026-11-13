@@ -8,6 +8,19 @@
 
 Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 
+## Try it in a minute
+
+1. Open the [live app](https://autoflip-umber.vercel.app/) and sign in.
+2. Go to [Find](https://autoflip-umber.vercel.app/find), describe the car you need, and confirm SERV's proposed brief.
+3. Watch SERV search current dealer inventory, call vehicle-data tools, and return a shortlist or a reasoned no-fit decision.
+4. Open [Proof](https://autoflip-umber.vercel.app/proof) to inspect the recorded Denver case and compare the Find workflow with the Gemini Chat answer.
+
+Example request used in the published case:
+
+> I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
+
+Find requires a verified account and one report credit for a completed search. The published Proof run was isolated and did not charge a customer credit.
+
 ## Try Lemonless
 
 - **Find** — describe the vehicle you need in natural language. SERV clarifies the brief, asks you to confirm it, searches live listings, checks available evidence, and returns a shortlist or a reasoned nothing-fits result.
