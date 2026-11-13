@@ -121,7 +121,7 @@ async function capture(): Promise<SearchSnapshot> {
       source: "listing_feed",
       vin: null,
       status: candidates.length > 0 ? "queried_with_data" : "empty",
-      note: `One Auto.dev search: used SUV, ask ≤ $22,000, miles ≤ 90,000, ZIP 80202, radius 75. Returned ${candidates.length} VINs. Buyer ZIP geocode ${zip.ok ? "ok" : "failed"}; dealer miles use listing coordinates or the bundled ZIP centroid table.`,
+      note: `One Auto.dev search: used SUV, asking price ≤ $22,000 (not verified all-in), miles ≤ 90,000, ZIP 80202, radius 75. Returned ${candidates.length} VINs. AWD is not verified by this search. Buyer ZIP geocode ${zip.ok ? "ok" : "failed"}; dealer miles use listing coordinates or the bundled ZIP centroid table.`,
     },
     {
       source: "vehicle_history",
@@ -138,9 +138,9 @@ async function capture(): Promise<SearchSnapshot> {
     radiusMi: 75,
     budgetUsd: 22000,
     hardConstraints: [
-      { key: "budget", value: "$22,000 all-in" },
+      { key: "budget", value: "$22,000 target all-in; listing feed supplies asking price only, taxes and fees are unverified" },
       { key: "body", value: "SUV" },
-      { key: "drivetrain", value: "AWD" },
+      { key: "drivetrain", value: "AWD requested; not verified by this listing search" },
       { key: "mileage", value: "Under 90,000 miles" },
       { key: "history", value: "No accident or salvage history" },
       { key: "distance", value: "Within 75 miles of 80202" },
@@ -213,6 +213,23 @@ async function main() {
     const arm = await decide(snapshot, features);
     arms.push(arm);
     writeJson(`features-${features}.json`, arm);
+    if (!arm.ok) {
+      if (features === "off") {
+        writeJson("features-on.json", {
+          servVerdictFeatures: "on",
+          ok: false,
+          status: null,
+          error: "not_run: features-off decision failed; stopped to avoid an incomplete paid comparison",
+          responseId: null,
+          model: null,
+          requestedModel: null,
+          latencyMs: null,
+          decision: null,
+          cost: { usd: null, source: "harness estimate" },
+        });
+      }
+      fail(`Decision failed for features=${features}; subsequent paid calls were skipped.`);
+    }
     console.log(
       `features=${features} ok=${arm.ok} model=${arm.model} responseId=${arm.responseId ?? "—"} costSource=${arm.cost.source} usd=${arm.cost.usd ?? "—"}`,
     );
