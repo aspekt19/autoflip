@@ -258,6 +258,7 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
         The same immutable snapshot was then sent to SERV twice: once with verdict features off
         and once with the Kronos–Multipath/Shadow feature bundle on. This isolates the verdict
         step; it is not a full end-to-end test of every vehicle-data provider.
+        {comparison.repeatRun ? ` A second full run was also triggered unintentionally by PR synchronization; it is disclosed below.` : ""}
       </p>
       <p className="hint">
         Captured {comparison.metadata.capturedAt} · run #{comparison.metadata.runId} ·{" "}
@@ -368,6 +369,47 @@ function SnapshotComparisonBlock({ comparison }: { comparison: SnapshotCompariso
         <p>{comparison.result.latency}</p>
         <p>{comparison.result.cost}</p>
       </section>
+
+
+      {comparison.repeatRun ? (
+        <details className="decision">
+          <summary>Repeat run · same snapshot reproduced the same choices</summary>
+          <div className="decision-body">
+            <p>
+              This second workflow run was triggered unintentionally by pull-request synchronization
+              while the evidence and Proof page were being committed. It was not planned as another
+              paid experiment. The paid workflow has since been changed to manual dispatch only.
+            </p>
+            <p>
+              Run #{comparison.repeatRun.metadata.runId} · captured {comparison.repeatRun.metadata.capturedAt} ·{" "}
+              <a href={comparison.repeatRun.metadata.runUrl} target="_blank" rel="noreferrer">repeat GitHub Actions run</a>.
+            </p>
+            <p>
+              The repeat captured the same {comparison.repeatRun.sameCandidateCount} VINs in the same
+              order and returned the same selected VIN in each arm. {comparison.repeatRun.criteriaResult}
+            </p>
+            <ul className="refuse">
+              <li>
+                Features off: VIN <code>{comparison.repeatRun.arms.features_off.pickVin}</code> ·{" "}
+                {comparison.repeatRun.arms.features_off.latencyMs.toLocaleString("en-US")} ms ·{" "}
+                {comparison.repeatRun.arms.features_off.usage.totalTokens.toLocaleString("en-US")} tokens.
+              </li>
+              <li>
+                Features on: VIN <code>{comparison.repeatRun.arms.features_on.pickVin}</code> ·{" "}
+                {comparison.repeatRun.arms.features_on.latencyMs.toLocaleString("en-US")} ms ·{" "}
+                {comparison.repeatRun.arms.features_on.usage.totalTokens.toLocaleString("en-US")} tokens.
+              </li>
+            </ul>
+            <p>
+              The two completed runs account for {comparison.result.totalListingSearches} Auto.dev listing
+              searches and {comparison.result.totalServCalls} SERV calls. Combined SERV harness estimate: $
+              {comparison.result.completedRunsHarnessEstimateUsd?.toFixed(2)}; this is not a provider invoice,
+              and Auto.dev charges are not exposed here.
+            </p>
+            <p className="hint">{comparison.repeatRun.metadata.reason}</p>
+          </div>
+        </details>
+      ) : null}
 
       <details className="decision">
         <summary>All {comparison.snapshot.candidates.length} candidates in the frozen snapshot</summary>
