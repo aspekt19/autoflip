@@ -243,6 +243,23 @@ describe("SERV answer validator — repair issues, never substitute", () => {
       expect(fields.some((f) => f.includes("codeMath"))).toBe(true);
     }
   });
+
+  it("rejects listing asking above confirmed budget even when offerUsd is within budget", () => {
+    const listings = new Map([
+      ["4T1DAACK0TU295949", { vin: "4T1DAACK0TU295949", priceUsd: 25_835, miles: 5_173 }],
+    ]);
+    const validated = validateServAnswer({
+      picks: [{ vin: "4T1DAACK0TU295949", offerUsd: 25_000 }],
+      listingsByVin: listings,
+      budgetUsd: 25_000,
+    });
+    expect(validated.ok).toBe(false);
+    if (!validated.ok) {
+      expect(validated.issues.some((i) => i.field.includes("price") && /25,?835/.test(i.message))).toBe(
+        true,
+      );
+    }
+  });
 });
 
 describe("Find/Resale final result requires agent loop", () => {

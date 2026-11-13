@@ -17,8 +17,11 @@ function pickLabel(
 }
 
 function listingVdp(listing: Listing | null | undefined): string | null {
-  const vdp = listing?.vdp?.trim() || listing?.dealerUrl?.trim() || null;
-  return vdp || null;
+  // Prefer the listing's own detail page from auto.dev; dealerUrl only as fallback.
+  const vdp = listing?.vdp?.trim() || null;
+  if (vdp) return vdp;
+  const dealer = listing?.dealerUrl?.trim() || null;
+  return dealer || null;
 }
 
 function listingFromBest(best: Record<string, unknown> | null): Listing | null {
@@ -147,6 +150,28 @@ export function settleFindChatCaseResult(input: {
     vdp: listingVdp(listing),
   };
 
+  const honestyMessage =
+    typeof result.message === "string" && result.message.trim()
+      ? result.message.trim()
+      : typeof result.honesty === "string" && result.honesty.trim()
+        ? result.honesty.trim()
+        : null;
+  const agentError = typeof result.error === "string" ? result.error : null;
+  const incompleteFailure =
+    !verdictReached
+      ? {
+          step: "chat" as const,
+          // Prefer stored search-log honesty over a generic incomplete_verdict label.
+          error:
+            agentError === "missing_terminal" || honestyMessage
+              ? agentError ?? "serv_no_terminal"
+              : "incomplete_verdict",
+          message:
+            honestyMessage ||
+            "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
+        }
+      : null;
+
   return {
     ...base,
     ok: verdictReached,
@@ -155,14 +180,7 @@ export function settleFindChatCaseResult(input: {
       : null,
     carsFound,
     pick,
-    failure: verdictReached
-      ? null
-      : {
-          step: "chat",
-          error: "incomplete_verdict",
-          message:
-            "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
-        },
+    failure: incompleteFailure,
     proofRecords: [],
     agentMode:
       typeof agentLoop?.agentMode === "string"
@@ -291,6 +309,27 @@ export function settleResaleChatCaseResult(input: {
       ? (result.confirmedBrief as { summary?: string })
       : null;
 
+  const honestyMessage =
+    typeof result.message === "string" && result.message.trim()
+      ? result.message.trim()
+      : typeof result.honesty === "string" && result.honesty.trim()
+        ? result.honesty.trim()
+        : null;
+  const agentError = typeof result.error === "string" ? result.error : null;
+  const incompleteFailure =
+    !scoringOk
+      ? {
+          step: "resale_chat" as const,
+          error:
+            agentError === "missing_terminal" || honestyMessage
+              ? agentError ?? "serv_no_terminal"
+              : "incomplete_verdict",
+          message:
+            honestyMessage ||
+            "No chosen flip and no documented nothing-fits (searches + reasons). Agent must repair.",
+        }
+      : null;
+
   return {
     ...base,
     ok: scoringOk,
@@ -299,14 +338,7 @@ export function settleResaleChatCaseResult(input: {
       : null,
     carsFound,
     pick,
-    failure: scoringOk
-      ? null
-      : {
-          step: "resale_chat",
-          error: "incomplete_verdict",
-          message:
-            "No chosen flip and no documented nothing-fits (searches + reasons). Agent must repair.",
-        },
+    failure: incompleteFailure,
     proofRecords: [],
     agentMode:
       typeof agentLoop?.agentMode === "string"

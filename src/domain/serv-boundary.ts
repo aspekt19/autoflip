@@ -530,6 +530,35 @@ export type ServAnswerPick = {
 
 export type ServAnswerValidationIssue = { field: string; message: string };
 
+/**
+ * Confirmed-brief / mandate budget invariant: listing asking price must be ≤ maxUsd
+ * when a budget is set. Shared by Find, Resale, and Radar SERV answer gates.
+ * Returns a repair issue message, or null when the check passes / does not apply.
+ */
+export function listingPriceBudgetIssue(input: {
+  listingPriceUsd: number | null | undefined;
+  budgetUsd: number | null | undefined;
+  vin: string;
+  field?: string;
+}): ServAnswerValidationIssue | null {
+  const budget =
+    input.budgetUsd != null && Number.isFinite(input.budgetUsd) && input.budgetUsd > 0
+      ? Math.round(input.budgetUsd)
+      : null;
+  const price =
+    input.listingPriceUsd != null &&
+    Number.isFinite(input.listingPriceUsd) &&
+    input.listingPriceUsd > 0
+      ? Math.round(input.listingPriceUsd)
+      : null;
+  if (budget == null || price == null) return null;
+  if (price <= budget) return null;
+  return {
+    field: input.field ?? "price",
+    message: `Listing asking $${price.toLocaleString("en-US")} exceeds budget $${budget.toLocaleString("en-US")} for VIN ${input.vin}. Pick a listing at or under budget, or call submit_nothing_fits.`,
+  };
+}
+
 export function validateServAnswer(input: {
   picks: readonly ServAnswerPick[];
   listingsByVin: ReadonlyMap<string, ServAnswerListingFact>;
@@ -552,6 +581,13 @@ export function validateServAnswer(input: {
       });
       continue;
     }
+    const overBudget = listingPriceBudgetIssue({
+      listingPriceUsd: listing.priceUsd,
+      budgetUsd: budget,
+      vin,
+      field: `picks[${index}].price`,
+    });
+    if (overBudget) issues.push(overBudget);
     if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
       issues.push({
         field: `picks[${index}].offerUsd`,

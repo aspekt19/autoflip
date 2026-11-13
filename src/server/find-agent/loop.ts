@@ -9,6 +9,9 @@
  */
 import {
   boundaryRepairMessage,
+  honestNothingFitsReasonFromSearches,
+  searchesAllEmpty,
+  searchesDocumented,
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
@@ -490,7 +493,7 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
 }
 
 const FIND_TERMINAL_NUDGE =
-  "No terminal tool yet. Call submit_picks (chosen cars) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches.";
+  "No terminal tool yet. Call submit_picks (chosen cars) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches. If every search kept 0 listings, you MUST call submit_nothing_fits with a short written reason now.";
 
 const FIND_COULD_NOT_FINISH =
   "We couldn't finish this search — SERV stopped without submit_picks or submit_nothing_fits after a repair turn.";
@@ -507,6 +510,15 @@ function nothingFitsVerdictFromReason(
     relaxedConditions: synthesizeRelaxedConditionsFromSearches(searches),
     passReason: reason.trim(),
   };
+}
+
+/** After a failed terminal nudge: empty search journal → honest nothing-fits (not incomplete). */
+function honestEmptyNothingFitsFromJournal(
+  journal: readonly FindAgentJournalEntry[],
+): FindAgentVerdict | null {
+  const searches = searchesFromFindJournal(journal);
+  if (!searchesAllEmpty(searches)) return null;
+  return nothingFitsVerdictFromReason(honestNothingFitsReasonFromSearches(searches), journal);
 }
 
 function argumentText(value: unknown): string {
@@ -1146,7 +1158,27 @@ async function runToolsMode(input: {
         ];
         continue;
       }
+      // After nudge: empty journaled inventory → honest nothing-fits (not incomplete_verdict).
+      const emptyTerminal = honestEmptyNothingFitsFromJournal(input.journal);
+      if (emptyTerminal) {
+        return {
+          ok: true,
+          agentMode: "tools",
+          requestedMode,
+          toolRounds,
+          verdictReached: true,
+          verdict: emptyTerminal,
+          relaxedConditions: emptyTerminal.relaxedConditions,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+          listingsByVin: input.state.listingsByVin,
+          droppedPicks: [],
+          shopperFacts: { ...input.state.shopperFacts },
+          ...findLoopMeta(bundle, rejections),
+        };
+      }
       // Typed terminal required — never finish via chat schema without submit_picks / submit_nothing_fits.
+      const searches = searchesFromFindJournal(input.journal);
       return {
         ok: false,
         agentMode: "tools",
@@ -1154,7 +1186,9 @@ async function runToolsMode(input: {
         toolRounds,
         verdictReached: false,
         error: "missing_terminal",
-        message: FIND_COULD_NOT_FINISH,
+        message: searchesDocumented(searches)
+          ? honestNothingFitsReasonFromSearches(searches)
+          : FIND_COULD_NOT_FINISH,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         shopperFacts: { ...input.state.shopperFacts },
@@ -1437,19 +1471,42 @@ async function runToolsMode(input: {
     }
   }
 
-  return {
-    ok: false,
-    agentMode: "tools",
-    requestedMode,
-    toolRounds,
-    verdictReached: false,
-    error: "missing_terminal",
-    message: FIND_COULD_NOT_FINISH,
-    journal: input.journal,
-    knownVins: [...input.state.knownVins],
-    shopperFacts: { ...input.state.shopperFacts },
-    ...findLoopMeta(bundle, rejections),
-  };
+  {
+    const emptyTerminal = honestEmptyNothingFitsFromJournal(input.journal);
+    if (emptyTerminal) {
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: emptyTerminal,
+        relaxedConditions: emptyTerminal.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        droppedPicks: [],
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+    const searches = searchesFromFindJournal(input.journal);
+    return {
+      ok: false,
+      agentMode: "tools",
+      requestedMode,
+      toolRounds,
+      verdictReached: false,
+      error: "missing_terminal",
+      message: searchesDocumented(searches)
+        ? honestNothingFitsReasonFromSearches(searches)
+        : FIND_COULD_NOT_FINISH,
+      journal: input.journal,
+      knownVins: [...input.state.knownVins],
+      shopperFacts: { ...input.state.shopperFacts },
+      ...findLoopMeta(bundle, rejections),
+    };
+  }
 }
 
 async function runNextActionMode(input: {

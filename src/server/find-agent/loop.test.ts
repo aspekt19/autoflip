@@ -127,6 +127,26 @@ describe("find-agent guardrails", () => {
     );
     expect(overAsk.ok).toBe(false);
   });
+
+  it("submit_picks rejects listing asking above confirmed brief maxUsd (even if offer ≤ budget)", () => {
+    const listings = new Map([[VIN, { vin: VIN, priceUsd: 25_835 }]]);
+    const overListing = validateFindSubmitPicks(
+      {
+        summary: "Over listing budget.",
+        confidence: "high",
+        picks: [{ vin: VIN, label: "Camry", action: "buy", offerUsd: 25_000, why: "Offer under 25k." }],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      { listingsByVin: listings, budgetUsd: 25_000 },
+    );
+    expect(overListing.ok).toBe(false);
+    if (!overListing.ok) {
+      expect(overListing.issues.some((i) => i.field.includes("price") && /25,?835/.test(i.message))).toBe(
+        true,
+      );
+    }
+  });
 });
 
 describe("runFindAgentLoop", () => {

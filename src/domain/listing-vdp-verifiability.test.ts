@@ -41,6 +41,18 @@ describe("listingVdpVerifiability", () => {
     expect(row.flag).toBeNull();
   });
 
+  it("prefers the listing detail VDP over a generic dealer homepage when both are present", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2017-toyota-corolla-le/2T1BURHE6HC837595",
+      dealerUrl: "https://www.exampletoyota.com/",
+      vin: "2T1BURHE6HC837595",
+    });
+    expect(row.direct).toBe(true);
+    expect(row.href).toContain("/inventory/used-2017-toyota-corolla-le/");
+    expect(row.href).not.toMatch(/exampletoyota\.com\/?$/);
+  });
+
   it("flags missing VDP", () => {
     const row = listingVdpVerifiability({ dealer: "Someone", vdp: null, vin: "X" });
     expect(row.direct).toBe(false);

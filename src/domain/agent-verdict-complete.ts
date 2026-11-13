@@ -105,9 +105,31 @@ function actionablePicks(verdict: ScoringVerdictShape): ScoringVerdictShape["pic
   });
 }
 
-function searchesDocumented(searches: readonly AgentSearchJournalRow[]): boolean {
+export function searchesDocumented(searches: readonly AgentSearchJournalRow[]): boolean {
   if (searches.length === 0) return false;
   return searches.every((s) => s.params != null && Number.isFinite(s.resultCount));
+}
+
+/** True when every journaled search kept zero listings (empty inventory after search). */
+export function searchesAllEmpty(searches: readonly AgentSearchJournalRow[]): boolean {
+  return searchesDocumented(searches) && searches.every((s) => s.resultCount === 0);
+}
+
+/**
+ * Honest nothing-fits reason from the code search journal when SERV stops without a terminal.
+ * Used only after a terminal nudge failed — never invents inventory outcomes.
+ */
+export function honestNothingFitsReasonFromSearches(
+  searches: readonly AgentSearchJournalRow[],
+): string {
+  const evidence = formatSearchJournalEvidence(searches);
+  if (!searchesDocumented(searches)) {
+    return "SERV stopped without submit_picks or submit_nothing_fits, and no search_listings calls were journaled.";
+  }
+  if (searchesAllEmpty(searches)) {
+    return `Live search returned no listings that fit after ${searches.length} search_listings call(s). Code journal:\n${evidence}`;
+  }
+  return `SERV stopped without submit_picks or submit_nothing_fits after searching. Code journal:\n${evidence}`;
 }
 
 /**
