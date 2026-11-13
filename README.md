@@ -77,7 +77,24 @@ The public [Proof page](https://autoflip-umber.vercel.app/proof) presents one re
 | Vehicle-price walk-away | $20,000 |
 | Shopper's all-in ceiling | $25,000 |
 
-The run requested VIN decoding, vehicle-safety and recall/complaint data, fuel-economy evidence, and local asking-price comparisons. The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
+The run requested VIN decoding, vehicle-safety and recall/complaint data, fuel-economy evidence, and local asking-price comparisons.
+
+### What Find adds in this case
+
+Gemini's answer was useful for choosing model families and planning a Denver-area negotiation. Find connected the same buyer brief to a specific local candidate and a traceable evidence trail:
+
+| Buyer question | Gemini Chat · Auto | Lemonless Find · SERV |
+|---|---|---|
+| What should I look for? | Recommended Forester and CX-5 model-year/trim families. | Selected a live 2021 Forester Premium AWD listing with VIN, mileage, price and location. |
+| Does this exact car match? | No individual listing or VIN was named. | Decoded the VIN and returned the vehicle configuration. |
+| What about safety and running costs? | Gave model-level safety and MPG guidance. | Retrieved the selected vehicle's NHTSA safety lookup and an estimated 29 MPG combined / $1,670 annual fuel cost for the closest configuration. |
+| Is the price grounded locally? | Gave approximate model-family price ranges. | Compared nearby 2019–2021 Forester asking prices and returned a $19,797 median. |
+| What should I offer? | Suggested $24,200 out the door as an opening offer. | Suggested $19,000 before taxes and fees, with a $20,000 vehicle-price walk-away point, tied to the selected listing and local comparables. |
+| How safe is the recommendation? | Included a useful pre-buy checklist. | Returned “needs inspection” at medium confidence and called for an itemized OTD quote and physical checks. |
+
+The difference is workflow depth: Find takes the buyer from a natural-language brief to a specific vehicle, vehicle-level evidence, local price context and a structured next step. It does not claim to replace a vehicle-history report or an in-person inspection, and the final dealer OTD amount must still be confirmed.
+
+ The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
 
 **Run record:** 13 November 2026, 20:29:50 UTC · 47.5 seconds · 8 SERV calls · 13 tool calls · 12 tool rounds · 88,084 reported tokens. Find ran through the same server-side function used by `/api/find/chat`, with isolated in-memory state. No customer credit was charged and no production data was changed. The [GitHub Actions run](https://github.com/aspekt19/autoflip/actions/runs/43502039509) and the source links are available from Proof.
 
