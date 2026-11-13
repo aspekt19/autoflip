@@ -339,6 +339,30 @@ describe("normalized VIN record — symptom golden cases", () => {
     expect(clipBuyerText("Short note.", 60)).toBe("Short note.");
   });
 
+  it("5b) Distance from shopper ZIP → dealer ZIP is provenanced 'computed from ZIP'", () => {
+    const feed = feedStub({ distanceMiles: null, latitude: null, longitude: null, zip: "44101" });
+    const record = mergeVehicleSources({
+      vin: feed.vin,
+      feed,
+      feedAttempted: true,
+      computedDistanceMiles: 87,
+    });
+    expect(record.distanceMiles.value).toBe(87);
+    expect(record.distanceMiles.source).toBe("computed_zip");
+    expect(record.distanceMiles.label).toBe("computed from ZIP");
+    const rows = provenanceRowsFromRecord(record);
+    expect(rows.find((r) => r.field === "distanceMiles")?.source).toBe("computed from ZIP");
+
+    const noDealerZip = mergeVehicleSources({
+      vin: feed.vin,
+      feed: { ...feed, zip: null },
+      feedAttempted: true,
+      // Without a dealer ZIP callers must not invent miles — leave computed unset.
+    });
+    expect(noDealerZip.distanceMiles.value).toBeNull();
+    expect(noDealerZip.distanceMiles.source).toBeNull();
+  });
+
   it("6) Per-source checklist comes from the attempt log — never a generic 'Cars for sale' only", () => {
     const attempts = sourceAttemptsFromEvidenceRows([
       { source: "recalls_complaints", status: "checked", label: "Recalls & complaints" },

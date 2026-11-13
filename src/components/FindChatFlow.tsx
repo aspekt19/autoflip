@@ -7,6 +7,7 @@ import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatUsd } from "@/domain/format";
+import { clipBuyerText } from "@/domain/normalized-vehicle";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
 import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 
@@ -94,7 +95,9 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
         <div className="find-results-grid listing-grid">
           {ranked.slice(0, 8).map((car) => {
             const vin = car.vin?.toUpperCase() ?? "";
-            const why = (vin && whyByVin.get(vin)) || summaryWhy;
+            const whyRaw = (vin && whyByVin.get(vin)) || summaryWhy;
+            // Clip only at display — SERV why is stored untruncated (word boundary).
+            const why = whyRaw ? clipBuyerText(whyRaw, 400) : null;
             const pool = vin ? poolByVin.get(vin) : null;
             const distance = car.distanceMiles ?? pool?.distanceMiles ?? null;
             const body = pool?.bodyStyle ?? null;

@@ -253,7 +253,9 @@ export function validateFindAgentVerdict(input: unknown): ValidateFindAgentVerdi
     }
     const offerRaw = row.offerUsd == null ? null : asFiniteNumber(row.offerUsd);
     const offerUsd = offerRaw != null ? Math.round(offerRaw) : null;
-    const why = asTrimmedString(row.why, 400) || "Chosen from live listings.";
+    // Store SERV why untruncated — clip only at display via clipBuyerText (word boundary).
+    const whyRaw = typeof row.why === "string" ? row.why.trim() : "";
+    const why = whyRaw || "Chosen from live listings.";
     picks.push({
       vin,
       label,

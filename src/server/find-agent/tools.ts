@@ -3,7 +3,10 @@
  */
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
-import { enrichListingDistanceFromCenter } from "@/domain/geo";
+import {
+  enrichListingDistanceFromCenter,
+  enrichListingDistanceFromDealerZip,
+} from "@/domain/geo";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import {
   classifySearchConstraints,
@@ -1325,10 +1328,21 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
-    // Code distance from resolved search ZIP → listing lat/lon when feed omits it.
-    const listingsWithDistance = enrichListingDistanceFromCenter(
-      search.listings,
-      state.searchCenter ?? locationResolution,
+    // Code distance: feed → listing lat/lon → dealer ZIP via /api/zip when feed omits it.
+    const center = state.searchCenter ?? locationResolution;
+    const afterLatLon = enrichListingDistanceFromCenter(search.listings, center);
+    const listingsWithDistance = await enrichListingDistanceFromDealerZip(
+      afterLatLon,
+      center,
+      async (zip) => {
+        if (!agentLoopMayStartAutodevCall(deps.deadline)) return null;
+        const dealerLookup = await autodevZipLookup(zip, autodevDeps);
+        if (!dealerLookup.ok) return null;
+        return {
+          latitude: dealerLookup.location.latitude,
+          longitude: dealerLookup.location.longitude,
+        };
+      },
     );
     // Observational funnel for SERV's eyes — product filters must not drop returned rows.
     const { listings: funnelKept, funnel } = applySearchListingsFunnel(listingsWithDistance, parsed.value);

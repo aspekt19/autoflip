@@ -339,6 +339,73 @@ describe("search_listings funnel", () => {
     expect(cars.map((c) => c.model).sort()).toEqual(["Camry", "RAV4"]);
   });
 
+  it("fills distanceMiles from user ZIP → dealer ZIP via /api/zip when feed omits distance", async () => {
+    const zipCalls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/zip/43215")) {
+        zipCalls.push("43215");
+        return zipLookupOk("43215", "Columbus", "OH");
+      }
+      if (url.includes("/zip/44101")) {
+        zipCalls.push("44101");
+        // ~1° N of Columbus stub coords
+        return new Response(
+          JSON.stringify({
+            success: true,
+            payload: { zip: "44101", city: "Cleveland", state: "OH", latitude: 40.96, longitude: -81.7 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("listings")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                vin: "1HGCM82633A004352",
+                vehicle: {
+                  year: 2018,
+                  make: "Toyota",
+                  model: "Camry",
+                  bodyStyle: "Car",
+                  style: "Sedan",
+                  mileage: 62000,
+                  transmission: "Automatic",
+                },
+                // No retail.distance / location — only dealer ZIP.
+                retailListing: {
+                  price: 14_500,
+                  city: "Cleveland",
+                  state: "OH",
+                  zip: "44101",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", zip: "43215", radiusMi: 150, priceMaxUsd: 20_000 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(true);
+    expect(zipCalls).toEqual(expect.arrayContaining(["43215", "44101"]));
+    const cars = executed.result.cars as Array<{ vin: string; distanceMiles: number | null }>;
+    expect(cars).toHaveLength(1);
+    expect(cars[0]?.distanceMiles).toEqual(expect.any(Number));
+    expect(cars[0]!.distanceMiles!).toBeGreaterThan(50);
+  });
+
   it("passes real upstream status/cause to SERV (not a generic error)", async () => {
     // 400 is non-retryable so the tool result surfaces in one attempt.
     const fetchImpl: typeof fetch = async () => new Response("bad filter", { status: 400 });

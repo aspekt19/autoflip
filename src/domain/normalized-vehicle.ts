@@ -23,7 +23,9 @@ export type VehicleFieldSource =
   | "nhtsa_safety"
   | "market_comps"
   | "user"
-  | "merged";
+  | "merged"
+  /** Miles from shopper ZIP → dealer ZIP via /api/zip when feed/page omitted distance. */
+  | "computed_zip";
 
 export type ProvenancedValue<T> = {
   value: T;
@@ -95,6 +97,7 @@ const SOURCE_LABELS: Record<VehicleFieldSource, string> = {
   market_comps: "market comps",
   user: "typed by shopper",
   merged: "merged from sources",
+  computed_zip: "computed from ZIP",
 };
 
 export const VEHICLE_SOURCE_ATTEMPT_LABELS: Record<VehicleSourceAttemptId, string> = {
@@ -235,6 +238,7 @@ export function provenanceRowsFromRecord(
   push("drivetrain", record.drivetrain);
   push("fuel", record.fuelType);
   push("listingUrl", record.listingUrl);
+  push("distanceMiles", record.distanceMiles);
   push("complaintCount", record.complaintCount);
   push("combMpg", record.combMpg);
   return rows;
@@ -261,6 +265,11 @@ export type MergeVehicleInput = {
   fuelAttempted?: boolean;
   /** Extra attempt rows (comps, flip, evidence gate). */
   extraAttempts?: VehicleSourceAttempt[];
+  /**
+   * Miles from shopper ZIP → dealer ZIP via /api/zip when page/feed omitted distance.
+   * Provenance label: "computed from ZIP". Unknown when dealer ZIP is missing.
+   */
+  computedDistanceMiles?: number | null;
 };
 
 /**
@@ -347,6 +356,11 @@ export function mergeVehicleSources(input: MergeVehicleInput): NormalizedVehicle
   const distanceMiles = pickProvenanced<number | null>([
     { value: page?.distanceMiles ?? null, source: "page" },
     { value: feed?.distanceMiles ?? null, source: "feed" },
+    {
+      value: input.computedDistanceMiles ?? null,
+      source: "computed_zip",
+      empty: (v) => v == null || !Number.isFinite(v),
+    },
   ]);
   const accidentCount = pickProvenanced<number | null>([
     { value: page?.accidentCount ?? null, source: "page" },
