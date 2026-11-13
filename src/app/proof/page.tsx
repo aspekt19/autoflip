@@ -129,7 +129,7 @@ export default function ProofPage() {
                 <tr>
                   <th scope="row">Vehicle-level evidence</th>
                   <td>Presented model/year-level safety and economy claims.</td>
-                  <td>Ran a VIN decode identifying the vehicle configuration, retrieved its NHTSA safety ratings, and checked the closest fuel-economy configuration.</td>
+                  <td>Ran a VIN decode identifying the vehicle configuration, retrieved its official vehicle safety ratings, and checked the closest fuel-economy configuration.</td>
                 </tr>
                 <tr>
                   <th scope="row">Safety detail</th>
@@ -159,7 +159,7 @@ export default function ProofPage() {
                 <tr>
                   <th scope="row">Traceability</th>
                   <td>Shared conversational advice and a Gemini chat link.</td>
-                  <td>Links the recommendation to the actual listing, VIN decoder, NHTSA safety lookup, fuel-economy source and technical run record.</td>
+                  <td>Links the recommendation to the actual listing, VIN decoder, official vehicle safety lookup, fuel-economy source and technical run record.</td>
                 </tr>
               </tbody>
             </table>
