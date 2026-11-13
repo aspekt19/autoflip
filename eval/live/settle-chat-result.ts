@@ -5,7 +5,7 @@
 import { joinChosenListing } from "@/domain/join-chosen-listing";
 import type { Listing } from "@/domain/types";
 import { ESTIMATED_USD_PER_QUERY } from "./spend";
-import type { GeneratedQuery, LiveEvalCaseResult, LiveEvalPick } from "./types";
+import type { GeneratedQuery, LiveEvalCaseResult, LiveEvalPick, LiveEvalServUsage } from "./types";
 
 function pickLabel(
   year: number | null | undefined,
@@ -23,6 +23,25 @@ function listingVdp(listing: Listing | null | undefined): string | null {
   const dealer = listing?.dealerUrl?.trim() || null;
   return dealer || null;
 }
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function servUsageFromChat(agentLoop: Record<string, unknown> | null, result: Record<string, unknown> | null): LiveEvalServUsage | null {
+  const raw = asRecord(agentLoop?.servUsageTotal) ?? asRecord(asRecord(result?.journalMeta)?.servUsageTotal);
+  if (!raw || typeof raw.calls !== "number") return null;
+  return {
+    calls: raw.calls,
+    input_tokens: typeof raw.input_tokens === "number" ? raw.input_tokens : 0,
+    output_tokens: typeof raw.output_tokens === "number" ? raw.output_tokens : 0,
+    total_tokens: typeof raw.total_tokens === "number" ? raw.total_tokens : 0,
+    reasoning_tokens: typeof raw.reasoning_tokens === "number" ? raw.reasoning_tokens : 0,
+    cached_tokens: typeof raw.cached_tokens === "number" ? raw.cached_tokens : 0,
+    cost: typeof raw.cost === "number" ? raw.cost : null,
+  };
+}
+
 
 function listingFromBest(best: Record<string, unknown> | null): Listing | null {
   const listing = best?.listing;
@@ -194,6 +213,7 @@ export function settleFindChatCaseResult(input: {
       typeof agentLoop?.journalServCalls === "number" ? agentLoop.journalServCalls : 0,
     journalToolCalls:
       typeof agentLoop?.journalToolCalls === "number" ? agentLoop.journalToolCalls : 0,
+    servUsageTotal: servUsageFromChat(agentLoop, result),
     featuresActive: Array.isArray(agentLoop?.featuresActive)
       ? (agentLoop!.featuresActive as string[])
       : [],
@@ -352,6 +372,7 @@ export function settleResaleChatCaseResult(input: {
       typeof agentLoop?.journalServCalls === "number" ? agentLoop.journalServCalls : 0,
     journalToolCalls:
       typeof agentLoop?.journalToolCalls === "number" ? agentLoop.journalToolCalls : 0,
+    servUsageTotal: servUsageFromChat(agentLoop, result),
     chosenListingCount: chosenVin ? 1 : 0,
   };
 }

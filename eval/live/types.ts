@@ -67,6 +67,17 @@ export type LiveEvalRelaxedCondition = {
   why: string;
 };
 
+export type LiveEvalServUsage = {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  /** Sum of per-call cost when every usage row also reported cost; else null. */
+  cost: number | null;
+};
+
 export type LiveEvalCaseResult = {
   id: string;
   product: LiveEvalProduct;
@@ -89,6 +100,8 @@ export type LiveEvalCaseResult = {
   passReason?: string | null;
   journalServCalls?: number;
   journalToolCalls?: number;
+  /** Aggregated SERV usage from the agent journal (tokens/cost/cache). */
+  servUsageTotal?: LiveEvalServUsage | null;
   /** Documented SERV features active on the winning path (multipath / Prompt Guard / Shadow). */
   featuresActive?: string[];
   /** Exact FEATURE_REJECTION … flag strings when SERV rejected an extension. */
