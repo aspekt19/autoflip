@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "title": "Frozen snapshot SERV verdict A/B — Denver 80202",
+    "runId": 43488440689,
+    "runUrl": "https://github.com/aspekt19/autoflip/actions/runs/43488440689",
+    "artifactId": 14068557064,
+    "artifactName": "compare-snapshot-2026-11-13",
+    "headSha": "2eaffc59b543758e5a9c9c1ef29b0ae6ac1e729b",
+    "capturedAt": "2026-11-13T19:03:12.282Z",
+    "generatedAt": "2026-11-13T19:04:16.399Z",
+    "snapshotId": "denver-80202-frozen-2026-11-13",
+    "listingSearches": 1,
+    "candidateCount": 12,
+    "zipGeocode": "Auto.dev ZIP lookup succeeded; dealer distance derived from listing coordinates or bundled ZIP centroid table",
+    "providersCalled": [
+      "Auto.dev ZIP lookup",
+      "Auto.dev used-SUV listing search"
+    ],
+    "providersNotCalled": [
+      "NHTSA VIN decode",
+      "NHTSA safety/recalls",
+      "EPA fuel economy",
+      "independent vehicle-history provider",
+      "dealer fee/tax source"
+    ],
+    "providerCost": "No provider dollar cost was returned for SERV. SERV estimate below is the harness estimate, not an invoice. Auto.dev billing is not exposed in this artifact."
+  },
+  "query": "Denver 80202, $22k all-in, AWD SUV for mountain winters + 40-mile commute, two kids (safety first), under 90k miles, no accident/salvage, low fuel cost, within 75 miles, which to buy and what to offer",
+  "snapshot": {
+    "buyerZip": "80202",
+    "radiusMiles": 75,
+    "askingPriceSearchCapUsd": 22000,
+    "mileageCap": 90000,
+    "candidates": [
+      {
+        "vin": "1C4BJWEG3JL842779",
+        "year": 2018,
+        "make": "Jeep",
+        "model": "Wrangler",
+        "askingPriceUsd": 18999,
+        "miles": 84065,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 65,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "1C4RJFCG9FC807446",
+        "year": 2015,
+        "make": "Jeep",
+        "model": "Grand Cherokee",
+        "askingPriceUsd": 14749,
+        "miles": 87895,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 65,
+        "listingReportedAccidents": 1,
+        "titleBrand": null
+      },
+      {
+        "vin": "1FMCU0H66MUB31633",
+        "year": 2021,
+        "make": "Ford",
+        "model": "Escape",
+        "askingPriceUsd": 15499,
+        "miles": 51319,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 1,
+        "titleBrand": null
+      },
+      {
+        "vin": "3GNAXSEV4LS557854",
+        "year": 2020,
+        "make": "Chevrolet",
+        "model": "Equinox",
+        "askingPriceUsd": 17799,
+        "miles": 50407,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "3GNAXUEG8RL339688",
+        "year": 2024,
+        "make": "Chevrolet",
+        "model": "Equinox",
+        "askingPriceUsd": 19578,
+        "miles": 63009,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "3GNAXUEGXRL351230",
+        "year": 2024,
+        "make": "Chevrolet",
+        "model": "Equinox",
+        "askingPriceUsd": 19999,
+        "miles": 59476,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "5N1AT2MV3LC737706",
+        "year": 2020,
+        "make": "Nissan",
+        "model": "Rogue",
+        "askingPriceUsd": 14999,
+        "miles": 75686,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 65,
+        "listingReportedAccidents": 1,
+        "titleBrand": null
+      },
+      {
+        "vin": "7FARW1H5XJE043506",
+        "year": 2018,
+        "make": "Honda",
+        "model": "CR-V",
+        "askingPriceUsd": 19999,
+        "miles": 80532,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "KM8K12AA6KU223854",
+        "year": 2019,
+        "make": "Hyundai",
+        "model": "Kona",
+        "askingPriceUsd": 13499,
+        "miles": 65968,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "WBXJG9C07L5P24858",
+        "year": 2020,
+        "make": "BMW",
+        "model": "X1",
+        "askingPriceUsd": 18499,
+        "miles": 67788,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 65,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "ZASPAKBN8L7C74422",
+        "year": 2020,
+        "make": "Alfa Romeo",
+        "model": "Stelvio",
+        "askingPriceUsd": 17100,
+        "miles": 79825,
+        "location": "Colorado Springs, CO",
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      },
+      {
+        "vin": "1C4HJXDGXLW187670",
+        "year": 2020,
+        "make": "Jeep",
+        "model": "Wrangler",
+        "askingPriceUsd": 20996,
+        "miles": 86508,
+        "location": "Littleton, CO",
+        "distanceMiles": 10,
+        "listingReportedAccidents": 0,
+        "titleBrand": null
+      }
+    ],
+    "dataCaveats": [
+      "The $22,000 filter applies to listing asking price, not a verified out-the-door total. Taxes, title, registration and dealer fees are unknown.",
+      "AWD was requested but not verified by this Auto.dev search. Neither selected vehicle is cleared as AWD.",
+      "Accident counts and title fields come from the listing feed only. No independent history report was obtained; zero reported accidents is not proof of accident-free history.",
+      "Safety equipment, exact crash ratings, recalls, fuel economy, maintenance, tire condition and child-seat fit were not checked in this isolated snapshot test.",
+      "No dealer listing URLs were returned in the saved snapshot, so no live listing links are asserted."
+    ]
+  },
+  "arms": {
+    "features_off": {
+      "responseId": "resp_06a47bb3931b31ec016af75ef73b8087d2ba28eed28c6a66c5",
+      "requestedModel": "gpt-6.1-sol",
+      "responseModel": "gpt-6.1-sol",
+      "latencyMs": 15671,
+      "usage": {
+        "inputTokens": 1931,
+        "outputTokens": 322,
+        "totalTokens": 2253
+      },
+      "estimatedCostUsd": 0.03,
+      "providerCostUsd": null,
+      "pick": {
+        "vin": "3GNAXUEG8RL339688",
+        "year": 2024,
+        "make": "Chevrolet",
+        "model": "Equinox",
+        "askingPriceUsd": 19578,
+        "miles": 63009,
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0
+      },
+      "openingOfferUsd": 20500,
+      "walkAwayUsd": 22000,
+      "rationale": "Conditional first choice: the 2024 Chevrolet Equinox listed at $19,578 with 63,009 miles, 58 miles away. It offers a newer model year and more room for taxes and fees than the other 2024 Equinox. Both offer figures are total out-the-door amounts, including all taxes and dealer fees, not vehicle-only prices. Actual out-the-door cost is unverified; obtain a written itemized quote before committing. AWD is unverified: do not buy unless the dealer documents AWD for this VIN. The feed reports zero accidents and no title brand, but no independent history report was obtained; verify history and get an independent inspection. For your children and mountain commute, also verify safety equipment, brakes, tires and maintenance records. Fuel economy and safety equipment are not supplied, so neither is established as a comparative advantage. This is a purchase lead subject to those checks, not an unconditional buy recommendation."
+    },
+    "features_on": {
+      "responseId": "resp_01e0f24cd98a9337016af75f29ca8887d2a9b2ef1188040194",
+      "requestedModel": "gpt-6.1-sol-serv-kronos-multipath",
+      "responseModel": "gpt-6.1-sol",
+      "latencyMs": 48443,
+      "usage": {
+        "inputTokens": 1946,
+        "outputTokens": 219,
+        "totalTokens": 2165
+      },
+      "estimatedCostUsd": 0.03,
+      "providerCostUsd": null,
+      "pick": {
+        "vin": "3GNAXSEV4LS557854",
+        "year": 2020,
+        "make": "Chevrolet",
+        "model": "Equinox",
+        "askingPriceUsd": 17799,
+        "miles": 50407,
+        "distanceMiles": 58,
+        "listingReportedAccidents": 0
+      },
+      "openingOfferUsd": 18500,
+      "walkAwayUsd": 20500,
+      "rationale": "The 2020 Equinox has 50,407 miles, a $17,799 asking price, and a listed location 58 miles away. Its listing reports zero accidents and no title brand; independent history has not been obtained. Purchase is conditional on documented AWD, a satisfactory independent inspection, and a written out-the-door total. Both offer figures include all taxes and fees. It provides substantial budget headroom without the higher mileage of the other Equinox listings. Verify safety equipment and service records; fuel economy is not supplied."
+    }
+  },
+  "criteria": [
+    {
+      "id": "listing_reported_accidents",
+      "label": "No accident reported in listing feed",
+      "featuresOff": "Pass — listing feed reports 0; independent history not verified",
+      "featuresOn": "Pass — listing feed reports 0; independent history not verified",
+      "winner": "Tie"
+    },
+    {
+      "id": "radius",
+      "label": "Within 75 miles (distance available)",
+      "featuresOff": "Pass — 58 miles",
+      "featuresOn": "Pass — 58 miles",
+      "winner": "Tie"
+    },
+    {
+      "id": "structured_offer",
+      "label": "Structured opening offer and walk-away",
+      "featuresOff": "Pass — $20,500 / $22,000",
+      "featuresOn": "Pass — $18,500 / $20,500",
+      "winner": "Tie"
+    }
+  ],
+  "result": {
+    "score": "3 ties; no criterion winner",
+    "conclusion": "This run shows that the SERV-featured arm selected a different vehicle and produced a lower opening offer and walk-away figure, but it did not outperform the baseline on the three predeclared scored criteria. This is one query and one frozen snapshot, not statistically significant evidence.",
+    "notableDifference": "The features-on pick is $1,779 lower in asking price and has 12,602 fewer miles than the features-off pick, but is four model years older. No verified AWD, out-the-door cost, independent history, safety or fuel-economy evidence is available to declare either vehicle the better purchase.",
+    "latency": "Features-on took 48.443 seconds versus 15.671 seconds for features-off (about 3.1× as long).",
+    "cost": "Each SERV call is estimated at $0.03 by the harness; provider-reported cost was null. Combined harness estimate: $0.06, not an invoice."
+  }
+}
