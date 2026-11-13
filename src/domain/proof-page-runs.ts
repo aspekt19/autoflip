@@ -6,6 +6,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import servCompareFile from "../../eval/results/proof-serv-compare-2026-11-13.json";
 
 export type ProofRunArm = {
   arm: string;
@@ -150,7 +151,9 @@ export function isProvenancedArm(arm: ProofRunArm): boolean {
 export const SERV_COMPARE_PROOF_PATH = "eval/results/proof-serv-compare-2026-11-13.json";
 
 export function loadServCompareProof(): ProofServCompare | null {
-  const raw = readJson(SERV_COMPARE_PROOF_PATH);
+  // Import the JSON so the serverless bundle includes it. process.cwd() read
+  // works in local tests but is not enough on Vercel (Hobby traces omit loose files).
+  const raw = (servCompareFile as unknown) ?? readJson(SERV_COMPARE_PROOF_PATH);
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Partial<ProofServCompare>;
   if (typeof row.query !== "string" || !row.query.trim()) return null;
