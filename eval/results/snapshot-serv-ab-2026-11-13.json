@@ -270,6 +270,61 @@
     "conclusion": "This run shows that the SERV-featured arm selected a different vehicle and produced a lower opening offer and walk-away figure, but it did not outperform the baseline on the three predeclared scored criteria. This is one query and one frozen snapshot, not statistically significant evidence.",
     "notableDifference": "The features-on pick is $1,779 lower in asking price and has 12,602 fewer miles than the features-off pick, but is four model years older. No verified AWD, out-the-door cost, independent history, safety or fuel-economy evidence is available to declare either vehicle the better purchase.",
     "latency": "Features-on took 48.443 seconds versus 15.671 seconds for features-off (about 3.1× as long).",
-    "cost": "Each SERV call is estimated at $0.03 by the harness; provider-reported cost was null. Combined harness estimate: $0.06, not an invoice."
+    "cost": "Each SERV call is estimated at $0.03 by the harness; provider-reported cost was null. Combined harness estimate: $0.06, not an invoice.",
+    "totalCompletedRuns": 2,
+    "totalListingSearches": 2,
+    "totalServCalls": 4,
+    "completedRunsHarnessEstimateUsd": 0.12,
+    "repeatability": "A second complete run returned the identical 12 VINs in the identical order, and both feature arms selected the same VINs as the first run. This is a useful repeat observation but was triggered unintentionally by PR synchronization, not planned as a statistical replication."
+  },
+  "repeatRun": {
+    "metadata": {
+      "runId": 43488915143,
+      "runUrl": "https://github.com/aspekt19/autoflip/actions/runs/43488915143",
+      "artifactId": 14068282757,
+      "headSha": "ca60f4e65d0d69094c99a3290d53cc54c2178a18",
+      "capturedAt": "2026-11-13T19:06:19.189Z",
+      "generatedAt": "2026-11-13T19:06:36.573Z",
+      "reason": "Unintended duplicate: the paid workflow was still configured to run on every pull_request synchronize event while Proof files were being committed. This was not a separately planned experiment."
+    },
+    "snapshotIdentical": true,
+    "sameCandidateCount": 12,
+    "sameCandidateSet": true,
+    "arms": {
+      "features_off": {
+        "responseId": "resp_036516407f494348016af75fabd9a887d2a2c4db596d8521a2",
+        "requestedModel": "gpt-6.1-sol",
+        "responseModel": "gpt-6.1-sol",
+        "latencyMs": 9299,
+        "usage": {
+          "inputTokens": 1931,
+          "outputTokens": 285,
+          "totalTokens": 2216,
+          "cachedTokens": 1805
+        },
+        "estimatedCostUsd": 0.03,
+        "pickVin": "3GNAXUEG8RL339688",
+        "openingOfferUsd": 20500,
+        "walkAwayUsd": 22000
+      },
+      "features_on": {
+        "responseId": "resp_07bc8a6280a25253016af75fb70bfc87d2ab1ec92616e90afd",
+        "requestedModel": "gpt-6.1-sol-serv-kronos-multipath",
+        "responseModel": "gpt-6.1-sol",
+        "latencyMs": 8082,
+        "usage": {
+          "inputTokens": 1946,
+          "outputTokens": 172,
+          "totalTokens": 2118,
+          "cachedTokens": 1820
+        },
+        "estimatedCostUsd": 0.03,
+        "pickVin": "3GNAXSEV4LS557854",
+        "openingOfferUsd": 18500,
+        "walkAwayUsd": 22000
+      }
+    },
+    "criteriaResult": "3 ties; same two VINs selected again in the same feature arms.",
+    "costEstimateUsd": 0.06
   }
 }
