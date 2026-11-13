@@ -183,7 +183,39 @@ export type SnapshotComparisonProof = {
     featuresOn: string;
     winner: string;
   }>;
+  repeatRun?: {
+    metadata: {
+      runId: number;
+      runUrl: string;
+      artifactId: number;
+      headSha: string;
+      capturedAt: string;
+      generatedAt: string;
+      reason: string;
+    };
+    snapshotIdentical: boolean;
+    sameCandidateCount: number;
+    sameCandidateSet: boolean;
+    arms: Record<"features_off" | "features_on", {
+      responseId: string;
+      requestedModel: string;
+      responseModel: string;
+      latencyMs: number;
+      usage: { inputTokens: number; outputTokens: number; totalTokens: number; cachedTokens: number };
+      estimatedCostUsd: number;
+      pickVin: string;
+      openingOfferUsd: number | null;
+      walkAwayUsd: number | null;
+    }>;
+    criteriaResult: string;
+    costEstimateUsd: number;
+  };
   result: {
+    totalCompletedRuns?: number;
+    totalListingSearches?: number;
+    totalServCalls?: number;
+    completedRunsHarnessEstimateUsd?: number;
+    repeatability?: string;
     score: string;
     conclusion: string;
     notableDifference: string;
