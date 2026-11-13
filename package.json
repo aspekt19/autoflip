@@ -46,7 +46,10 @@
     "next-auth": "^5.0.0-beta.32",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "stripe": "^18.5.0"
+    "stripe": "^18.5.0",
+    "@x402/core": "2.31.0",
+    "@x402/evm": "2.31.0",
+    "@x402/extensions": "2.31.0"
   },
   "devDependencies": {
     "@openserv-labs/sdk": "^2.4.1",
@@ -67,6 +70,7 @@
   "overrides": {
     "postcss": "8.5.32",
     "nodemailer": "10.4.0",
-    "@grpc/grpc-js": "1.14.7"
+    "@grpc/grpc-js": "1.14.7",
+    "zod": "4.6.7"
   }
 }

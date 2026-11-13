@@ -13,6 +13,30 @@ same SERV plan/decide/second-check pipeline and the same report including the de
    `Authorization: Bearer af_YOUR_KEY`
 4. OpenServ / remote MCP hosts: put the Bearer header on **every** JSON-RPC POST (including tools/call). Do not rely on a one-time initialize header.
 
+## External autonomous agent payments (x402 v2)
+
+Lemonless supports paid machine-to-machine access on Base Mainnet using USDC and the x402 `exact` scheme.
+
+| Resource | Endpoint | Price | Key |
+|---|---|---:|---|
+| Agent registration | `POST /api/agents/register` | $0.01 USDC | None |
+| One vehicle report | `POST /api/v1/report` | $3.00 USDC | None |
+| 3 report credits | `POST /api/agents/billing/credits`, `pack_3` | $9 USDC | `af_` |
+| 10 report credits | Same, `pack_10` | $25 USDC | `af_` |
+| Radar, 1 watch / 300 reviews | `POST /api/agents/billing/plans`, `radar` | $100 USDC / 30 days | `af_` |
+| Radar Pro, 3 watches / 900 reviews | Same, `radar_pro` | $250 USDC / 30 days | `af_` |
+
+- Network: `eip155:8453`; USDC contract: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+- Recipient: `0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79`.
+- Discover current readiness and request URLs from `GET /api/agents/payment-info` or MCP `get_payment_info`; discovery is free.
+- An x402 402 response contains the exact required amount and Bazaar discovery metadata. Retry with the signed `PAYMENT-SIGNATURE`; a successful settlement returns `PAYMENT-RESPONSE`.
+- Registration returns a one-time `af_` key bound to the paying wallet. Store it securely. Existing keyed REST/MCP tools and report credits work unchanged.
+- Credit and plan fulfilment occurs only after facilitator settlement. Invalid input and failed report generation return an uncharged error.
+- Radar is a 30-day prepaid entitlement with manual renewal; x402 purchases never create an automatic recurring charge.
+- Async Find and Resale continue to use report credits committed on result delivery. Buy a credit pack before starting them.
+- Human browser checkout remains Stripe TEST mode only.
+- x402 runtime requires `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` configured in Vercel. Do not send these secrets to an agent or place them in public docs.
+
 ## Scopes
 | Scope | Allows |
 |-------|--------|
@@ -32,7 +56,7 @@ Body (one of):
 { "url": "https://dealer.example/listing" }
 { "text": "2014 Toyota Camry LE …" }
 ```
-Optional: `zip`, header `Idempotency-Key`, optional `payment` (x402) when agent payments are enabled.
+Optional: `zip`, header `Idempotency-Key`.
 Billing: free monthly Check allotment when available, else 1 report credit — **only after success**. Failures return `credit_spent: false`.
 
 ## find_cars (async)
@@ -52,7 +76,7 @@ Same via MCP `resale_search` / `resale_status` / `resale_result`. Scope: `find`.
 - Scan (no watch): MCP `deal_radar` — free, scope `read`.
 - Saved watches (parity with `/radar`):
   - `GET /api/v1/radar/watches` / MCP `radar_watches`
-  - `POST /api/v1/radar/watches` / MCP `radar_save_watch` — requires Radar ($100/mo) or Radar Pro ($250/mo) on Stripe TEST
+  - `POST /api/v1/radar/watches` / MCP `radar_save_watch` — requires Radar or Radar Pro, purchasable as a 30-day x402 prepaid plan or through the existing Stripe TEST website checkout
   - `POST /api/v1/radar/check` / MCP `radar_check_now` — same SERV plan/decide + decision journal
   - `GET /api/v1/radar/feed` / MCP `radar_feed`
 
@@ -80,20 +104,6 @@ Shared contract for site Find/Radar/Resale, MCP tools, and `af_` REST. Each row:
 | clampResult | `{ servChoice, finalAction, overridden, overrideReasons }` or null |
 | reason | required when not `ok` |
 | rawResponse | optional raw SERV body when recorded |
-
-## Optional x402 v2 (USDC on Base) — OFF by default
-Env (names only; never hardcode secrets):
-- `X402_AGENT_PAYMENTS_ENABLED` — must be `1`/`true` to enable (keep off until Yura approves)
-- `X402_PAY_TO`, `X402_NETWORK` (default `eip155:8453`), `X402_ASSET` (USDC on Base), `X402_FACILITATOR_URL`
-- `X402_PRICE_ATOMIC`, `X402_TIMEOUT_SECONDS`, `X402_DESCRIPTION`, `X402_VERSION` (default `2`), `X402_SCHEME` (default `exact` for v2)
-
-Flow for check/find when enabled:
-1. Missing payment + no credits → HTTP **402** with body + `PAYMENT-REQUIRED` (base64 PaymentRequired v2)
-2. Client pays USDC on Base and retries with `PAYMENT-SIGNATURE` (or `X-PAYMENT` / body `payment`)
-3. Server **verifies** via facilitator, runs the job, **settles only after results are delivered**
-4. Failures never settle. Tests use a mock facilitator — no real payments in CI.
-
-Primary billing remains site report credits + free monthly Check allotment.
 
 ## Visible decision step (`lemonless.serv_decision_step.v1`)
 Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), modelId, runId, timestamp, inputSummary, output, latencyMs, costUsd, status (`ran`|`skipped`|`failed`|`not_run`). Adapted from `proofRecords` until sibling producers emit steps directly (`src/server/serv/decision-step-producer.ts`).

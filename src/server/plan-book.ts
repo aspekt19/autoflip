@@ -16,8 +16,8 @@ import type { SavedSearch } from "@/domain/radar-watch";
 export type PlanStatus = "active" | "past_due" | "canceled" | "none";
 
 export type StoredPlans = {
-  personal: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
-  flip: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
+  personal: { status: PlanStatus; lookupKey: string | null; searchLimit: number; expiresAt?: string | null };
+  flip: { status: PlanStatus; lookupKey: string | null; searchLimit: number; expiresAt?: string | null };
   /** Stripe customer used by the test-mode billing portal. */
   stripeCustomerId: string | null;
   /** Active paid tier id (radar / radar_pro) when subscribed. */
@@ -26,8 +26,8 @@ export type StoredPlans = {
 
 export function emptyPlans(): StoredPlans {
   return {
-    personal: { status: "none", lookupKey: null, searchLimit: 0 },
-    flip: { status: "none", lookupKey: null, searchLimit: 0 },
+    personal: { status: "none", lookupKey: null, searchLimit: 0, expiresAt: null },
+    flip: { status: "none", lookupKey: null, searchLimit: 0, expiresAt: null },
     stripeCustomerId: null,
     planId: null,
   };
@@ -43,8 +43,16 @@ export async function readPlans(kv: Kv, userId: string): Promise<StoredPlans> {
   try {
     const parsed = JSON.parse(raw) as StoredPlans;
     return {
-      personal: { ...emptyPlans().personal, ...parsed.personal },
-      flip: { ...emptyPlans().flip, ...parsed.flip },
+      personal: {
+        ...emptyPlans().personal,
+        ...parsed.personal,
+        expiresAt: typeof parsed.personal?.expiresAt === "string" ? parsed.personal.expiresAt : null,
+      },
+      flip: {
+        ...emptyPlans().flip,
+        ...parsed.flip,
+        expiresAt: typeof parsed.flip?.expiresAt === "string" ? parsed.flip.expiresAt : null,
+      },
       stripeCustomerId: typeof parsed.stripeCustomerId === "string" ? parsed.stripeCustomerId : null,
       planId: typeof parsed.planId === "string" ? parsed.planId : null,
     };
@@ -70,23 +78,24 @@ export async function plansFor(kv: Kv, userId: string): Promise<StoredPlans> {
   return readPlans(kv, userId);
 }
 
-export function hasActiveRadarPlan(plans: StoredPlans): boolean {
-  return (
-    plans.personal.status === "active" ||
-    plans.personal.status === "past_due" ||
-    plans.flip.status === "active" ||
-    plans.flip.status === "past_due"
-  );
+function entitlementIsActive(value: StoredPlans["personal"], nowMs = Date.now()): boolean {
+  const statusActive = value.status === "active" || value.status === "past_due";
+  if (!statusActive) return false;
+  if (!value.expiresAt) return true; // Existing Stripe subscriptions are managed by Stripe webhooks.
+  const expiry = Date.parse(value.expiresAt);
+  return Number.isFinite(expiry) && expiry > nowMs;
+}
+
+export function hasActiveRadarPlan(plans: StoredPlans, nowMs = Date.now()): boolean {
+  return entitlementIsActive(plans.personal, nowMs) || entitlementIsActive(plans.flip, nowMs);
 }
 
 /** Effective limits for cadence + watch caps. No free tier — unpaid → {@link NO_RADAR_PLAN}. */
 export function effectiveRadarLimits(plans: StoredPlans): RadarPlanLimits {
   if (!hasActiveRadarPlan(plans)) return NO_RADAR_PLAN;
   const lookup =
-    (plans.personal.status === "active" || plans.personal.status === "past_due"
-      ? plans.personal.lookupKey
-      : null) ??
-    (plans.flip.status === "active" || plans.flip.status === "past_due" ? plans.flip.lookupKey : null) ??
+    (entitlementIsActive(plans.personal) ? plans.personal.lookupKey : null) ??
+    (entitlementIsActive(plans.flip) ? plans.flip.lookupKey : null) ??
     plans.planId;
   if (lookup === "demo") {
     const pro = planById("radar_pro")!;
@@ -114,8 +123,8 @@ function activate(plans: StoredPlans, planId: string): StoredPlans {
   return {
     ...plans,
     planId: plan.id,
-    personal: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit },
-    flip: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit },
+    personal: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit, expiresAt: null },
+    flip: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit, expiresAt: null },
   };
 }
 
@@ -126,16 +135,16 @@ function setStatus(plans: StoredPlans, planId: string, status: PlanStatus): Stor
     return {
       ...plans,
       planId: null,
-      personal: { status: "none", lookupKey: null, searchLimit: 0 },
-      flip: { status: "none", lookupKey: null, searchLimit: 0 },
+      personal: { status: "none", lookupKey: null, searchLimit: 0, expiresAt: null },
+      flip: { status: "none", lookupKey: null, searchLimit: 0, expiresAt: null },
     };
   }
   if (status === "past_due") {
     return {
       ...plans,
       planId: plan.id,
-      personal: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit },
-      flip: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit },
+      personal: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit, expiresAt: null },
+      flip: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.watchLimit, expiresAt: null },
     };
   }
   return activate(plans, plan.id);

@@ -148,7 +148,7 @@ export function ServChat({
   }
 
   return (
-    <div className="serv-chat panel" aria-label="Chat with SERV">
+    <div className="serv-chat panel" aria-label="Chat with SERV" aria-busy={pending}>
       <div className="serv-chat-log" role="log" aria-live="polite">
         {messages.length === 0 ? (
           <p className="hint">
@@ -193,9 +193,18 @@ export function ServChat({
             </div>
           </div>
         ) : null}
-        {pending ? <p className="hint">SERV is working…</p> : null}
+        {pending ? (
+          <div className="serv-chat-working" role="status" aria-live="polite" aria-atomic="true">
+            <span className="serv-chat-working-indicator" aria-hidden="true" />
+            <span className="serv-chat-working-copy">
+              <strong>SERV is working…</strong>
+              <span>The message box will return when SERV needs your input.</span>
+            </span>
+          </div>
+        ) : null}
         <div ref={bottomRef} />
       </div>
+      {!pending ? (
       <form className="serv-chat-compose hero-chat" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="serv-chat-input">
           Message
@@ -214,6 +223,7 @@ export function ServChat({
           </button>
         </div>
       </form>
+      ) : null}
       {error ? (
         <p className="warn" role="alert">
           {error}

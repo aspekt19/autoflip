@@ -38,6 +38,7 @@ import {
   toolList,
 } from "@/server/mcp";
 import { originOf } from "@/server/secrets";
+import { agentPaymentInfo } from "@/server/x402-payments";
 import { agentProof, plannedProof } from "@/server/serv";
 import type { AgentScope } from "@/server/agent-scopes";
 import { readResaleJob } from "@/server/resale-job";
@@ -61,10 +62,15 @@ export function GET() {
       check_car: "free monthly check allotment, else 1 credit — settle after success",
       find_cars: "1 credit after a successful search",
       resale_search: "1 credit when final Resale verdict is delivered",
-      full_report: "1 credit with Authorization: Bearer af_…",
+      full_report: "1 credit with an af_ key, or $3 USDC direct x402 payment on /api/v1/report",
       deal_radar: "free (scan)",
       radar_watches: "plan-gated saved searches (Radar / Radar Pro)",
       credits: "/credits",
+      agentPayments: "/api/agents/payment-info",
+      payment_protocol: "x402-v2 exact",
+      payment_network: "eip155:8453",
+      payment_asset: "USDC",
+      direct_report_price_usd: 3,
     },
     discovery: {
       agent: "/.well-known/agent.json",
@@ -114,6 +120,11 @@ export async function POST(request: Request) {
     }
     return null;
   };
+
+  if (name === "get_payment_info") {
+    const info = agentPaymentInfo(origin);
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(info) }], structuredContent: info }));
+  }
 
   const needed = scopeForTool(name);
   if (!needed) {

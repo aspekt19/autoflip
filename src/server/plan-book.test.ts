@@ -12,6 +12,7 @@ import {
   intervalHoursForWatch,
   pauseWatchesRequiringPlan,
   readServUsage,
+  readPlans,
   servAllowanceRemaining,
   writePlans,
 } from "./plan-book";
@@ -230,5 +231,32 @@ describe("subscription webhook mapping", () => {
       expect(ended.plans.planId).toBeNull();
       expect(ended.disableMode).toBe("all");
     }
+  });
+});
+
+ 
+describe("x402 prepaid Radar terms", () => {
+  it("activates a prepaid plan until its expiry and denies it afterwards", async () => {
+    const now = Date.now();
+    const activeUntil = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const kv = new MemoryKv();
+    const plans = {
+      ...emptyPlans(),
+      planId: "radar",
+      personal: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 1, expiresAt: activeUntil },
+      flip: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 1, expiresAt: activeUntil },
+    };
+    await writePlans(kv, "agent-wallet:0xabc", plans);
+    expect(hasActiveRadarPlan(await readPlans(kv, "agent-wallet:0xabc"), now)).toBe(true);
+    expect(effectiveRadarLimits(await readPlans(kv, "agent-wallet:0xabc")).watchLimit).toBe(1);
+
+    const expired = {
+      ...plans,
+      personal: { ...plans.personal, expiresAt: new Date(now - 1).toISOString() },
+      flip: { ...plans.flip, expiresAt: new Date(now - 1).toISOString() },
+    };
+    await writePlans(kv, "agent-wallet:expired", expired);
+    expect(hasActiveRadarPlan(await readPlans(kv, "agent-wallet:expired"), now)).toBe(false);
+    expect(effectiveRadarLimits(await readPlans(kv, "agent-wallet:expired")).paid).toBe(false);
   });
 });

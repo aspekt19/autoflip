@@ -2671,3 +2671,42 @@ label.check-line input[type="checkbox"],
   min-height: 44px;
   font-weight: 500;
 }
+
+
+/* Make active agent work visually distinct from a ready-to-type chat. */
+.serv-chat-working {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+.serv-chat-working-indicator {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: serv-chat-spin 0.8s linear infinite;
+}
+.serv-chat-working-copy {
+  display: grid;
+  gap: 3px;
+}
+.serv-chat-working-copy strong {
+  font-family: var(--sans);
+  font-size: 14px;
+}
+.serv-chat-working-copy span {
+  color: var(--muted);
+  font-size: 13px;
+}
+@keyframes serv-chat-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .serv-chat-working-indicator { animation: none; }
+}

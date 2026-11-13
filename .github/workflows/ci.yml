@@ -31,7 +31,7 @@ jobs:
           npm ls --omit=dev --all || true
           echo "::endgroup::"
           echo "::group::Assert experimental SDK absent from production deps"
-          for pkg in @openserv-labs/sdk openai zod; do
+          for pkg in @openserv-labs/sdk openai; do
             if npm ls --omit=dev "$pkg" >/dev/null 2>&1; then
               echo "ERROR: $pkg is present in the production dependency tree"
               npm ls --omit=dev "$pkg"
@@ -39,6 +39,41 @@ jobs:
             fi
             echo "OK: $pkg not in production tree"
           done
+          # Zod is not a direct application dependency. x402/viem use it as
+          # an optional schema peer; force all runtime copies to the patched 4.6.7.
+          npm ls --omit=dev --all --json > .production-dependency-tree.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          if (Object.hasOwn(manifest.dependencies ?? {}, "zod")) {
+            throw new Error("zod must not be a direct production dependency");
+          }
+          if (manifest.overrides?.zod !== "4.6.7") {
+            throw new Error("Runtime zod must stay overridden to patched 4.6.7");
+          }
+          const tree = JSON.parse(fs.readFileSync(".production-dependency-tree.json", "utf8"));
+          const vulnerable = [];
+          const versions = new Set();
+          function walk(dependencies, ancestors = []) {
+            for (const [name, node] of Object.entries(dependencies ?? {})) {
+              const next = [...ancestors, name];
+              if (name === "zod") {
+                const version = String(node.version ?? "0");
+                versions.add(version);
+                const parts = version.split(".").map((x) => Number(x) || 0);
+                const patched = parts[0] > 4 || (parts[0] === 4 && (parts[1] > 6 || (parts[1] === 6 && parts[2] >= 6)));
+                if (!patched) vulnerable.push(next.join(" -> ") + "@" + version);
+              }
+              walk(node.dependencies, next);
+            }
+          }
+          walk(tree.dependencies);
+          fs.unlinkSync(".production-dependency-tree.json");
+          if (vulnerable.length) {
+            throw new Error("Vulnerable zod runtime path(s): " + vulnerable.join("; "));
+          }
+          console.log("OK: zod is not direct; runtime versions are patched: " + [...versions].join(", "));
+          NODE
           echo "::endgroup::"
           npm audit --omit=dev --audit-level=high
       - name: Report full dependency audit (incl. dev / experimental SDK — informational)
