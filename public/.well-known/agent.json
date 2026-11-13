@@ -1,6 +1,6 @@
 {
   "name": "Lemonless",
-  "description": "Buy smart. Stay lemonless. Agent Check + Find + Resale + Deal Radar with the same credits and SERV plan/decide path as the site. TypeScript owns every number; settle only after success.",
+  "description": "An AI vehicle-buying and resale agent. External agents connect through REST or MCP, pay with USDC on Base or use af_ credits, and share the same SERV reasoning, vehicle-data tools, deterministic calculations, and decision proof as the website.",
   "url": "https://autoflip-umber.vercel.app",
   "documentation": "https://autoflip-umber.vercel.app/developers",
   "llms": "https://autoflip-umber.vercel.app/llms.txt",
@@ -16,10 +16,17 @@
   },
   "version": "0.3.0",
   "authentication": {
-    "schemes": ["bearer"],
+    "schemes": [
+      "bearer",
+      "x402"
+    ],
     "header": "Authorization",
     "format": "Bearer af_YOUR_KEY",
-    "scopes": ["read", "check", "find"],
+    "scopes": [
+      "read",
+      "check",
+      "find"
+    ],
     "createKeyUrl": "https://autoflip-umber.vercel.app/developers"
   },
   "rateLimit": {
@@ -35,34 +42,74 @@
     "radarFeed": "https://autoflip-umber.vercel.app/api/v1/radar/feed",
     "receipts": "https://autoflip-umber.vercel.app/api/v1/receipts",
     "report": "https://autoflip-umber.vercel.app/api/v1/report",
-    "agentCard": "https://autoflip-umber.vercel.app/.well-known/agent.json"
+    "agentCard": "https://autoflip-umber.vercel.app/.well-known/agent.json",
+    "agentRegistration": "https://autoflip-umber.vercel.app/api/agents/register",
+    "paymentInfo": "https://autoflip-umber.vercel.app/api/agents/payment-info",
+    "agentCredits": "https://autoflip-umber.vercel.app/api/agents/billing/credits",
+    "agentPlans": "https://autoflip-umber.vercel.app/api/agents/billing/plans"
   },
   "tools": [
     {
+      "name": "get_payment_info",
+      "transport": [
+        "mcp",
+        "http"
+      ],
+      "http": "POST /api/mcp (tools/call)",
+      "cost": "free",
+      "scope": "none",
+      "description": "Public payment and onboarding instructions for autonomous agents.",
+      "payment": "free"
+    },
+    {
       "name": "check_car",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/check",
       "cost": "free monthly check allotment, else 1 credit after success (optional x402 when enabled)",
       "scope": "check",
-      "input": { "vin": "string", "url": "string", "text": "string", "zip": "string" }
+      "input": {
+        "vin": "string",
+        "url": "string",
+        "text": "string",
+        "zip": "string"
+      }
     },
     {
       "name": "find_cars",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/find → GET /api/v1/find/{run_id}/status → GET /api/v1/find/{run_id}",
       "cost": "1 credit after successful search (optional x402 settle-on-delivery when enabled)",
       "scope": "find",
       "async": true,
-      "input": { "text": "string (required)", "mode": "personal|flip", "zip": "string", "budgetUsd": "number" }
+      "input": {
+        "text": "string (required)",
+        "mode": "personal|flip",
+        "zip": "string",
+        "budgetUsd": "number"
+      }
     },
     {
       "name": "resale_search",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/resale → GET /api/v1/resale/{job_id}/status → GET /api/v1/resale/{job_id}",
       "cost": "1 credit when final Resale verdict is delivered",
       "scope": "find",
       "async": true,
-      "input": { "budgetUsd": "number (required)", "zip": "string", "distanceMiles": "number", "targetProfitUsd": "number" }
+      "input": {
+        "budgetUsd": "number (required)",
+        "zip": "string",
+        "distanceMiles": "number",
+        "targetProfitUsd": "number"
+      }
     },
     {
       "name": "deal_radar",
@@ -72,37 +119,52 @@
     },
     {
       "name": "radar_watches",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "GET /api/v1/radar/watches",
       "cost": "free (list); create is plan-gated",
       "scope": "read"
     },
     {
       "name": "radar_save_watch",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/radar/watches",
       "cost": "Radar / Radar Pro plan required",
       "scope": "read"
     },
     {
       "name": "radar_check_now",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/radar/check",
       "cost": "free (no report-credit debit)",
       "scope": "read"
     },
     {
       "name": "radar_feed",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "GET /api/v1/radar/feed",
       "cost": "free",
       "scope": "read"
     },
     {
       "name": "full_report",
-      "transport": ["mcp", "http"],
+      "transport": [
+        "mcp",
+        "http"
+      ],
       "http": "POST /api/v1/report",
-      "cost": "1 credit",
+      "cost": "$3.00 USDC per successful direct x402 report, or 1 report credit with af_ key",
       "scope": "check"
     }
   ],
@@ -120,10 +182,65 @@
     }
   },
   "errors": {
-    "envelope": ["error_code", "message", "credit_spent", "retry_safe", "next_steps"]
+    "envelope": [
+      "error_code",
+      "message",
+      "credit_spent",
+      "retry_safe",
+      "next_steps"
+    ]
   },
   "payment": {
-    "primary": "site report credits + free Check allotment",
-    "onChain": "optional x402 v2 USDC on Base — disabled by default (X402_AGENT_PAYMENTS_ENABLED); charge only on delivery"
+    "protocol": "x402-v2",
+    "network": "eip155:8453",
+    "chain": "Base Mainnet",
+    "asset": "USDC",
+    "asset_address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "pay_to": "0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79",
+    "scheme": "exact",
+    "availability": "CDP facilitator credentials must be configured in the deployment environment.",
+    "registration": {
+      "method": "POST",
+      "path": "/api/agents/register",
+      "price_usd": 0.01,
+      "api_key_required": false
+    },
+    "report": {
+      "method": "POST",
+      "path": "/api/v1/report",
+      "price_usd": 3,
+      "api_key_required": false
+    },
+    "credit_packs": [
+      {
+        "id": "pack_3",
+        "credits": 3,
+        "price_usd": 9
+      },
+      {
+        "id": "pack_10",
+        "credits": 10,
+        "price_usd": 25
+      }
+    ],
+    "radar_plans": [
+      {
+        "id": "radar",
+        "price_usd": 100,
+        "validity_days": 30,
+        "watch_limit": 1,
+        "reviews_per_month": 300
+      },
+      {
+        "id": "radar_pro",
+        "price_usd": 250,
+        "validity_days": 30,
+        "watch_limit": 3,
+        "reviews_per_month": 900
+      }
+    ],
+    "auto_renew": false,
+    "payment_info": "/api/agents/payment-info",
+    "primary": "x402 USDC on Base for autonomous agent registration, direct reports, credit packs, and 30-day prepaid Radar plans; af_ keys retain credits"
   }
 }

@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Lemonless Agent API",
-    "version": "0.3.0",
-    "description": "Check, Find, Resale, and Deal Radar with af_ API keys. Same SERV plan/decide path as the site. Report credits settle only after successful delivery."
+    "version": "0.4.0",
+    "description": "Lemonless agent API: REST and MCP for Check, Find, Resale and Deal Radar. af_ credits remain supported; external agents can register, buy credits, buy 30-day plans, or pay for a single report using x402 v2 USDC on Base."
   },
   "servers": [
     {
@@ -676,6 +676,177 @@
         "responses": {
           "200": {
             "description": "JSON-RPC result"
+          }
+        }
+      }
+    },
+    "/api/agents/payment-info": {
+      "get": {
+        "summary": "Get autonomous agent payment and onboarding info",
+        "description": "Free machine-readable payment information, wallet, Base USDC asset, credit packs, Radar plans, and x402 route URLs. Also available as MCP get_payment_info.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Agent payment catalog and x402 readiness status"
+          }
+        }
+      }
+    },
+    "/api/agents/register": {
+      "post": {
+        "summary": "Register an autonomous agent",
+        "description": "x402 v2 exact payment: $0.01 USDC on Base. No API key required. Returns an af_ key bound to the payer wallet after successful settlement.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "PAYMENT-SIGNATURE",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Signed x402 v2 payment payload. First request without it returns 402 with payment requirements."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 40
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One-time af_ API key and account binding"
+          },
+          "400": {
+            "description": "Invalid registration input; not settled"
+          },
+          "402": {
+            "description": "x402 payment required"
+          }
+        }
+      }
+    },
+    "/api/agents/billing/credits": {
+      "post": {
+        "summary": "Buy report credits",
+        "description": "x402 v2 exact payment with dynamic amount. pack_3 = $9 USDC for 3 credits; pack_10 = $25 USDC for 10 credits. Requires af_ API key.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "PAYMENT-SIGNATURE",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "pack"
+                ],
+                "properties": {
+                  "pack": {
+                    "type": "string",
+                    "enum": [
+                      "pack_3",
+                      "pack_10"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Credits added and balance returned after settlement"
+          },
+          "401": {
+            "description": "Missing or invalid af_ key"
+          },
+          "402": {
+            "description": "x402 payment required"
+          }
+        }
+      }
+    },
+    "/api/agents/billing/plans": {
+      "post": {
+        "summary": "Buy a 30-day Deal Radar plan",
+        "description": "Prepaid x402 v2 exact payment. radar = $100 USDC, 1 watch and up to 300 monthly reviews. radar_pro = $250 USDC, 3 watches and up to 900 monthly reviews. Manual renewal, no automatic charge. Requires af_ API key.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "PAYMENT-SIGNATURE",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "planId"
+                ],
+                "properties": {
+                  "planId": {
+                    "type": "string",
+                    "enum": [
+                      "radar",
+                      "radar_pro"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "30-day Radar plan activated after settlement"
+          },
+          "401": {
+            "description": "Missing or invalid af_ key"
+          },
+          "402": {
+            "description": "x402 payment required"
+          },
+          "409": {
+            "description": "A non-expiring plan already exists"
           }
         }
       }

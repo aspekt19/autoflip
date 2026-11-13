@@ -9,12 +9,26 @@ TypeScript owns the numbers; report credits settle only after successful deliver
 - Scopes: `read` | `check` | `find` (default: all three). Resale uses `find`; Radar watches use `read`.
 - Optional: `Idempotency-Key` on paid calls to retry without a second charge.
 
+## External agent payments (x402 v2)
+
+Free payment discovery: `GET /api/agents/payment-info` or MCP `get_payment_info` (no API key).
+- Network: Base Mainnet (`eip155:8453`); asset: USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`); scheme: `exact`.
+- Treasury: `0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79`.
+- Register an agent: `POST /api/agents/register`, $0.01 USDC, no key required. A successful payment returns a one-time `af_` key bound to the payer wallet.
+- Buy reports: `POST /api/v1/report`, $3 USDC per successful report, no key required.
+- Top up: `POST /api/agents/billing/credits` with `Authorization: Bearer af_…`; `pack_3` = 3 credits for $9, `pack_10` = 10 credits for $25.
+- Radar plans: `POST /api/agents/billing/plans` with `planId: radar|radar_pro`; $100/$250 USDC respectively for 30 days, manual renewal, no auto-renew.
+- Send the signed x402 v2 payload in `PAYMENT-SIGNATURE`; successful settlement returns `PAYMENT-RESPONSE`. A 402 response contains the machine-readable amount and Bazaar discovery schema.
+- Find and Resale remain credit-based: buy a pack first; credits are committed only when a qualifying result is delivered.
+- Existing `af_` key + credit billing and human Stripe TEST checkout remain supported. x402 requires CDP facilitator credentials in deployment environment; `available` on payment-info reports readiness.
+
 ## Tools (MCP POST /api/mcp)
 - `check_car` — VIN | listing URL | pasted text. Free monthly check or 1 credit after success. Scope: check. Returns `proofRecords` (`lemonless.decision_proof.v1`).
 - `find_cars` — natural-language buyer request → `run_id`. Scope: find. Then `find_cars_status` / `find_cars_result`.
 - `resale_search` — budget → Resale job (same SERV plan/decide/journal as `/resale`). Then `resale_status` / `resale_result`. Scope: find. 1 credit on delivery.
+- `get_payment_info` — free payment discovery and x402 instructions; no key required.
 - `deal_radar` — one-shot make/model scan (scope `read`). Saved watches: `radar_watches` / `radar_save_watch` / `radar_check_now` / `radar_feed` (Radar / Radar Pro plan).
-- `full_report` — full VIN report, 1 credit. Scope: check.
+- `full_report` — full VIN report, 1 credit with an `af_` key; alternatively pay $3 USDC directly via x402 on `POST /api/v1/report`. Scope: check when keyed.
 
 ## Decision proof (`lemonless.decision_proof.v1`)
 Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`, `status` (`ok`|`failed`|`skipped`), `servResponseId` (only when `ok`), `model`, `timestamp`, `inputsDigest`, `verdict`, `clampResult`, `reason`, optional `rawResponse`.
@@ -50,3 +64,7 @@ Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, an
 
 ## Costs
 - Primary: site report credits + free monthly Check allotment.
+
+
+## x402 payment receiver
+`0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79` (Base USDC). Use only the address, never request or store private wallet credentials.

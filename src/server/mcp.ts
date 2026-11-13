@@ -127,7 +127,7 @@ export function toolList() {
     {
       name: "radar_save_watch",
       description:
-        "Save a Deal Radar watch (criteria + mode). Same plan gates as the site ($100 Radar / $250 Radar Pro on Stripe TEST). Scope: read.",
+        "Save a Deal Radar watch (criteria + mode). Requires Radar or Radar Pro, available as a 30-day prepaid x402 USDC plan for agents or via the site's Stripe TEST checkout. Scope: read.",
       inputSchema: {
         type: "object",
         properties: {
@@ -165,7 +165,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis.",
+        "Full Lemonless analysis for one VIN. With an af_ key it costs 1 report credit on that key's account; without a key the REST /api/v1/report endpoint can be paid directly for $3.00 USDC via x402. Requires the check scope when keyed.",
       inputSchema: {
         type: "object",
         properties: {

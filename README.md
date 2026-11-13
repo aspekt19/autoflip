@@ -15,7 +15,30 @@ Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 - **Resale** — search within a budget and evaluate candidate flips using code-calculated costs and risk-adjusted profit. The agent cannot turn a negative-profit candidate into a buy.
 - **Deal Radar** — save watches and receive in-app alerts when matching inventory changes. Optional Telegram delivery sends a copy of the alert.
 
-The main user flow is behind verified sign-in. Find and Resale reserve one report credit before the agent runs and charge only when a result is delivered. Check includes three free VIN-scoped checks per verified account per UTC month, then uses one report credit.
+The main human user flow is behind verified sign-in. Find and Resale reserve one report credit before the agent runs and commit only when a qualifying result is delivered. Check includes three free VIN-scoped checks per verified account per UTC month, then uses one report credit.
+
+## External AI-agent access and payments
+
+External agents can discover Lemonless through [agent.json](https://autoflip-umber.vercel.app/.well-known/agent.json), [OpenAPI](https://autoflip-umber.vercel.app/openapi.json), [llms.txt](https://autoflip-umber.vercel.app/llms.txt), or the free MCP tool `get_payment_info`.
+
+Lemonless supports **x402 v2 exact payments in USDC on Base Mainnet**. The public treasury address is:
+
+`0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79`
+
+| Agent action | Endpoint | Price |
+|---|---|---:|
+| Register an autonomous agent and receive an `af_` key | `POST /api/agents/register` | $0.01 USDC |
+| Run one direct vehicle report | `POST /api/v1/report` | $3.00 USDC |
+| Buy 3 report credits | `POST /api/agents/billing/credits`, `pack_3` | $9 USDC |
+| Buy 10 report credits | Same, `pack_10` | $25 USDC |
+| Radar — 1 saved watch / up to 300 reviews | `POST /api/agents/billing/plans`, `radar` | $100 USDC / 30 days |
+| Radar Pro — 3 saved watches / up to 900 reviews | Same, `radar_pro` | $250 USDC / 30 days |
+
+The protocol uses network `eip155:8453`, USDC contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, and the `exact` scheme. Agents send the signed payload in `PAYMENT-SIGNATURE`; successful settlement returns `PAYMENT-RESPONSE`. The initial 402 response advertises the required amount and machine-readable Bazaar input/output schema.
+
+Registration binds a new `af_` key to the payer wallet. The key is returned once and must be stored securely by the agent. After registration, the agent can use the existing REST/MCP API; credit top-ups and plan purchases require that key. Find and Resale continue to use credits so that payment is committed only when a qualifying result is delivered. Radar x402 plans are prepaid 30-day access, renew manually, and do not auto-charge.
+
+**Operational requirement:** x402 is enabled only when `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` for the Coinbase CDP facilitator are configured in the deployment environment. The app reports current readiness from `GET /api/agents/payment-info`. No wallet private key for the receiver is stored in the application. Human browser billing remains Stripe **test mode only**.
 
 ## What makes Lemonless different
 
@@ -32,8 +55,6 @@ flowchart TD
   G --> H[Decision journal and report]
 ~~~
 
-The boundary is deliberate:
-
 - **SERV** interprets the request, chooses which tools to use, evaluates candidates, and explains its decision.
 - **Code** owns listing identifiers, source provenance, distance calculations, comparable-price math, offer fields, resale profit, billing, and safety checks.
 - **Guardrails** reject unsupported VINs, budget or known-radius violations, reported accidents or title brands when the brief forbids them, malformed offers, and non-positive Resale buy/negotiate decisions.
@@ -48,31 +69,25 @@ The public [Proof page](https://autoflip-umber.vercel.app/proof) contains the re
 
 > I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
 
-The capture shows the distinction between advice and an actual inventory result:
+The capture compares a plain chat answer, Perplexity, and two Lemonless runs. The two Lemonless runs each performed their own live search; they did not receive the same frozen candidate set, so the different picks do not prove that toggling SERV features alone caused a better decision.
 
-- A plain chat answer named a vehicle to shop for, but had no live listing or VIN.
-- The captured Perplexity answer also declined to claim it had found a qualifying live listing.
-- Both Lemonless runs returned real VINs from live inventory. The features-on run also returned a dealer listing URL that was reachable when checked.
-
-**Important evaluation limits:** the two Lemonless runs each performed their own live search. They did not receive the same frozen candidate set, so the different picks do not prove that turning SERV features on caused a better decision. A same-snapshot comparison is a separate experiment and is not claimed as a completed result here.
-
-The capture was recorded at **2026-11-13 14:29:45 UTC**, before the later no-accident and radius hardening merged in [PR #207](https://github.com/aspekt19/autoflip/pull/207) at 16:18 UTC. The historical output includes a listing record with one reported accident; it must not be read as proof that the current hard gate passed that car. The [Proof page](https://autoflip-umber.vercel.app/proof) now carries this disclosure alongside the original evidence. The recorded responses and their source links are preserved unchanged.
+The capture was recorded at **2026-11-13 14:29:45 UTC**, before no-accident and radius hardening merged in [PR #207](https://github.com/aspekt19/autoflip/pull/207). The historical output includes a source-reported accident and must not be read as evidence that the later hard gate passed that vehicle. The [Proof page](https://autoflip-umber.vercel.app/proof) carries this disclosure alongside the original answers and sources.
 
 ## What the product does not claim
 
 - Lemonless does **not** currently provide a complete CARFAX, AutoCheck, or NMVTIS vehicle-history report.
 - A model-year recall or complaint record does not establish the open/closed recall status of an individual VIN.
-- Comparable listing prices are **asking prices**, not verified completed-sale prices.
+- Comparable listing prices are asking prices, not verified completed-sale prices.
 - Estimated fair value, offers, and resale margins are decision support, not guaranteed market outcomes.
-- A listing page can disappear or be blocked. Confirm the seller, availability, title, fees, and history yourself, and get an independent inspection before buying.
+- Confirm the seller, availability, title, fees, and history yourself, and get an independent inspection before buying.
 
 ## Agent access
 
-Create an API key from [Developers](https://autoflip-umber.vercel.app/developers). Send **Authorization: Bearer af_…** on **every** REST or MCP request.
+Create an API key from [Developers](https://autoflip-umber.vercel.app/developers) or use paid x402 registration at `POST /api/agents/register`. Send `Authorization: Bearer af_…` on every REST or MCP request.
 
-- MCP: **POST /api/mcp**
-- REST: **/api/v1/check**, **/api/v1/find**, **/api/v1/resale**, **/api/v1/radar/watches**, **/api/v1/radar/check**, **/api/v1/radar/feed**, and **/api/v1/report**
-- API reference: [OpenAPI](https://autoflip-umber.vercel.app/openapi.json) · [LLM instructions](https://autoflip-umber.vercel.app/llms.txt)
+- MCP: `POST /api/mcp`
+- REST: `/api/v1/check`, `/api/v1/find`, `/api/v1/resale`, `/api/v1/radar/*`, and `/api/v1/report`
+- Agent payments: `GET /api/agents/payment-info`, `POST /api/agents/register`, `POST /api/agents/billing/credits`, `POST /api/agents/billing/plans`
 - Transparency: [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) · [Proof](https://autoflip-umber.vercel.app/proof) · [Verify](https://autoflip-umber.vercel.app/verify)
 
 The same decision logic is exposed through the site, REST, and MCP. Agent reports use the same evidence and decision journal as the browser product.
@@ -87,7 +102,7 @@ cp .env.example .env.local
 npm run dev
 ~~~
 
-For a local report without Stripe, set **AUTOFLIP_DEV_CREDITS=3** in **.env.local** and restart.
+For a local report without Stripe, set `AUTOFLIP_DEV_CREDITS=3` in `.env.local` and restart.
 
 Run the same core checks used by CI:
 
@@ -99,29 +114,28 @@ npm run test:e2e
 npm run build
 ~~~
 
-Model and provider-backed evaluation commands can make paid requests. Review the script's explicit opt-in gates before running them.
+Model and provider-backed evaluations can make paid requests. Review their explicit opt-in gates before running them.
 
 ### Environment
 
 | Variable | Purpose |
 | --- | --- |
-| **AUTODEV_API_KEY** | Live listing search |
-| **SERV_API_KEY** | SERV inference |
-| **SERV_MODEL** | Optional default model id for SERV steps |
-| **SERV_BASE_URL** | Optional inference endpoint; defaults to OpenServ |
-| **UPSTASH_REDIS_REST_URL** / **UPSTASH_REDIS_REST_TOKEN** | Durable production storage |
-| **AUTH_SECRET** | Auth.js session signing |
-| **AUTH_GOOGLE_ID** / **AUTH_GOOGLE_SECRET** | Google sign-in |
-| **NEXT_PUBLIC_FIREBASE_API_KEY**, **NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN**, **NEXT_PUBLIC_FIREBASE_PROJECT_ID**, **NEXT_PUBLIC_FIREBASE_APP_ID** | Firebase email-link sign-in; all four are required to show the option |
-| **STRIPE_SECRET_KEY** / **STRIPE_WEBHOOK_SECRET** | Stripe checkout and webhook; currently **test mode only** |
-| **NEXT_PUBLIC_APP_URL** | Checkout and auth callback origin |
-| **AUTOFLIP_DEV_CREDITS** | Optional local starting credit balance |
-| **TELEGRAM_BOT_TOKEN** / **TELEGRAM_BOT_USERNAME** / **TELEGRAM_WEBHOOK_SECRET** | Optional Deal Radar Telegram copy |
+| `AUTODEV_API_KEY` | Live listing search |
+| `SERV_API_KEY` | SERV inference |
+| `SERV_MODEL` / `SERV_BASE_URL` | Optional model and endpoint |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Durable production storage |
+| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js / Google sign-in |
+| `NEXT_PUBLIC_FIREBASE_*` | Firebase email-link sign-in |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Human checkout; test keys only |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Optional CDP facilitator auth for x402 |
+| `X402_PAY_TO_ADDRESS` | Optional USDC receiver override; defaults to the published treasury |
+| `X402_FACILITATOR_URL` | Optional CDP facilitator URL override |
 
-Do not commit **.env.local**.
+Never commit `.env.local` or facilitator credentials.
 
 ## Release notes
 
-- Stripe remains in **test mode**. The test card is **4242 4242 4242 4242**; purchases are not real revenue.
-- Legacy repository, Vercel, cookie, and AUTOFLIP-prefixed environment names remain for compatibility. The product name is **Lemonless**.
-- The daily Deal Radar cron is configured in **vercel.json**.
+- Stripe remains in **test mode**. The test card is `4242 4242 4242 4242`; purchases are not real revenue.
+- External agent x402 payments use Base USDC. Credit packs and prepaid Radar terms are separate from the human Stripe flow.
+- Legacy repository, Vercel, cookie, and AUTOFLIP-prefixed environment names remain for compatibility. The product name is Lemonless.
+- The daily Deal Radar cron is configured in `vercel.json`.
