@@ -1,3 +1,6 @@
+import { MemoryKv } from "../../src/io/kv";
+import { runFindChatTurn } from "../../src/server/find-chat";
+
 /**
  * Two-round, real Find vs Gemini Search-grounded comparison.
  * Run only from the manually dispatched live-eval workflow on the PR branch.
@@ -11,8 +14,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const ORIGIN = (process.env.EVAL_LIVE_URL || "https://autoflip-umber.vercel.app").replace(/\/$/, "");
-const EVAL_SECRET = (process.env.EVAL_LIVE_SECRET || "").trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || "").trim();
+const SERV_API_KEY = (process.env.SERV_API_KEY || "").trim();
+const AUTODEV_API_KEY = (process.env.AUTODEV_API_KEY || "").trim();
 const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
 const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || "eval/results/find-gemini-head-to-head-2026-11-13");
 const WAIT_MS = 10 * 60 * 1000;
@@ -58,72 +62,92 @@ async function postJson(url, headers, body, label) {
 
 async function runFind(roundId) {
   const startedAt = new Date().toISOString();
-  const endpoint = ORIGIN + "/api/internal/eval-live";
-  const headers = { authorization: "Bearer " + EVAL_SECRET };
-  const started = await postJson(endpoint, headers, {
-    action: "start",
-    maxQueries: 1,
-    notes: [{ product: "find", note: PROMPT, zip: "80202" }],
-    servVerdictFeatures: "on",
-  }, "Find start");
+  const kv = new MemoryKv();
+  const userId = "find-gemini-eval-" + roundId;
+  const turns = [];
+  let sessionId = null;
+  let lastBody = null;
+  let lastStatus = null;
+  let finalHttpStatus = null;
 
-  let report = started.json;
-  const batchId = report.batchId;
-  if (typeof batchId !== "string" || !batchId) {
-    throw new Error("Find start did not return a batchId: " + JSON.stringify(report).slice(0, 1500));
-  }
+  const constraintsReply =
+    "Please keep every requirement from my original request unchanged: Denver ZIP 80202; " +
+    "$25,000 maximum out-the-door total including taxes, title, registration and dealer fees; " +
+    "AWD SUV; mountain winters; a 40-mile daily commute; two children with safety as the top priority; " +
+    "under 100,000 miles; no accident or salvage history; low fuel cost; within 75 miles. " +
+    "Do not relax any of these constraints. Please use them exactly when preparing the brief.";
 
-  let hops = 0;
-  const hopEvents = [];
-  while (report.done !== true && hops < 50) {
-    hops += 1;
-    const step = await postJson(endpoint, headers, { action: "step", batchId }, "Find step " + hops);
-    report = step.json;
-    hopEvents.push({
-      at: new Date().toISOString(),
-      requestId: step.requestId,
-      hopStatus: report.hopStatus || report.lastHop?.status || null,
-      httpStatus: report.lastHop?.httpStatus || null,
-      queryId: report.queryId || null,
-      sessionId: report.sessionId || report.active?.sessionId || null,
-      asked: report.asked ?? report.active?.asked ?? false,
-      briefConfirmed: report.briefConfirmed ?? report.active?.briefConfirmed ?? false,
+  async function turn(input) {
+    const at = new Date().toISOString();
+    const response = await runFindChatTurn({
+      kv,
+      userId,
+      sessionId,
+      message: input.message ?? null,
+      continue: input.continue === true,
+      confirmBrief: input.confirmBrief === true,
+      skipCredit: true,
+      servKey: SERV_API_KEY,
+      autodevKey: AUTODEV_API_KEY,
+      servBaseUrl: process.env.SERV_BASE_URL || undefined,
     });
+    lastBody = response.body;
+    finalHttpStatus = response.status;
+    if (typeof response.body.sessionId === "string") sessionId = response.body.sessionId;
+    lastStatus = typeof response.body.status === "string" ? response.body.status : null;
+    turns.push({
+      startedAt: at,
+      finishedAt: new Date().toISOString(),
+      httpStatus: response.status,
+      ok: response.ok,
+      status: lastStatus,
+      request: input,
+      response: response.body,
+    });
+    return response;
   }
-  if (report.done !== true) throw new Error("Find did not complete after " + hops + " chat hops.");
 
-  const caseResult = Array.isArray(report.results) ? report.results[0] : null;
-  if (!caseResult) throw new Error("Completed Find batch did not contain a result.");
-  let publicRun = null;
-  let publicRunError = null;
-  if (typeof caseResult.runId === "string" && caseResult.runId) {
-    try {
-      const response = await fetch(ORIGIN + "/api/run/" + encodeURIComponent(caseResult.runId), {
-        headers: { accept: "application/json" },
-      });
-      const text = await response.text();
-      try { publicRun = JSON.parse(text); } catch { publicRun = { nonJson: text.slice(0, 1000) }; }
-      if (!response.ok) publicRunError = "Public run read returned HTTP " + response.status;
-    } catch (error) {
-      publicRunError = String(error);
+  await turn({ message: PROMPT });
+  let hops = 1;
+  while (lastStatus !== "done" && hops < 50) {
+    if (lastStatus === "ask") {
+      await turn({ message: constraintsReply });
+    } else if (lastStatus === "brief") {
+      await turn({ confirmBrief: true });
+    } else if (lastStatus === "continue" || lastStatus === "searching" || lastStatus === "progress") {
+      await turn({ continue: true });
+    } else {
+      throw new Error("Find stopped before a terminal result (status=" + String(lastStatus) + "). Last response: " +
+        JSON.stringify(lastBody).slice(0, 1800));
     }
+    hops += 1;
+  }
+  if (lastStatus !== "done") {
+    throw new Error("Find did not complete after " + hops + " chat turns.");
   }
 
+  const result = lastBody && typeof lastBody.result === "object" ? lastBody.result : null;
+  const runId = result && typeof result.runId === "string" ? result.runId : null;
+  const agentLoop = result && typeof result.agentLoop === "object" ? result.agentLoop : null;
   return {
-    status: caseResult.ok ? "completed" : "completed_with_find_error",
+    status: result?.ok === false ? "completed_with_find_error" : "completed",
     startedAt,
     finishedAt: new Date().toISOString(),
-    durationMs: caseResult.durationMs ?? caseResult.elapsedMs ?? null,
-    endpoint: endpoint,
-    batchId,
-    batchReport: report,
-    result: caseResult,
-    publicRunUrl: caseResult.runId ? ORIGIN + "/run/" + caseResult.runId : null,
-    publicRunJsonUrl: caseResult.runId ? ORIGIN + "/api/run/" + caseResult.runId : null,
-    publicRun,
-    publicRunError,
-    hopEvents,
-    httpRequestId: started.requestId,
+    durationMs: Date.now() - new Date(startedAt).getTime(),
+    execution: "runFindChatTurn (same server-side Find chat implementation); MemoryKv; skipCredit=true",
+    runId,
+    result,
+    finalBody: lastBody,
+    finalHttpStatus,
+    servResponseIds: agentLoop?.servResponseIds || [],
+    servUsageTotal: agentLoop?.servUsageTotal || null,
+    journalToolCalls: agentLoop?.journalToolCalls ?? null,
+    journalServCalls: agentLoop?.journalServCalls ?? null,
+    featuresActive: agentLoop?.featuresActive || [],
+    conversation: turns,
+    turns: hops,
+    publicRunUrl: null,
+    note: "This is a local eval invocation of the same Find server function, not a browser-session recording. It uses a fresh in-memory KV and does not charge report credits.",
   };
 }
 
@@ -199,7 +223,7 @@ async function runPair(roundId) {
 }
 
 async function main() {
-  if (!EVAL_SECRET) throw new Error("EVAL_LIVE_SECRET is missing. No Find call was made.");
+  if (!SERV_API_KEY || !AUTODEV_API_KEY) throw new Error("SERV_API_KEY and AUTODEV_API_KEY are required. No Find call was made.");
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is missing. No provider calls were made.");
   mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -214,7 +238,7 @@ async function main() {
     pricingReference: "https://ai.google.dev/gemini-api/docs/pricing",
     groundingReference: "https://ai.google.dev/gemini-api/docs/google-search",
     disclosures: [
-      "Find is driven through the production Find chat implementation via the internal eval endpoint; skipCredit=true, so no Lemonless report credit is charged.",
+      "Find is driven directly through the same runFindChatTurn server implementation used by /api/find/chat, with MemoryKv and skipCredit=true; no report credit is charged and no production data is mutated.",
       "This is one use case repeated twice, not a statistically general benchmark.",
       "Search inventory can change between T0 and T+10; compare listing evidence and timestamps before calling answer changes inconsistent.",
       "Accident-free/salvage, AWD and out-the-door price require independent evidence; listing feed accidentCount=0 is not proof.",
