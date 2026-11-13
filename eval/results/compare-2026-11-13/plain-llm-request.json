@@ -1,0 +1,11 @@
+{
+  "variant": 1,
+  "arm": "plain_llm",
+  "model": "gpt-6.1-sol",
+  "endpoint": "https://inference-api.openserv.ai/v1/chat/completions",
+  "tools": [],
+  "data": "none",
+  "system": "You are a helpful assistant.",
+  "query": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+  "startedAtUtc": "2026-11-13T14:09:47.366236+00:00"
+}

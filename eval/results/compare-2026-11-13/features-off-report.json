@@ -1,0 +1,377 @@
+{
+  "ok": true,
+  "charged": false,
+  "done": true,
+  "batchId": "1186c39819674a169628c46bcaa0110a",
+  "nextIndex": 1,
+  "queryId": "01_find_custom",
+  "product": "find",
+  "hopStatus": "done",
+  "sessionId": "a19f7958-48db-4bb4-8901-3472f7d3f1ae",
+  "hops": 2,
+  "asked": false,
+  "briefConfirmed": true,
+  "active": null,
+  "lastResult": {
+    "id": "01_find_custom",
+    "product": "find",
+    "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+    "elapsedMs": 50665,
+    "durationMs": 50665,
+    "estimatedUsd": 0.12,
+    "fixtureDir": null,
+    "ok": true,
+    "searchSpec": {
+      "hard": {},
+      "soft": {},
+      "planSummary": "Find an AWD SUV within 75 miles of Denver 80202 for mountain winters, a 40-mile daily commute, and two kids, prioritizing safety and low fuel costs."
+    },
+    "carsFound": 40,
+    "pick": {
+      "vin": "JF2SKACC5RH515915",
+      "label": "2024 Subaru Forester · $17,950 · 21,029 mi",
+      "verdict": "needs_inspection",
+      "confidence": "medium",
+      "priceUsd": 17950,
+      "miles": 21029,
+      "distanceMiles": null,
+      "vdp": "https://www.carfax.com/vehicle/JF2SKACC5RH515915"
+    },
+    "failure": null,
+    "proofRecords": [],
+    "agentMode": "tools",
+    "toolRounds": 11,
+    "verdictReached": true,
+    "relaxedConditions": [
+      {
+        "name": "search_1",
+        "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+      },
+      {
+        "name": "search_2",
+        "why": "Ran search (zip=80202, radius=75mi, priceMax=$20000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+      }
+    ],
+    "passReason": null,
+    "journalServCalls": 7,
+    "journalToolCalls": 12,
+    "servUsageTotal": {
+      "calls": 7,
+      "input_tokens": 70572,
+      "output_tokens": 1507,
+      "total_tokens": 72079,
+      "reasoning_tokens": 0,
+      "cached_tokens": 51777,
+      "cost": null
+    },
+    "featuresActive": [
+      "serv_prompt_guard",
+      "content_filter",
+      "reasoning_effort",
+      "prompt_cache",
+      "responses_reasoning",
+      "usage"
+    ],
+    "featuresActivePerCall": [
+      [
+        "serv_prompt_guard",
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ]
+    ],
+    "featureRejections": [],
+    "chosenListingCount": 1,
+    "servResponseIds": [
+      "resp_0c0983e7b975f133016af71e5d65bc87d28ff28f9b92926a65",
+      "resp_0c0983e7b975f133016af71e613ab087d2b835061e01d6b501",
+      "resp_0c0983e7b975f133016af71e65c50887d2bb9b2e0043c75813",
+      "resp_0c0983e7b975f133016af71e6f627887d2a324507e6784d44c",
+      "resp_0c0983e7b975f133016af71e7521f087d2a85c7d9adfd0abdf",
+      "resp_0c0983e7b975f133016af71e7bc56487d28d0465a65cea3def",
+      "resp_0c0983e7b975f133016af71e857a6487d28221c4e4ed0161de"
+    ],
+    "runId": "run_92e6facff18941b28355",
+    "confirmedBrief": {
+      "summary": "Find an AWD SUV within 75 miles of Denver 80202 for mountain winters, a 40-mile daily commute, and two kids, prioritizing safety and low fuel costs.",
+      "budget": {
+        "maxUsd": 22000,
+        "userQuote": "budget $22k all-in"
+      },
+      "zip": "80202",
+      "radiusMi": 75,
+      "notes": "The $22,000 total must include taxes and fees; listing prices alone do not establish affordability. Accident and salvage history must be verified before purchase.",
+      "hardConstraints": [
+        {
+          "key": "drivetrain",
+          "value": "AWD"
+        },
+        {
+          "key": "body",
+          "value": "SUV"
+        },
+        {
+          "key": "mileage",
+          "value": "Under 90,000 miles"
+        },
+        {
+          "key": "history",
+          "value": "No accident or salvage history"
+        }
+      ],
+      "softConstraints": [
+        {
+          "key": "safety",
+          "value": "Highest priority; suitable for two kids and mountain winters"
+        },
+        {
+          "key": "fuel_cost",
+          "value": "Low fuel cost for a 40-mile daily commute"
+        }
+      ]
+    }
+  },
+  "lastHop": {
+    "status": "done",
+    "ok": true,
+    "httpStatus": 200
+  },
+  "mode": "live",
+  "seed": 926041385,
+  "maxQueries": 1,
+  "maxUsd": 1.5,
+  "estimatedUsd": 0.12,
+  "servCallsAssumedPerQuery": 4,
+  "usdPerServCall": 0.03,
+  "stoppedReason": "max_queries",
+  "generatedAt": "2026-11-13T14:28:29.259Z",
+  "queries": [
+    {
+      "id": "01_find_custom",
+      "product": "find",
+      "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+      "zip": "80202",
+      "distanceMiles": null,
+      "tags": {
+        "product": "find",
+        "city": "custom",
+        "budget": "custom",
+        "body": "custom",
+        "need": "custom",
+        "messy": false
+      }
+    }
+  ],
+  "results": [
+    {
+      "id": "01_find_custom",
+      "product": "find",
+      "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+      "elapsedMs": 50665,
+      "durationMs": 50665,
+      "estimatedUsd": 0.12,
+      "fixtureDir": null,
+      "ok": true,
+      "searchSpec": {
+        "hard": {},
+        "soft": {},
+        "planSummary": "Find an AWD SUV within 75 miles of Denver 80202 for mountain winters, a 40-mile daily commute, and two kids, prioritizing safety and low fuel costs."
+      },
+      "carsFound": 40,
+      "pick": {
+        "vin": "JF2SKACC5RH515915",
+        "label": "2024 Subaru Forester · $17,950 · 21,029 mi",
+        "verdict": "needs_inspection",
+        "confidence": "medium",
+        "priceUsd": 17950,
+        "miles": 21029,
+        "distanceMiles": null,
+        "vdp": "https://www.carfax.com/vehicle/JF2SKACC5RH515915"
+      },
+      "failure": null,
+      "proofRecords": [],
+      "agentMode": "tools",
+      "toolRounds": 11,
+      "verdictReached": true,
+      "relaxedConditions": [
+        {
+          "name": "search_1",
+          "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+        },
+        {
+          "name": "search_2",
+          "why": "Ran search (zip=80202, radius=75mi, priceMax=$20000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+        }
+      ],
+      "passReason": null,
+      "journalServCalls": 7,
+      "journalToolCalls": 12,
+      "servUsageTotal": {
+        "calls": 7,
+        "input_tokens": 70572,
+        "output_tokens": 1507,
+        "total_tokens": 72079,
+        "reasoning_tokens": 0,
+        "cached_tokens": 51777,
+        "cost": null
+      },
+      "featuresActive": [
+        "serv_prompt_guard",
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      "featuresActivePerCall": [
+        [
+          "serv_prompt_guard",
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ]
+      ],
+      "featureRejections": [],
+      "chosenListingCount": 1,
+      "servResponseIds": [
+        "resp_0c0983e7b975f133016af71e5d65bc87d28ff28f9b92926a65",
+        "resp_0c0983e7b975f133016af71e613ab087d2b835061e01d6b501",
+        "resp_0c0983e7b975f133016af71e65c50887d2bb9b2e0043c75813",
+        "resp_0c0983e7b975f133016af71e6f627887d2a324507e6784d44c",
+        "resp_0c0983e7b975f133016af71e7521f087d2a85c7d9adfd0abdf",
+        "resp_0c0983e7b975f133016af71e7bc56487d28d0465a65cea3def",
+        "resp_0c0983e7b975f133016af71e857a6487d28221c4e4ed0161de"
+      ],
+      "runId": "run_92e6facff18941b28355",
+      "confirmedBrief": {
+        "summary": "Find an AWD SUV within 75 miles of Denver 80202 for mountain winters, a 40-mile daily commute, and two kids, prioritizing safety and low fuel costs.",
+        "budget": {
+          "maxUsd": 22000,
+          "userQuote": "budget $22k all-in"
+        },
+        "zip": "80202",
+        "radiusMi": 75,
+        "notes": "The $22,000 total must include taxes and fees; listing prices alone do not establish affordability. Accident and salvage history must be verified before purchase.",
+        "hardConstraints": [
+          {
+            "key": "drivetrain",
+            "value": "AWD"
+          },
+          {
+            "key": "body",
+            "value": "SUV"
+          },
+          {
+            "key": "mileage",
+            "value": "Under 90,000 miles"
+          },
+          {
+            "key": "history",
+            "value": "No accident or salvage history"
+          }
+        ],
+        "softConstraints": [
+          {
+            "key": "safety",
+            "value": "Highest priority; suitable for two kids and mountain winters"
+          },
+          {
+            "key": "fuel_cost",
+            "value": "Low fuel cost for a 40-mile daily commute"
+          }
+        ]
+      }
+    }
+  ],
+  "findCount": 1,
+  "resaleCount": 0,
+  "servVerdictFeatures": "off"
+}

@@ -1,0 +1,38 @@
+{
+  "query": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+  "zip": "80202",
+  "budgetUsd": 22000,
+  "seed": 926041385,
+  "prod": "https://autoflip-umber.vercel.app",
+  "billingMerge": {
+    "pr": 202,
+    "headReviewed": "53c50af974d8bbf5006f6cd1f4863718dfc9cb77",
+    "mergeSha": "f2047a6219fd305cc30ca49ac207e65795fe210c",
+    "deployId": "dpl_MdEwNA9Zed8u24pAu1qLr4PJk6Bi",
+    "readyEuropeIstanbul": "2026-11-13 17:03:16 Europe/Istanbul"
+  },
+  "featureToggle": {
+    "pr": 203,
+    "head": "4635d79fd5989466891856a3c1f759168ae16651",
+    "mergeSha": "cb10db547bd1c3fd6b444d56b3ad0189998ac832",
+    "deployId": "dpl_5UV3apU87wGMnidbyZfXrJAVyhuU",
+    "readyEuropeIstanbul": "2026-11-13 17:26:26 Europe/Istanbul"
+  },
+  "telegramWebhook": "skipped \u2014 Vercel CLI env pull writes [SENSITIVE] placeholders for Secret-type vars; reading decrypted values via API would echo secrets into the log",
+  "variants": {
+    "plain_llm": {
+      "gha": null,
+      "dir": "plain-llm",
+      "responseId": "chatcmpl-EjmGOo5FLFaTaVR8UttBpQQuaksEf",
+      "model": "gpt-6.1-sol"
+    },
+    "features_off": {
+      "gha": 43442852172,
+      "servVerdictFeatures": "off"
+    },
+    "features_on": {
+      "gha": 43442860888,
+      "servVerdictFeatures": "on"
+    }
+  }
+}
