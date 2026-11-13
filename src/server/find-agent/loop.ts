@@ -369,6 +369,8 @@ function buildFindCheckpoint(input: {
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
     shopperFacts: { ...input.state.shopperFacts },
     briefConfirmed: input.state.briefConfirmed === true,
+    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
+    zipGeocodeFailed: input.state.zipGeocodeFailed === true,
   };
 }
 
@@ -414,6 +416,8 @@ function restoreFindStateFromCheckpoint(
     };
   }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
+  state.radiusWidenAgreed = checkpoint.radiusWidenAgreed === true;
+  state.zipGeocodeFailed = checkpoint.zipGeocodeFailed === true;
   const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {

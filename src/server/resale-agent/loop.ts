@@ -337,7 +337,10 @@ function buildResaleCheckpoint(input: {
     selectionHop: input.selectionHop,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    shopperFacts: { ...input.state.shopperFacts },
     briefConfirmed: input.state.briefConfirmed === true,
+    radiusWidenAgreed: input.state.radiusWidenAgreed === true,
+    zipGeocodeFailed: input.state.zipGeocodeFailed === true,
   };
 }
 
@@ -376,7 +379,16 @@ function restoreResaleStateFromCheckpoint(
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
   state.pnlByVin = deserializePnlByVin(checkpoint.pnlByVin);
+  if (checkpoint.shopperFacts) {
+    state.shopperFacts = {
+      budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
+      zip: checkpoint.shopperFacts.zip ?? null,
+      radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+    };
+  }
   state.briefConfirmed = checkpoint.briefConfirmed === true;
+  state.radiusWidenAgreed = checkpoint.radiusWidenAgreed === true;
+  state.zipGeocodeFailed = checkpoint.zipGeocodeFailed === true;
   const journal = checkpoint.journal as unknown as ResaleAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromResaleJournal(journal));
   return {

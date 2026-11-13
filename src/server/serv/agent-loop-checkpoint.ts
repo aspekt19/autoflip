@@ -49,6 +49,10 @@ export type AgentLoopCheckpointV1 = {
   pendingBriefCallId?: string | null;
   /** Shopper confirmed the brief — search may proceed. */
   briefConfirmed?: boolean;
+  /** Shopper agreed to widen beyond the confirmed radius. */
+  radiusWidenAgreed?: boolean;
+  /** Last ZIP lookup was location_not_recognized (allows one post-confirm ask). */
+  zipGeocodeFailed?: boolean;
 };
 
 export type AgentLoopCheckpoint = AgentLoopCheckpointV1;

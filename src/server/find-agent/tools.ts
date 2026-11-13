@@ -172,6 +172,8 @@ export type FindAgentToolState = {
   briefConfirmed: boolean;
   /** Shopper agreed (via brief.agreedRelaxations) to widen beyond confirmed radius. */
   radiusWidenAgreed: boolean;
+  /** Last search_listings / comps ZIP lookup returned location_not_recognized. */
+  zipGeocodeFailed: boolean;
 };
 
 export type FindAgentToolDeps = {
@@ -916,6 +918,7 @@ export function createFindAgentToolState(
     requireBriefConfirm: false,
     briefConfirmed: false,
     radiusWidenAgreed: false,
+    zipGeocodeFailed: false,
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -1016,6 +1019,22 @@ export async function executeFindAgentTool(
         result: { error: "invalid_args", issues: parsed.issues },
         summary: `ask_shopper rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
       };
+    }
+    if (state.briefConfirmed && !state.zipGeocodeFailed) {
+      return {
+        name: "ask_shopper",
+        ok: false,
+        result: {
+          error: "brief_confirmed_search_now",
+          message:
+            "The shopper already confirmed the search brief. Do not ask again — call search_listings, then submit_picks or submit_nothing_fits. ask_shopper is allowed after confirm only when ZIP geocode failed.",
+        },
+        summary: "ask_shopper rejected: brief already confirmed",
+      };
+    }
+    if (state.briefConfirmed && state.zipGeocodeFailed) {
+      // One residential-ZIP repair question, then search.
+      state.zipGeocodeFailed = false;
     }
     return {
       name: "ask_shopper",
@@ -1142,6 +1161,7 @@ export async function executeFindAgentTool(
       const lookup = await autodevZipLookup(parsed.value.zip, autodevDeps);
       if (!lookup.ok) {
         if (lookup.error === "location_not_recognized") {
+          state.zipGeocodeFailed = true;
           return {
             name,
             ok: false,
@@ -1181,6 +1201,7 @@ export async function executeFindAgentTool(
         };
       }
       resolvedZip = lookup.location.zip;
+      state.zipGeocodeFailed = false;
       locationResolution = {
         requestedZip: parsed.value.zip,
         resolvedZip: lookup.location.zip,
@@ -1418,6 +1439,7 @@ export async function executeFindAgentTool(
         const lookup = await autodevZipLookup(args.zip, autodevDeps);
         if (!lookup.ok) {
           if (lookup.error === "location_not_recognized") {
+            state.zipGeocodeFailed = true;
             return {
               name,
               ok: false,

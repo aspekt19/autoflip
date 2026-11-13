@@ -44,6 +44,40 @@ describe("no re-brief after confirm", () => {
     expect(rejected.ok).toBe(false);
     expect(rejected.result.error).toBe("brief_already_confirmed");
   });
+
+  it("rejects ask_shopper after confirm unless ZIP geocode failed", async () => {
+    const deps = {
+      fetch: (async () => new Response("{}", { status: 500 })) as typeof fetch,
+      autodevKey: "test",
+      autodev: { cache: new TtlCache(), counter: new MemoryCounter() },
+      chatTranscript: "Shopper: under $25k near Columbus",
+    };
+    const blocked = createFindAgentToolState();
+    blocked.requireBriefConfirm = true;
+    blocked.briefConfirmed = true;
+    blocked.zipGeocodeFailed = false;
+    const rejected = await executeFindAgentTool(
+      "ask_shopper",
+      { question: "What budget works for you?" },
+      deps,
+      blocked,
+    );
+    expect(rejected.ok).toBe(false);
+    expect(rejected.result.error).toBe("brief_confirmed_search_now");
+
+    const allowed = createFindAgentToolState();
+    allowed.requireBriefConfirm = true;
+    allowed.briefConfirmed = true;
+    allowed.zipGeocodeFailed = true;
+    const asked = await executeFindAgentTool(
+      "ask_shopper",
+      { question: "That ZIP did not geocode. Could you share a nearby residential ZIP?" },
+      deps,
+      allowed,
+    );
+    expect(asked.ok).toBe(true);
+    expect(allowed.zipGeocodeFailed).toBe(false);
+  });
 });
 
 describe("verdict features only on final hop", () => {
