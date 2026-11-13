@@ -1,0 +1,19 @@
+{
+  "capturedAtLabel": "13 Nov 2026, 18:42 Europe/Istanbul",
+  "source": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0",
+  "captureNote": "Pasted by the shopper. The live Perplexity page returned a Cloudflare challenge (HTTP 403) from this environment, so the text was not re-fetched.",
+  "citations": [
+    {
+      "label": "cars.com SUV research",
+      "href": "https://www.cars.com/research/suv/",
+      "httpStatus": 403,
+      "note": "GET returned HTTP 403 with a Cloudflare challenge header. The URL is cited, but the page content was not verified from this environment."
+    },
+    {
+      "label": "CarGurus family-car article",
+      "href": "https://www.cargurus.com/research/articles/how-to-select-a-family-car",
+      "httpStatus": 406,
+      "note": "GET returned HTTP 406 with an empty body, including with a normal browser user-agent. The URL is cited, but the page content was not verified from this environment."
+    }
+  ]
+}

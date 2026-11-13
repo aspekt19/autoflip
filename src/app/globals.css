@@ -1755,6 +1755,39 @@ details.similar-cars > summary,
   margin-inline: 0;
 }
 .decision p { margin: 0; padding: 0 16px 14px; }
+.proof-example { margin: 28px 0 48px; }
+.proof-example > h2 { margin-top: 8px; }
+details.decision .decision-body {
+  padding: 0 16px 16px;
+}
+details.decision .decision-body p,
+.decision .decision-body p {
+  margin: 0 0 12px;
+  padding: 0;
+}
+details.decision .decision-body h3,
+details.decision .decision-body h4,
+.proof-answer h4 {
+  margin: 16px 0 8px;
+}
+details.decision .decision-body ul,
+details.decision .decision-body ol {
+  margin: 0 0 12px;
+}
+.proof-links { margin: 8px 0 4px; }
+.proof-links h4 { margin: 16px 0 8px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .ask details { border-top: 1px solid var(--line); }
 .ask summary {
   min-height: 56px;

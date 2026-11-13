@@ -1,136 +1,58 @@
 {
-  "id": "proof-serv-compare-2026-11-13",
-  "query": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
-  "seed": 926041385,
-  "model": "gpt-6.1-sol",
+  "id": "proof-examples",
   "generatedAt": "2026-11-13T14:29:45.877Z",
-  "generatedAtLabel": "13 Nov 2026, 17:29 Europe/Istanbul",
-  "prod": "https://autoflip-umber.vercel.app",
-  "note": "Variants 2 and 3 are real Find runs on production, same query, about one minute apart (features off finished 17:28:29 Europe/Istanbul; features on finished 17:29:45). Each run searched live inventory separately \u2014 both reported 40 cars found \u2014 so a different pick is evidence of a different decision, not a frozen identical listing set. Variant 1 is the same model as a plain chat: no tools, no listing data.",
-  "variants": {
-    "plain_llm": {
-      "label": "Plain LLM (no Lemonless)",
-      "short": "Plain LLM",
-      "description": "The same SERV production model as a plain chat completion, no tools, no live listings. System prompt: \u201cYou are a helpful assistant.\u201d",
-      "responseId": "chatcmpl-EjmGOo5FLFaTaVR8UttBpQQuaksEf",
+  "examples": [
+    {
+      "id": "proof-serv-compare-2026-11-13",
+      "query": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+      "seed": 926041385,
       "model": "gpt-6.1-sol",
-      "runUrl": null,
-      "links": [
-        {
-          "label": "Raw response JSON",
-          "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-response.json"
-        },
-        {
-          "label": "Full answer",
-          "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-        },
-        {
-          "label": "Request + usage",
-          "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-summary.json"
-        }
-      ],
-      "pick": "No live vehicle. Buying target: 2019 Subaru Forester Premium AWD, 60\u201385k miles. Opening offer $17,500 including dealer fees."
-    },
-    "features_off": {
-      "label": "Lemonless + SERV, features off",
-      "short": "Lemonless, features off",
-      "description": "Real Find flow on production with the SERV review features disabled on the verdict hop. The input-gate feature stayed on the first call. The recorded feature list does not include the verdict review features.",
-      "runId": "run_92e6facff18941b28355",
-      "sessionId": "a19f7958-48db-4bb4-8901-3472f7d3f1ae",
-      "gha": 43442852172,
-      "servVerdictFeatures": "off",
-      "servCalls": 7,
-      "toolRounds": 11,
-      "featuresActive": [
-        "serv_prompt_guard",
-        "content_filter",
-        "reasoning_effort",
-        "prompt_cache",
-        "responses_reasoning",
-        "usage"
-      ],
-      "links": [
-        {
-          "label": "Public /run",
-          "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-        },
-        {
-          "label": "Run JSON",
-          "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
-        },
-        {
-          "label": "Eval report",
-          "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-off-report.json"
-        },
-        {
-          "label": "GitHub Actions run",
-          "href": "https://github.com/aspekt19/autoflip/actions/runs/43442852172"
-        }
-      ],
-      "pick": "2024 Subaru Forester Premium AWD, $17,950, 21,029 miles, Zara Auto, Denver, CO. VIN JF2SKACC5RH515915. Offer $17,000 before tax and fees, needs inspection. No dealer listing URL."
-    },
-    "features_on": {
-      "label": "Lemonless + SERV, features on",
-      "short": "Lemonless, features on",
-      "description": "The same Find flow with the SERV review features enabled on the verdict hop. The recorded feature list includes those review features, with no feature rejections.",
-      "runId": "run_bfdb7995ccf7407f97b9",
-      "sessionId": "2e098859-08e7-4c57-a2d7-2ec2906ff354",
-      "gha": 43442860888,
-      "servVerdictFeatures": "on",
-      "servCalls": 8,
-      "toolRounds": 12,
-      "featuresActive": [
-        "serv_prompt_guard",
-        "content_filter",
-        "reasoning_effort",
-        "prompt_cache",
-        "responses_reasoning",
-        "usage",
-        "serv_shadow_agent",
-        "multipath",
-        "kronos"
-      ],
-      "links": [
-        {
-          "label": "Public /run",
-          "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-        },
-        {
-          "label": "Run JSON",
-          "href": "https://autoflip-umber.vercel.app/api/run/run_bfdb7995ccf7407f97b9"
-        },
-        {
-          "label": "Eval report",
-          "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-on-report.json"
-        },
-        {
-          "label": "GitHub Actions run",
-          "href": "https://github.com/aspekt19/autoflip/actions/runs/43442860888"
-        },
-        {
-          "label": "Dealer listing",
-          "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-        }
-      ],
-      "pick": "2019 Subaru Forester Sport AWD, $19,892, 79,882 miles, South Colorado Motors, Colorado Springs, CO. VIN JF2SKAKC9KH427473. Offer $19,000 before tax and fees, needs inspection."
-    }
-  },
-  "criteria": [
-    {
-      "id": "real_listing",
-      "label": "A real listing exists, with a working dealer URL",
-      "cells": {
+      "generatedAt": "2026-11-13T14:29:45.877Z",
+      "generatedAtLabel": "13 Nov 2026, 17:29 Europe/Istanbul",
+      "prod": "https://autoflip-umber.vercel.app",
+      "note": "Variants 2 and 3 are real Find runs on production, same query, about one minute apart (features off finished 17:28:29 Europe/Istanbul; features on finished 17:29:45). Each run searched live inventory separately — both reported 40 cars found — so a different pick is evidence of a different decision, not a frozen identical listing set. Variant 1 is the same model as a plain chat: no tools, no listing data. Variant 4 is the Perplexity answer the shopper pasted for this same request. The live Perplexity page could not be fetched here (Cloudflare HTTP 403), so the text is the capture, not a new search.",
+      "variants": {
         "plain_llm": {
-          "summary": "No listing. The model said it cannot check live inventory and asked for links. No http(s) URLs or VINs in the answer.",
+          "label": "Plain LLM (no Lemonless)",
+          "short": "Plain LLM",
+          "description": "The same SERV production model as a plain chat completion, no tools, no live listings. System prompt: “You are a helpful assistant.”",
+          "responseId": "chatcmpl-EjmGOo5FLFaTaVR8UttBpQQuaksEf",
+          "model": "gpt-6.1-sol",
+          "runUrl": null,
           "links": [
+            {
+              "label": "Raw response JSON",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-response.json"
+            },
             {
               "label": "Full answer",
               "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+            },
+            {
+              "label": "Request + usage",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-summary.json"
             }
-          ]
+          ],
+          "pick": "No live vehicle. Buying target: 2019 Subaru Forester Premium AWD, 60–85k miles. Opening offer $17,500 including dealer fees."
         },
         "features_off": {
-          "summary": "A real VIN and dealer name (Zara Auto, Denver) were returned, but the inventory row had no dealer URL. The eval pick included a Carfax vehicle page; a GET of that URL returned HTTP 403. The public /run JSON lists vdp and dealerUrl as null and tells the shopper to confirm the seller before traveling.",
+          "label": "Lemonless + SERV, features off",
+          "short": "Lemonless, features off",
+          "description": "Real Find flow on production with the SERV review features disabled on the verdict hop. The input-gate feature stayed on the first call. The recorded feature list does not include the verdict review features.",
+          "runId": "run_92e6facff18941b28355",
+          "sessionId": "a19f7958-48db-4bb4-8901-3472f7d3f1ae",
+          "gha": 43442852172,
+          "servVerdictFeatures": "off",
+          "servCalls": 7,
+          "toolRounds": 11,
+          "featuresActive": [
+            "serv_prompt_guard",
+            "content_filter",
+            "reasoning_effort",
+            "prompt_cache",
+            "responses_reasoning",
+            "usage"
+          ],
           "links": [
             {
               "label": "Public /run",
@@ -141,265 +63,37 @@
               "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
             },
             {
-              "label": "URL checks",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
+              "label": "Eval report",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-off-report.json"
+            },
+            {
+              "label": "GitHub Actions run",
+              "href": "https://github.com/aspekt19/autoflip/actions/runs/43442852172"
             }
-          ]
+          ],
+          "pick": "2024 Subaru Forester Premium AWD, $17,950, 21,029 miles, Zara Auto, Denver, CO. VIN JF2SKACC5RH515915. Offer $17,000 before tax and fees, needs inspection. No dealer listing URL."
         },
         "features_on": {
-          "summary": "Live dealer listing at South Colorado Motors, HTTP 200 when fetched on 13 Nov 2026. VIN and asking price are on the public /run page.",
-          "links": [
-            {
-              "label": "Dealer listing (HTTP 200)",
-              "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            },
-            {
-              "label": "URL checks",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
-            }
-          ]
-        }
-      },
-      "winner": "features_on",
-      "winnerLabel": "Lemonless + SERV, features on",
-      "why": "Only the features-on run produced a working https dealer URL. Features-off found a real car but no usable listing link. The plain model produced no car to open."
-    },
-    {
-      "id": "vin_decode",
-      "label": "VIN decoded (official record)",
-      "cells": {
-        "plain_llm": {
-          "summary": "No VIN was given, so nothing could be decoded.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "VIN JF2SKACC5RH515915 decodes cleanly on the official VIN decoder as a 2024 Subaru Forester Premium Base, AWD, 2.5L gasoline SUV. Error code 0.",
-          "links": [
-            {
-              "label": "Official VIN decode",
-              "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
-            },
-            {
-              "label": "Saved VIN-decode JSON",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKACC5RH515915.json"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "VIN JF2SKAKC9KH427473 decodes cleanly as a 2019 Subaru Forester Sport+ES+SMART, AWD, 2.5L gasoline SUV. Error code 0.",
-          "links": [
-            {
-              "label": "Official VIN decode",
-              "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
-            },
-            {
-              "label": "Saved VIN-decode JSON",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKAKC9KH427473.json"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            }
-          ]
-        }
-      },
-      "winner": "tie_lemonless",
-      "winnerLabel": "Tie: both Lemonless variants",
-      "why": "Both Find runs returned a VIN that the official decoder reads as AWD Foresters matching the listing year/trim. The plain model had no VIN to check."
-    },
-    {
-      "id": "recalls_complaints",
-      "label": "Recalls and complaints",
-      "cells": {
-        "plain_llm": {
-          "summary": "No official counts or campaign numbers. It mentioned a \u201cthermo control valve\u201d issue and said to have a dealer check the VIN for recalls. That is general advice, not a source-backed recall list.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "Queried official recall and complaint records (status queried_with_data). The /run write-up reports two 2024 model-year recalls (coolant-pipe bolts and front driveshafts) and 31 complaints, and says this is not VIN-specific open/closed status. The official database lists 2 recalls and 31 complaints for the 2024 Forester \u2014 the counts match.",
-          "links": [
-            {
-              "label": "Official 2024 recall list (2)",
-              "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2024"
-            },
-            {
-              "label": "Official 2024 complaint list (31)",
-              "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2024"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "Queried the same sources. The /run write-up reports three 2019 recalls (rear stabilizer bolts, PCV valve, electric steering) and 834 complaints, and says this is not VIN-specific status. The official database lists campaigns 21V263000, 19V856000 and 19V065000, and 834 complaints \u2014 the topics and counts match.",
-          "links": [
-            {
-              "label": "Official 2019 recall list (3)",
-              "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2019"
-            },
-            {
-              "label": "Official 2019 complaint list (834)",
-              "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2019"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            }
-          ]
-        }
-      },
-      "winner": "tie_lemonless",
-      "winnerLabel": "Tie: both Lemonless variants",
-      "why": "Both Lemonless runs queried official recall and complaint records and reported counts that match those databases, with an honest \u201cnot VIN-specific status\u201d caveat. Features-on named the three campaign topics. The plain model did not cite those official records."
-    },
-    {
-      "id": "crash_safety",
-      "label": "Crash safety",
-      "cells": {
-        "plain_llm": {
-          "summary": "No official crash-test star ratings and no ratings URL. It discussed EyeSight and blind-spot monitoring as equipment to verify.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "Reports 5 stars overall, frontal and side, and 4 for rollover for this model. The official crash-test record (vehicle 19387) (2024 Forester SUV AWD) is 5 / 5 / 5 / 4 \u2014 the numbers match. The /run page did not include the VehicleId URL.",
-          "links": [
-            {
-              "label": "Official crash-test ratings, vehicle 19387",
-              "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/19387"
-            },
-            {
-              "label": "Saved ratings JSON",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/safety_2024.json"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "Reports 5 stars overall/front/side and 4 rollover, and links the official record: VehicleId 13404 (2019 Forester SUV AWD). Those official ratings are 5 / 5 / 5 / 4.",
-          "links": [
-            {
-              "label": "Official crash-test ratings, vehicle 13404",
-              "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404"
-            },
-            {
-              "label": "Saved ratings JSON",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/safety_2019.json"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            }
-          ]
-        }
-      },
-      "winner": "features_on",
-      "winnerLabel": "Lemonless + SERV, features on (ratings are a tie; the citation is not)",
-      "why": "Both Lemonless ratings match the official crash-test figures. Features-on also published a clickable SafetyRatings URL on the /run page. The plain model gave no crash-test stars."
-    },
-    {
-      "id": "fuel_cost",
-      "label": "Fuel cost for the commute",
-      "cells": {
-        "plain_llm": {
-          "summary": "Cited about 29 mpg combined (this matches FuelEconomy.gov vehicle 40381). Then estimated $1,450/year at 12,000 miles and $3.50/gallon. EPA\u2019s own annual fuel cost for that vehicle is $2,050. The shopper asked about a 40-mile daily commute, which is not 12,000 miles/year (40 \u00d7 365 = 14,600 miles if 40 is the daily total).",
-          "links": [
-            {
-              "label": "FuelEconomy.gov 2019 Forester AWD (29 mpg combined)",
-              "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
-            },
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "Queried FuelEconomy.gov (queried_with_data). The /run text says estimates of $1,670\u2013$1,827 a year across two configurations, and that exact MPG and commute-specific cost were unavailable. Official combined MPG for the 2024 Forester AWD (vehicle 47161) is 29, with EPA annual cost $2,050. The annual range it quoted does not match the EPA annual figure; it correctly refused to invent a commute gallon figure.",
-          "links": [
-            {
-              "label": "FuelEconomy.gov 2024 Forester AWD (29 mpg combined)",
-              "href": "https://www.fueleconomy.gov/feg/noframes/47161.shtml"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "Closest-configuration match: 29 mpg combined, about 1.38 gallons for a 40-mile commute, with a note that winter use can be higher. 40 \u00f7 29 = 1.38. Official combined MPG for 2019 Forester AWD is 29.",
-          "links": [
-            {
-              "label": "FuelEconomy.gov 2019 Forester AWD (29 mpg combined)",
-              "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            }
-          ]
-        }
-      },
-      "winner": "features_on",
-      "winnerLabel": "Lemonless + SERV, features on",
-      "why": "Features-on is the only variant that both used the official 29 mpg figure and applied it to the 40-mile commute (1.38 gallons). Features-off queried the source but left commute cost unknown. The plain model got 29 mpg right, then used a different annual-mileage and fuel-price assumption than EPA."
-    },
-    {
-      "id": "fair_price_offer",
-      "label": "Fair price versus comps, plus an offer",
-      "cells": {
-        "plain_llm": {
-          "summary": "Gave negotiating targets of $17,500 opening / $18,000\u2013$18,500 aim / $19,000 max including dealer fees \u2014 explicitly \u201cnot verified local market quotes.\u201d No comparable listings.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "Live same-year Forester asking comps $17,950\u2013$23,100, median $21,498, noted as asking prices not sold prices, and that this car\u2019s low ask needs investigation. Buyer message: offer $17,000 before tax and fees. Structured offer field: \u201cOpening offer: not given. There is not enough similar-car data to name one.\u201d Both statements are on the /run record \u2014 the prose offer and the structured gap should both be read.",
-          "links": [
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            },
-            {
-              "label": "Run JSON",
-              "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "Named asking comps: a 2019 with 65,935 miles at $20,998 and a 2020 with 51,028 miles at $22,000; asked $19,892. Buyer message: offer $19,000 before tax and fees. Structured field: \u201cOpening offer: not given. The gap versus similar cars is too wide.\u201d Suspicious $600\u2013$799 feed rows were ignored. The prose offer and the structured caveat are both on the /run record.",
+          "label": "Lemonless + SERV, features on",
+          "short": "Lemonless, features on",
+          "description": "The same Find flow with the SERV review features enabled on the verdict hop. The recorded feature list includes those review features, with no feature rejections.",
+          "runId": "run_bfdb7995ccf7407f97b9",
+          "sessionId": "2e098859-08e7-4c57-a2d7-2ec2906ff354",
+          "gha": 43442860888,
+          "servVerdictFeatures": "on",
+          "servCalls": 8,
+          "toolRounds": 12,
+          "featuresActive": [
+            "serv_prompt_guard",
+            "content_filter",
+            "reasoning_effort",
+            "prompt_cache",
+            "responses_reasoning",
+            "usage",
+            "serv_shadow_agent",
+            "multipath",
+            "kronos"
+          ],
           "links": [
             {
               "label": "Public /run",
@@ -410,294 +104,848 @@
               "href": "https://autoflip-umber.vercel.app/api/run/run_bfdb7995ccf7407f97b9"
             },
             {
-              "label": "Dealer ask $19,892",
-              "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-            }
-          ]
-        }
-      },
-      "winner": "features_on",
-      "winnerLabel": "Lemonless + SERV, features on",
-      "why": "Features-on cited specific live asking comps and a $19,000 opening figure, and discarded implausible feed prices. Features-off also offered $17,000 against a comp range, but with less specific comps. Both Lemonless runs honestly labeled comps as asking prices. The plain model\u2019s numbers are not tied to any live listing. A remaining honesty note: both Lemonless runs also have a structured \u201coffer not given\u201d label that disagrees with the buyer-facing offer sentence."
-    },
-    {
-      "id": "all_in_budget",
-      "label": "All-in cost including tax and fees within $22k",
-      "cells": {
-        "plain_llm": {
-          "summary": "Built a sample stack: $18,500 + 9.15% tax ($1,693) + $500 title/registration + $1,100 winter tires = $21,793. The 9.15% rate and the fee amounts were not sourced, and there is no actual vehicle.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "Ask $17,950 leaves more room under $22,000 than the other live pick, but tax and fees were not calculated. The run requires an itemized buyer\u2019s order including tax, registration and every fee, capped at $22,000, with no add-ons.",
-          "links": [
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "Ask $19,892 is tighter once tax and fees are added; those amounts remain unknown. The run requires a written order totaling no more than $22,000 including taxes, registration and dealer fees, and says to walk away if history or inspection fails.",
-          "links": [
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+              "label": "Eval report",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-on-report.json"
             },
             {
-              "label": "Dealer ask",
-              "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-            }
-          ]
-        }
-      },
-      "winner": "tie_lemonless",
-      "winnerLabel": "Tie: both Lemonless variants (features-off has more headroom)",
-      "why": "Neither live run invented a tax total. Both enforced a $22,000 all-in cap on a written order. Features-off\u2019s lower ask leaves more room; features-on\u2019s $19,892 ask may or may not fit once tax is added \u2014 and it says so. The plain model produced a complete sample total, but the tax rate and fees are unsourced and there is no car."
-    },
-    {
-      "id": "constraints",
-      "label": "AWD, mileage and distance constraints",
-      "cells": {
-        "plain_llm": {
-          "summary": "Specified AWD and 60\u201385k miles as a target, not as a found vehicle. Distance could not be checked without a listing.",
-          "links": [
-            {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
-            }
-          ]
-        },
-        "features_off": {
-          "summary": "The official VIN decode confirms AWD. Mileage 21,029 is under 90,000. Dealer city is Denver. distanceMiles is null on the /run record \u2014 ZIP-to-ZIP distance was not computed for this row (no dealer URL or ZIP on the inventory row).",
-          "links": [
-            {
-              "label": "Official VIN decode (AWD)",
-              "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            }
-          ]
-        },
-        "features_on": {
-          "summary": "The official VIN decode confirms AWD. Mileage 79,882 is under 90,000. Dealer city is Colorado Springs, not Denver. distanceMiles is also null \u2014 the exact mile figure was not computed, so this page does not claim the 75-mile radius was proven in miles.",
-          "links": [
-            {
-              "label": "Official VIN decode (AWD)",
-              "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
+              "label": "GitHub Actions run",
+              "href": "https://github.com/aspekt19/autoflip/actions/runs/43442860888"
             },
             {
               "label": "Dealer listing",
               "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-            },
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
             }
-          ]
-        }
-      },
-      "winner": "features_off",
-      "winnerLabel": "Lemonless, features off (on AWD + miles + location); distance is unproven on both",
-      "why": "Both live picks are AWD SUVs under 90,000 miles. Features-off is listed in Denver, which is likelier to sit inside 75 miles of 80202. Features-on is listed in Colorado Springs; without a computed distance we do not treat the radius as verified. The feed also shows accidentCount=1 on both cars, while the brief required no accident or salvage history. Both runs treated history as unverified and required a report plus inspection, rather than claiming a clean record."
-    },
-    {
-      "id": "risks_honest",
-      "label": "Risks and unknowns stated honestly, with no fabrication",
-      "cells": {
-        "plain_llm": {
-          "summary": "Honest that it could not see live inventory and that offer numbers were not verified quotes. It did not invent a VIN or dealer URL (none were present to curl). Some supporting figures \u2014 a 9.15% tax rate, $1,450 annual fuel, $1,100 tires, 8.7 inches of ground clearance, a \u201cthermo control valve\u201d issue \u2014 were not sourced in the answer and were not independently confirmed here.",
+          ],
+          "pick": "2019 Subaru Forester Sport AWD, $19,892, 79,882 miles, South Colorado Motors, Colorado Springs, CO. VIN JF2SKAKC9KH427473. Offer $19,000 before tax and fees, needs inspection."
+        },
+        "perplexity": {
+          "label": "Perplexity (as captured)",
+          "short": "Perplexity (as captured)",
+          "description": "The same Denver request, answered on Perplexity. The live page is behind a Cloudflare challenge, so this is the text the shopper pasted, not a fresh fetch from that page.",
+          "pick": "No live vehicle. Buying target: a 2019–2021 Subaru Forester Premium with EyeSight, under 90,000 miles, only after history and condition check out. Opening offer $20,000 out the door; the answer says this is budget-driven, not based on comparable listings.",
           "links": [
             {
-              "label": "Full answer",
-              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+              "label": "Perplexity source page",
+              "href": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0"
+            },
+            {
+              "label": "Captured answer",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+            },
+            {
+              "label": "Cited cars.com research page (HTTP 403 here)",
+              "href": "https://www.cars.com/research/suv/"
+            },
+            {
+              "label": "Cited CarGurus article (HTTP 406 here)",
+              "href": "https://www.cargurus.com/research/articles/how-to-select-a-family-car"
+            },
+            {
+              "label": "Citation check notes",
+              "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-citation-status.json"
             }
-          ]
+          ],
+          "capture": "user_paste",
+          "sourceUrl": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0"
+        }
+      },
+      "criteria": [
+        {
+          "id": "real_listing",
+          "label": "A real listing exists, with a working dealer URL",
+          "cells": {
+            "plain_llm": {
+              "summary": "No listing. The model said it cannot check live inventory and asked for links. No http(s) URLs or VINs in the answer.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "A real VIN and dealer name (Zara Auto, Denver) were returned, but the inventory row had no dealer URL. The eval pick included a Carfax vehicle page; a GET of that URL returned HTTP 403. The public /run JSON lists vdp and dealerUrl as null and tells the shopper to confirm the seller before traveling.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                },
+                {
+                  "label": "Run JSON",
+                  "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
+                },
+                {
+                  "label": "URL checks",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Live dealer listing at South Colorado Motors, HTTP 200 when fetched on 13 Nov 2026. VIN and asking price are on the public /run page.",
+              "links": [
+                {
+                  "label": "Dealer listing (HTTP 200)",
+                  "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                },
+                {
+                  "label": "URL checks",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "No specific car, dealer URL, or VIN. The answer says it could not verify a qualifying live listing within 75 miles of 80202 and therefore will not name an available car as the winner. It asks for listing links or VINs.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                },
+                {
+                  "label": "Perplexity source page",
+                  "href": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0"
+                }
+              ]
+            }
+          },
+          "winner": "features_on",
+          "winnerLabel": "Lemonless + SERV, features on",
+          "why": "Only the features-on run produced a working https dealer URL. Features-off found a real car but no usable listing link. The plain model and the captured Perplexity answer both produced no car to open; Perplexity is explicit that it therefore will not name an available car as the winner."
+        },
+        {
+          "id": "vin_decode",
+          "label": "VIN decoded (official record)",
+          "cells": {
+            "plain_llm": {
+              "summary": "No VIN was given, so nothing could be decoded.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "VIN JF2SKACC5RH515915 decodes cleanly on the official VIN decoder as a 2024 Subaru Forester Premium Base, AWD, 2.5L gasoline SUV. Error code 0.",
+              "links": [
+                {
+                  "label": "Official VIN decode",
+                  "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
+                },
+                {
+                  "label": "Saved VIN-decode JSON",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKACC5RH515915.json"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "VIN JF2SKAKC9KH427473 decodes cleanly as a 2019 Subaru Forester Sport+ES+SMART, AWD, 2.5L gasoline SUV. Error code 0.",
+              "links": [
+                {
+                  "label": "Official VIN decode",
+                  "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
+                },
+                {
+                  "label": "Saved VIN-decode JSON",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/vpic-JF2SKAKC9KH427473.json"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "No VIN was given, so nothing could be decoded. The offer message asks the seller to send the VIN and a history report before a visit.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                }
+              ]
+            }
+          },
+          "winner": "tie_lemonless",
+          "winnerLabel": "Tie: both Lemonless variants",
+          "why": "Both Find runs returned a VIN that the official decoder reads as all-wheel-drive Foresters matching the listing year and trim. The plain model and the captured Perplexity answer had no VIN to check."
+        },
+        {
+          "id": "recalls_complaints",
+          "label": "Recalls and complaints",
+          "cells": {
+            "plain_llm": {
+              "summary": "No official counts or campaign numbers. It mentioned a “thermo control valve” issue and said to have a dealer check the VIN for recalls. That is general advice, not a source-backed recall list.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "Queried official recall and complaint records (status queried_with_data). The /run write-up reports two 2024 model-year recalls (coolant-pipe bolts and front driveshafts) and 31 complaints, and says this is not VIN-specific open/closed status. The official database lists 2 recalls and 31 complaints for the 2024 Forester — the counts match.",
+              "links": [
+                {
+                  "label": "Official 2024 recall list (2)",
+                  "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2024"
+                },
+                {
+                  "label": "Official 2024 complaint list (31)",
+                  "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2024"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Queried the same sources. The /run write-up reports three 2019 recalls (rear stabilizer bolts, PCV valve, electric steering) and 834 complaints, and says this is not VIN-specific status. The official database lists campaigns 21V263000, 19V856000 and 19V065000, and 834 complaints — the topics and counts match.",
+              "links": [
+                {
+                  "label": "Official 2019 recall list (3)",
+                  "href": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2019"
+                },
+                {
+                  "label": "Official 2019 complaint list (834)",
+                  "href": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2019"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "It says to check outstanding recalls by VIN before a deposit, but it gives no official recall or complaint counts and names no campaigns. That is general advice, not a source-backed list for a specific vehicle.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                }
+              ]
+            }
+          },
+          "winner": "tie_lemonless",
+          "winnerLabel": "Tie: both Lemonless variants",
+          "why": "Both Lemonless runs queried official recall and complaint records and reported counts that match those databases, with an honest “not VIN-specific status” caveat. Features-on named the three campaign topics. The plain model and Perplexity both said to have recalls checked by VIN, but neither cited official counts."
+        },
+        {
+          "id": "crash_safety",
+          "label": "Crash safety",
+          "cells": {
+            "plain_llm": {
+              "summary": "No official crash-test star ratings and no ratings URL. It discussed EyeSight and blind-spot monitoring as equipment to verify.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "Reports 5 stars overall, frontal and side, and 4 for rollover for this model. The official crash-test record (vehicle 19387) (2024 Forester SUV AWD) is 5 / 5 / 5 / 4 — the numbers match. The /run page did not include the VehicleId URL.",
+              "links": [
+                {
+                  "label": "Official crash-test ratings, vehicle 19387",
+                  "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/19387"
+                },
+                {
+                  "label": "Saved ratings JSON",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/safety_2024.json"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Reports 5 stars overall/front/side and 4 rollover, and links the official record: VehicleId 13404 (2019 Forester SUV AWD). Those official ratings are 5 / 5 / 5 / 4.",
+              "links": [
+                {
+                  "label": "Official crash-test ratings, vehicle 13404",
+                  "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404"
+                },
+                {
+                  "label": "Saved ratings JSON",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/safety_2019.json"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "Good process, no vehicle-specific scores. It tells the shopper to use exact-model-year IIHS results and to consider Top Safety Pick+ vehicles, and it cites a CarGurus family-car article. It does not report crash-test stars for a named car. A GET of the cited article from this environment returned HTTP 406.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                },
+                {
+                  "label": "Cited CarGurus article (HTTP 406 here)",
+                  "href": "https://www.cargurus.com/research/articles/how-to-select-a-family-car"
+                },
+                {
+                  "label": "Citation check notes",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-citation-status.json"
+                }
+              ]
+            }
+          },
+          "winner": "features_on",
+          "winnerLabel": "Lemonless + SERV, features on (ratings are a tie; the citation is not)",
+          "why": "Both Lemonless ratings match the official crash-test figures. Features-on also published a clickable official ratings URL on the /run page. The plain model gave no crash-test stars. Perplexity is stronger than the plain model on method — it tells the shopper to use exact-year IIHS results and Top Safety Pick+ — but it still has no stars for a named vehicle, and the cited CarGurus article could not be read here (HTTP 406)."
+        },
+        {
+          "id": "fuel_cost",
+          "label": "Fuel cost for the commute",
+          "cells": {
+            "plain_llm": {
+              "summary": "Cited about 29 mpg combined (this matches FuelEconomy.gov vehicle 40381). Then estimated $1,450/year at 12,000 miles and $3.50/gallon. EPA’s own annual fuel cost for that vehicle is $2,050. The shopper asked about a 40-mile daily commute, which is not 12,000 miles/year (40 × 365 = 14,600 miles if 40 is the daily total).",
+              "links": [
+                {
+                  "label": "FuelEconomy.gov 2019 Forester AWD (29 mpg combined)",
+                  "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
+                },
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "Queried FuelEconomy.gov (queried_with_data). The /run text says estimates of $1,670–$1,827 a year across two configurations, and that exact MPG and commute-specific cost were unavailable. Official combined MPG for the 2024 Forester AWD (vehicle 47161) is 29, with EPA annual cost $2,050. The annual range it quoted does not match the EPA annual figure; it correctly refused to invent a commute gallon figure.",
+              "links": [
+                {
+                  "label": "FuelEconomy.gov 2024 Forester AWD (29 mpg combined)",
+                  "href": "https://www.fueleconomy.gov/feg/noframes/47161.shtml"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Closest-configuration match: 29 mpg combined, about 1.38 gallons for a 40-mile commute, with a note that winter use can be higher. 40 ÷ 29 = 1.38. Official combined MPG for 2019 Forester AWD is 29.",
+              "links": [
+                {
+                  "label": "FuelEconomy.gov 2019 Forester AWD (29 mpg combined)",
+                  "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "It tells the shopper to compare the exact trim’s official combined rating and annual fuel estimate, and not a model-wide marketing number. It does not compute a fuel cost for the 40-mile commute or for the year.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                }
+              ]
+            }
+          },
+          "winner": "features_on",
+          "winnerLabel": "Lemonless + SERV, features on",
+          "why": "Features-on is the only variant that both used the official 29 mpg figure and applied it to the 40-mile commute (1.38 gallons). Features-off queried the source but left commute cost unknown. The plain model got 29 mpg right, then used a different annual-mileage and fuel-price assumption than the official annual figure. Perplexity did not compute a fuel cost at all; it only said to compare official ratings for the exact trim."
+        },
+        {
+          "id": "fair_price_offer",
+          "label": "Fair price versus comps, plus an offer",
+          "cells": {
+            "plain_llm": {
+              "summary": "Gave negotiating targets of $17,500 opening / $18,000–$18,500 aim / $19,000 max including dealer fees — explicitly “not verified local market quotes.” No comparable listings.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "Live same-year Forester asking comps $17,950–$23,100, median $21,498, noted as asking prices not sold prices, and that this car’s low ask needs investigation. Buyer message: offer $17,000 before tax and fees. Structured offer field: “Opening offer: not given. There is not enough similar-car data to name one.” Both statements are on the /run record — the prose offer and the structured gap should both be read.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                },
+                {
+                  "label": "Run JSON",
+                  "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Named asking comps: a 2019 with 65,935 miles at $20,998 and a 2020 with 51,028 miles at $22,000; asked $19,892. Buyer message: offer $19,000 before tax and fees. Structured field: “Opening offer: not given. The gap versus similar cars is too wide.” Suspicious $600–$799 feed rows were ignored. The prose offer and the structured caveat are both on the /run record.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                },
+                {
+                  "label": "Run JSON",
+                  "href": "https://autoflip-umber.vercel.app/api/run/run_bfdb7995ccf7407f97b9"
+                },
+                {
+                  "label": "Dealer ask $19,892",
+                  "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "Opening offer $20,000 out the door, target no higher than $20,500, for a qualifying Forester. The answer is explicit that these are budget-driven negotiating limits, not an appraisal supported by local comparable listings. There are no comps because there is no live car.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                }
+              ]
+            }
+          },
+          "winner": "features_on",
+          "winnerLabel": "Lemonless + SERV, features on",
+          "why": "Features-on cited specific live asking comps and a $19,000 opening figure, and discarded implausible feed prices. Features-off also offered $17,000 against a comp range, but with less specific comps. Both Lemonless runs honestly labeled comps as asking prices. The plain model’s numbers are not tied to any live listing. Perplexity’s $20,000 out-the-door opening offer is clearly labeled as budget-driven, not supported by local comps — that honesty is a point in its favor, but it is not a market-backed offer. A remaining honesty note: both Lemonless runs also have a structured “offer not given” label that disagrees with the buyer-facing offer sentence."
+        },
+        {
+          "id": "all_in_budget",
+          "label": "All-in cost including tax and fees within $22k",
+          "cells": {
+            "plain_llm": {
+              "summary": "Built a sample stack: $18,500 + 9.15% tax ($1,693) + $500 title/registration + $1,100 winter tires = $21,793. The 9.15% rate and the fee amounts were not sourced, and there is no actual vehicle.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "Ask $17,950 leaves more room under $22,000 than the other live pick, but tax and fees were not calculated. The run requires an itemized buyer’s order including tax, registration and every fee, capped at $22,000, with no add-ons.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Ask $19,892 is tighter once tax and fees are added; those amounts remain unknown. The run requires a written order totaling no more than $22,000 including taxes, registration and dealer fees, and says to walk away if history or inspection fails.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                },
+                {
+                  "label": "Dealer ask",
+                  "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "Clear out-the-door structure: open at $20,000 including every dealer charge, tax, title, and registration; preferred ceiling $20,500; absolute spending ceiling $22,000, leaving about $1,500 for inspection, winter preparation, and surprises. Deduct written tire or repair quotes from the offer rather than spending the reserve twice. There is still no actual vehicle to apply those limits to.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                }
+              ]
+            }
+          },
+          "winner": "tie_budget",
+          "winnerLabel": "Tie: both Lemonless variants and Perplexity (different strengths)",
+          "why": "Perplexity gives the clearest out-the-door limits: $20,000 to open, $20,500 as a preferred ceiling, and $22,000 as the hard cap, with about $1,500 left for inspection and winter costs, and it says those limits are budget-driven. Both Lemonless runs also enforce a $22,000 written-order cap, and they have a real asking price to apply it to. Features-off’s lower ask leaves more room; features-on’s $19,892 ask may or may not fit once tax is added — and it says so. The plain model produced a complete sample total, but the tax rate and fees are unsourced and there is no car."
+        },
+        {
+          "id": "constraints",
+          "label": "AWD, mileage and distance constraints",
+          "cells": {
+            "plain_llm": {
+              "summary": "Specified AWD and 60–85k miles as a target, not as a found vehicle. Distance could not be checked without a listing.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "The official VIN decode confirms AWD. Mileage 21,029 is under 90,000. Dealer city is Denver. distanceMiles is null on the /run record — ZIP-to-ZIP distance was not computed for this row (no dealer URL or ZIP on the inventory row).",
+              "links": [
+                {
+                  "label": "Official VIN decode (AWD)",
+                  "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "The official VIN decode confirms AWD. Mileage 79,882 is under 90,000. Dealer city is Colorado Springs, not Denver. distanceMiles is also null — the exact mile figure was not computed, so this page does not claim the 75-mile radius was proven in miles.",
+              "links": [
+                {
+                  "label": "Official VIN decode (AWD)",
+                  "href": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json"
+                },
+                {
+                  "label": "Dealer listing",
+                  "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+                },
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "The shopping order targets all-wheel-drive family SUVs under 90,000 miles (2019–2021 Forester Premium first, with RAV4 Hybrid and CX-5 alternatives). Distance, mileage, and history could not be checked because no listing was identified. It also cites a cars.com SUV research page; a GET of that URL from this environment returned HTTP 403.",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                },
+                {
+                  "label": "Cited cars.com research page (HTTP 403 here)",
+                  "href": "https://www.cars.com/research/suv/"
+                },
+                {
+                  "label": "Citation check notes",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-citation-status.json"
+                }
+              ]
+            }
+          },
+          "winner": "features_off",
+          "winnerLabel": "Lemonless, features off (on AWD + miles + location); distance is unproven on both",
+          "why": "Both live picks are all-wheel-drive SUVs under 90,000 miles. Features-off is listed in Denver, which is likelier to sit inside 75 miles of 80202. Features-on is listed in Colorado Springs; without a computed distance we do not treat the radius as verified. The feed also shows one recorded accident on both cars, while the brief required no accident or salvage history. Both runs treated history as unverified and required a report plus inspection, rather than claiming a clean record. The plain model and Perplexity specified all-wheel-drive family SUVs under 90,000 miles as targets, not as found vehicles. Distance could not be checked without a listing."
+        },
+        {
+          "id": "risks_honest",
+          "label": "Risks and unknowns stated honestly, with no fabrication",
+          "cells": {
+            "plain_llm": {
+              "summary": "Honest that it could not see live inventory and that offer numbers were not verified quotes. It did not invent a VIN or dealer URL (none were present to curl). Some supporting figures — a 9.15% tax rate, $1,450 annual fuel, $1,100 tires, 8.7 inches of ground clearance, a “thermo control valve” issue — were not sourced in the answer and were not independently confirmed here.",
+              "links": [
+                {
+                  "label": "Full answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/plain-llm-answer.txt"
+                }
+              ]
+            },
+            "features_off": {
+              "summary": "States accident/salvage history is unverified, recalls are not VIN-specific, comps are asking prices, commute MPG was unavailable, and there is no dealer URL. Verdict is needs_inspection, confidence medium. Sources checked: recalls, complaints, safety, VIN decode, fuel, comps — all queried_with_data.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+                },
+                {
+                  "label": "Run JSON",
+                  "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
+                }
+              ]
+            },
+            "features_on": {
+              "summary": "Same honesty pattern, plus: ignore $600–$799 feed prices, winter fuel can be higher, taxes/fees unknown, walk away if history or inspection fails. Also needs_inspection, medium confidence, all six sources queried_with_data. The dealer URL we fetched returned HTTP 200, so that listing claim is checkable.",
+              "links": [
+                {
+                  "label": "Public /run",
+                  "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+                },
+                {
+                  "label": "Dealer listing (HTTP 200)",
+                  "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+                }
+              ]
+            },
+            "perplexity": {
+              "summary": "This is a strong point. It openly says it could not verify a live listing and will not pretend to have found a winner. The $20,000 offer is labeled budget-driven, not comps-based. A clean history report alone would not satisfy it. It requires an independent inspection, recall checks, a family seat test, and an itemized buyer’s order, and it asks for real listing links or VINs. No VIN or dealer URL was invented. The two citations were requested; neither page could be read from this environment (HTTP 403 and HTTP 406).",
+              "links": [
+                {
+                  "label": "Captured answer",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-answer.md"
+                },
+                {
+                  "label": "Perplexity source page",
+                  "href": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0"
+                },
+                {
+                  "label": "Citation check notes",
+                  "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/perplexity-citation-status.json"
+                }
+              ]
+            }
+          },
+          "winner": "tie_honesty",
+          "winnerLabel": "Tie: both Lemonless variants and Perplexity",
+          "why": "Neither Lemonless run invented a sold price or a clean history. Both marked unknowns and required inspection. Perplexity is equally careful: it openly says it could not verify a live listing, it will not name an available car as the winner, and it labels the $20,000 offer as budget-driven rather than comps-based. A clean history report alone would not satisfy it. The plain model also refused to fake a listing — that is a point in its favor — but several unsourced figures in the same answer cannot be verified."
+        }
+      ],
+      "servFeaturesAdd": {
+        "title": "What SERV features add (features off vs features on)",
+        "intro": "The toggle worked: the features-off journal does not list the verdict review features; the features-on journal does, with no feature rejections. These were two real Find searches on production, same query, about one minute apart, each reporting 40 cars found. That is a close live window, not a frozen shared inventory snapshot. Where the two runs agree, this page says so.",
+        "differences": [
+          {
+            "point": "The chosen car changed",
+            "detail": "Features-off picked a 2024 Forester Premium in Denver at $17,950 (VIN JF2SKACC5RH515915) with no dealer URL. Features-on picked a 2019 Forester Sport in Colorado Springs at $19,892 (VIN JF2SKAKC9KH427473) with a working dealer URL. We cannot prove the review step alone caused the switch, because each run searched live inventory separately.",
+            "links": [
+              {
+                "label": "Features-off /run",
+                "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
+              },
+              {
+                "label": "Features-on /run",
+                "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
+              }
+            ]
+          },
+          {
+            "point": "Only features-on produced a checkable dealer page",
+            "detail": "GET https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228 returned HTTP 200. Features-off explicitly warned that the inventory row lacked a direct dealer URL.",
+            "links": [
+              {
+                "label": "Dealer listing",
+                "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+              },
+              {
+                "label": "URL checks",
+                "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
+              }
+            ]
+          },
+          {
+            "point": "Features-on cited sources more specifically",
+            "detail": "It linked Official crash-test ratings, vehicle 13404, stated 29 mpg combined and 1.38 gallons for a 40-mile commute, named two asking comps, and listed the three 2019 recall topics. Features-off reported matching 2024 recall/complaint counts and 5-star ratings, but left commute MPG unknown and did not publish the SafetyRatings URL.",
+            "links": [
+              {
+                "label": "SafetyRatings 13404",
+                "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404"
+              },
+              {
+                "label": "FuelEconomy.gov 40381",
+                "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
+              }
+            ]
+          },
+          {
+            "point": "Cost and work: one extra SERV call",
+            "detail": "Features-off: 7 SERV calls, 11 tool rounds, 72,079 tokens (51,777 cached), harness estimate $0.12. Features-on: 8 SERV calls, 12 tool rounds, 87,525 tokens (46,238 cached), harness estimate $0.12. Provider usage.cost was null on both, so dollar cost is the harness estimate only. No feature rejections on either run.",
+            "links": [
+              {
+                "label": "Features-off report",
+                "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-off-report.json"
+              },
+              {
+                "label": "Features-on report",
+                "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-on-report.json"
+              }
+            ]
+          }
+        ],
+        "same": [
+          "Both are Subaru Forester AWD SUVs under 90,000 miles, verdict needs_inspection, confidence medium.",
+          "Both queried the same six evidence sources and recorded queried_with_data.",
+          "Both required a written all-in total no higher than $22,000 and an independent inspection.",
+          "Both listings show accidentCount=1 in the feed; both refused to treat history as clean.",
+          "Both have distanceMiles=null on the /run record.",
+          "Both buyer messages include an opening offer, and both structured offer fields say an opening offer was “not given.” That tension is the same in both runs."
+        ]
+      },
+      "plainLlmFabrication": {
+        "title": "Plain LLM claim check",
+        "intro": "Every URL and VIN in the plain-model answer was checked. There were none. Remaining factual claims were checked against public sources where possible.",
+        "findings": [
+          {
+            "claim": "Listing URLs",
+            "verdict": "none_present",
+            "detail": "Zero http(s) URLs in the answer. Nothing to curl."
+          },
+          {
+            "claim": "VINs",
+            "verdict": "none_present",
+            "detail": "Zero 17-character VINs. Nothing to decode."
+          },
+          {
+            "claim": "It cannot check live inventory",
+            "verdict": "honest",
+            "detail": "Correct: this call had no tools and no listing data."
+          },
+          {
+            "claim": "2019 Forester Premium AWD is about 29 mpg combined",
+            "verdict": "supported",
+            "detail": "FuelEconomy.gov vehicle 40381 (2019 Subaru Forester AWD) is 26 city / 33 highway / 29 combined.",
+            "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
+          },
+          {
+            "claim": "About $1,450/year in fuel at 12,000 miles and $3.50/gallon",
+            "verdict": "arithmetic_ok_not_epa",
+            "detail": "12,000 ÷ 29 × $3.50 ≈ $1,448. EPA’s published annual fuel cost for that vehicle is $2,050, which uses a different price and mileage basis. The shopper’s 40-mile daily commute was not used."
+          },
+          {
+            "claim": "Sample tax at 9.15% for the Denver address, plus $500 title/registration and $1,100 tires",
+            "verdict": "unverified",
+            "detail": "No source was given. Not confirmed here. There is also no actual vehicle to apply them to."
+          },
+          {
+            "claim": "About 8.7 inches of ground clearance; thermo control valve as a known issue",
+            "verdict": "unverified",
+            "detail": "Not checked against an official specification or an official recall campaign in this review."
+          }
+        ]
+      },
+      "cost": {
+        "plain_llm": {
+          "servCalls": 1,
+          "inputTokens": 265,
+          "outputTokens": 1696,
+          "reasoningTokens": 891,
+          "totalTokens": 1961,
+          "cachedTokens": 0,
+          "harnessEstimatedUsd": null,
+          "providerCost": null,
+          "latencyMs": 52116,
+          "responseId": "chatcmpl-EjmGOo5FLFaTaVR8UttBpQQuaksEf"
         },
         "features_off": {
-          "summary": "States accident/salvage history is unverified, recalls are not VIN-specific, comps are asking prices, commute MPG was unavailable, and there is no dealer URL. Verdict is needs_inspection, confidence medium. Sources checked: recalls, complaints, safety, VIN decode, fuel, comps \u2014 all queried_with_data.",
-          "links": [
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-            },
-            {
-              "label": "Run JSON",
-              "href": "https://autoflip-umber.vercel.app/api/run/run_92e6facff18941b28355"
-            }
-          ]
+          "servCalls": 7,
+          "inputTokens": 70572,
+          "outputTokens": 1507,
+          "reasoningTokens": 0,
+          "totalTokens": 72079,
+          "cachedTokens": 51777,
+          "harnessEstimatedUsd": 0.12,
+          "providerCost": null
         },
         "features_on": {
-          "summary": "Same honesty pattern, plus: ignore $600\u2013$799 feed prices, winter fuel can be higher, taxes/fees unknown, walk away if history or inspection fails. Also needs_inspection, medium confidence, all six sources queried_with_data. The dealer URL we fetched returned HTTP 200, so that listing claim is checkable.",
-          "links": [
-            {
-              "label": "Public /run",
-              "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-            },
-            {
-              "label": "Dealer listing (HTTP 200)",
-              "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-            }
-          ]
+          "servCalls": 8,
+          "inputTokens": 85662,
+          "outputTokens": 1863,
+          "reasoningTokens": 0,
+          "totalTokens": 87525,
+          "cachedTokens": 46238,
+          "harnessEstimatedUsd": 0.12,
+          "providerCost": null
+        },
+        "note": "Harness estimatedUsd ($0.12 per Find) is the live-eval planning figure, not a provider invoice. usage.cost was null on both Find runs. Plain LLM cost is reported as tokens only."
+      },
+      "title": "Denver AWD SUV, $22,000 all-in",
+      "slug": "denver-80202-awd-suv",
+      "answers": {
+        "plain_llm": {
+          "headline": "No live vehicle. A 2019 Subaru Forester Premium AWD is named as a buying target, not a listing that was found.",
+          "verbatim": "**My pick: a 2019 Subaru Forester Premium AWD with EyeSight and the optional blind-spot/rear cross-traffic alerts, ideally with 60,000–85,000 miles.** It’s a strong fit for your priorities: family safety, winter capability, usable back-seat space and reasonable fuel consumption.\n\n**I can’t check live inventory here**, so this is a specific buying target—not a claim that I found a qualifying vehicle within 75 miles of 80202.\n\n### Why I’d choose it\n- **Safety:** Standard EyeSight includes automatic emergency braking and adaptive cruise control. Verify that the particular Premium has blind-spot monitoring; it wasn’t standard.\n- **Mountain winters:** AWD, approximately 8.7 inches of ground clearance and good visibility. **Proper winter tires matter more than AWD for stopping and cornering.**\n- **Two kids:** Roomy rear seats, accessible child-seat anchors and a practical cargo area.\n- **Commuting:** EPA-rated around **29 mpg combined**. At 12,000 miles annually and $3.50/gallon, that’s roughly **$1,450/year** in fuel; winter mountain driving will use more.\n\n### What I’d offer\nThese are **negotiating targets, not verified local market quotes**, assuming clean history, documented maintenance and a clean independent inspection:\n\n| Negotiation point | Amount |\n|---|---:|\n| Opening offer, **including dealer handling/document fees**, before tax/title/registration | **$17,500** |\n| Target purchase price on that same basis | **$18,000–$18,500** |\n| Maximum on that basis | **$19,000**, only for an excellent example |\n\n**Keep the total at $22,000 including tires and immediate maintenance.** For illustration:\n\n- Vehicle **plus all dealer fees:** $18,500  \n- Sales tax: approximately $1,693, **if your address’s rate is 9.15%**\n- Title/registration allowance: $500; confirm the actual amount\n- Winter-tire allowance: $1,100  \n- **Estimated total: $21,793**\n\nIf suitable winter tires are already included, keep the savings as a repair reserve rather than automatically raising your offer.\n\n### Conditions before buying\n1. **Clean title and no reported accidents:** Review Carfax **and** AutoCheck if available. Neither guarantees an accident-free vehicle; have an independent shop inspect for collision repairs, structural damage and hail damage. Reject salvage, rebuilt or flood history.\n2. **Subaru-specialist inspection:** Have them check the CVT, leaks, wheel bearings, suspension, brakes and four matching tires with closely matched tread depths.\n3. **Thermo control valve:** This is a known issue on these Foresters. Ask a Subaru dealer to check the VIN for repair history and applicable extended coverage.\n4. **Safety equipment:** Verify EyeSight works, any windshield replacement was properly calibrated, and recalls are complete.\n5. **No forced add-ons:** Decline mandatory protection packages, tracking devices and other extras that break the budget.\n\n### The offer I’d send\n> “Subject to a clean independent inspection and confirmation of no accident or branded-title history, I’m offering $17,500 including all dealer fees, plus only actual tax, title and registration. No add-ons. Please send an itemized buyer’s order.”\n\n**Bottom line:** Buy the cleanest inspected **2019 Forester Premium with blind-spot monitoring** you can get around **$18,000–$18,500 including dealer fees**, leaving room for winter tires. An older RAV4 Hybrid is worth comparing, but I wouldn’t pay a large hybrid premium just to save a few mpg.\n\nSend me three to five listing links within your radius, and I can rank the actual vehicles and set an offer for each."
+        },
+        "features_off": {
+          "pick": "2024 Subaru Forester Premium AWD, $17,950, 21,029 miles, Zara Auto, Denver, CO. VIN JF2SKACC5RH515915. Offer $17,000 before tax and fees, needs inspection. No dealer listing URL.",
+          "recommendation": "My first inspection choice is the 2024 Subaru Forester AWD. Offer $17,000 before taxes and fees, conditional on verified accident-free, non-salvage history and a clean independent inspection. Never exceed $22,000 out the door.",
+          "whyThisCar": "This is a live inventory result, not a generic model suggestion. It meets the request for an all-wheel-drive SUV under 90,000 miles, inside 75 miles of Denver 80202, at an asking price of $17,950. The official VIN record identifies it as a 2024 Subaru Forester Premium with all-wheel drive and a 2.5-liter gasoline engine. Official crash-test ratings for the model are 5 stars overall, front, and side, and 4 stars for rollover. The listed dealer is Zara Auto in Denver. Official model-year records show two recalls (coolant-pipe bolts and front driveshafts) and 31 complaints; those records do not prove whether this VIN’s recalls are open or closed.",
+          "whyThisOffer": "Live asking prices for same-year Foresters in the search ranged from $17,950 to $23,100, with a $21,498 midpoint. Those are asking prices, not sold prices, and the trims and mileage are not identical. The $17,000 figure is an opening negotiation proposal, not a verified market value. The asking price sits at the low end of that range, so the recommendation says to investigate the price rather than treat it as a confirmed bargain. Get an itemized written buyer’s order, including tax, registration, and every fee, and do not go over $22,000 all-in.",
+          "checked": [
+            "Official VIN decode: year, make, model, trim, all-wheel drive, and engine.",
+            "Official crash-test ratings for the model.",
+            "Official recall and complaint records for the model year (2 recalls, 31 complaints), with the caveat that this is not VIN-specific recall status.",
+            "Official fuel-economy estimates of about $1,670–$1,827 a year across two configurations.",
+            "Asking-price comparisons from the live search.",
+            "Hard filters for all-wheel drive, SUV body style, mileage, and radius."
+          ],
+          "unknown": [
+            "There is no dealer listing URL in the inventory row, so the seller and availability must be confirmed before traveling or paying a deposit.",
+            "Exact miles per gallon and the fuel cost for a 40-mile daily commute were not calculated.",
+            "Distance from ZIP 80202 to the dealer was not calculated.",
+            "Accident and salvage history are not verified. The inventory row recorded one accident, and the recommendation requires a current history report, title documents, and an independent inspection.",
+            "Actual tax, registration, and dealer fees are unknown.",
+            "Child-seat fit, driver-assistance operation, and winter tires were not confirmed on this vehicle."
+          ],
+          "rejected": "The published run keeps only the chosen car, so this page does not invent the names of the cars that were passed over. The search kept 20 live listings after filters for body style, price, mileage, and radius. A second search with a $20,000 price cap also kept 20 listings. One car was chosen for inspection. The recommendation says to reject the vehicle if accident or salvage history appears, and not to travel or pay a deposit until the seller is confirmed."
+        },
+        "features_on": {
+          "pick": "2019 Subaru Forester Sport AWD, $19,892, 79,882 miles, South Colorado Motors, Colorado Springs, CO. VIN JF2SKAKC9KH427473. Offer $19,000 before tax and fees, needs inspection.",
+          "recommendation": "First choice to inspect: 2019 Subaru Forester Sport AWD. Offer $19,000 before taxes and fees, conditional on verified accident-free and non-salvage history, an inspection, completed recalls, and a written all-in total no higher than $22,000. Not yet cleared to buy.",
+          "whyThisCar": "There is a live dealer listing at South Colorado Motors in Colorado Springs, and the listing page was reachable when this comparison was recorded. It meets the all-wheel-drive, mileage, and radius requirements at an asking price of $19,892. The official VIN record confirms all-wheel drive and Sport trim, but does not verify accident or title history. Official crash-test ratings are 5 stars overall, front, and side, and 4 stars for rollover. Official model-year records list three recalls (rear stabilizer bolts, the PCV valve, and electric steering) and 834 complaints; that is not this VIN’s recall-completion status. The closest official fuel-economy match is 29 mpg combined, or about 1.38 gallons for a 40-mile commute. Winter driving can use more fuel.",
+          "whyThisOffer": "The asking-price comparisons were asking prices, not sold prices: a 2019 with 65,935 miles listed at $20,998, and a 2020 with 51,028 miles listed at $22,000. $19,000 is an opening negotiation proposal, not a guaranteed accepted price. The offer is conditional on a clean history report, a non-salvage title, an independent inspection, completed recalls, and a written buyer’s order totaling no more than $22,000 including taxes, registration, and dealer fees. Leave room in the budget for winter tires if the car does not already have them.",
+          "checked": [
+            "The dealer listing URL, which returned a live page.",
+            "Official VIN decode: year, make, model, trim, and all-wheel drive.",
+            "Official crash-test ratings for the model.",
+            "Official recall and complaint records for the model year (3 recalls, 834 complaints), with the caveat that this is not VIN-specific recall status.",
+            "Official fuel-economy estimate, including a gallons figure for a 40-mile commute.",
+            "Asking-price comparisons from the live search.",
+            "Hard filters for all-wheel drive, mileage, and radius."
+          ],
+          "unknown": [
+            "Accident and salvage history are not verified. The inventory row recorded one accident, so a history report, a non-salvage title check, and an independent inspection are still required.",
+            "Recalls are not confirmed complete for this VIN.",
+            "Actual taxes, registration, and dealer fees are unknown.",
+            "Distance from ZIP 80202 to the dealer was not calculated.",
+            "The report’s opening-offer field was left blank even though the written recommendation names $19,000.",
+            "The CVT, structure, brakes, matching tires, EyeSight, and child-seat fit still need an inspection."
+          ],
+          "rejected": "The published run keeps only the chosen car, so this page does not invent the other listings that passed the filters. The first search kept 20 live listings after body, price, mileage, and radius filters; a second search in this run kept zero listings; a third search again kept 20. One car was chosen for inspection. Suspicious $600–$799 feed prices were not treated as credible purchase prices. The recommendation says to walk away if history or inspection fails."
+        },
+        "perplexity": {
+          "headline": "No live vehicle. A 2019–2021 Subaru Forester Premium with EyeSight is named as a buying target, with a $20,000 out-the-door opening offer that the answer itself calls budget-driven.",
+          "verbatim": "My provisional pick is a 2019–2021 Subaru Forester Premium with EyeSight, under 90,000 miles—but only after its history and condition check out. I couldn’t verify a qualifying live listing within 75 miles of 80202, so I can give you a buying target and offer strategy, not honestly identify a specific available car as the winner.\n\nWhat I’d target\n\nTreat this as my shopping order, not a verified inventory shortlist:\n\n| Priority | Vehicle to look for | Conditions for buying |\n|---|---|---|\n| First | 2019–2021 Subaru Forester Premium with EyeSight | Confirm driver-assistance equipment, acceptable exact-year crash ratings, service records, and proper fit for both kids’ seats |\n| Alternative | 2020–2021 Toyota RAV4 Hybrid AWD | Consider only if a clean example under 90,000 miles fits the same all-in cap; don’t stretch the budget just to get a hybrid |\n| Alternative | 2020–2022 Mazda CX-5 Touring AWD, non-turbo | Confirm automatic emergency braking, exact-year safety results, and rear-seat fit before negotiating |\n\nThese are candidate recommendations, not claims that those model years, prices, or clean-history examples are currently available nearby. For a family purchase, check both crash-test results and actual child-seat fit; those vary by vehicle.[cars (https://www.cars.com/research/suv/)]\n\nWhat I’d offer\n\nFor a qualifying Forester, I’d open at $20,000 out the door and target a settlement no higher than $20,500, leaving $1,500 of your $22,000 for inspection, winter preparation, and unexpected initial costs. These are budget-driven negotiating limits—not an appraisal supported by local comparable listings.\n\n- Opening offer: $20,000 out the door, including every dealer charge, applicable tax, title, and registration.\n- Preferred ceiling: $20,500 out the door.\n- Absolute total spending ceiling: $22,000, including any immediate tires or repairs.\n- If tires or maintenance are needed: Deduct the written installed/repair quote from your offer rather than spending the reserve twice.\n\nAsk for a buyer’s order showing what is included and which registration charges, if any, you must pay separately. Don’t negotiate by monthly payment.\n\nUse this message:\n\n> “If the VIN history shows no reported accidents or title brands, the independent inspection passes, and there are no mandatory add-ons, I’m prepared to offer $20,000 out the door. Please send the VIN, history report, service records, and an itemized buyer’s order before I visit.”\n\nNonnegotiable checks\n\nFor your safety-first priority, use exact-model-year IIHS results as a screening criterion rather than assuming an entire brand is equally safe; family-car guidance specifically recommends considering Top Safety Pick+ vehicles.[cargurus (https://www.cargurus.com/research/articles/how-to-select-a-family-car)]\n\nBefore putting down a deposit, I would require:\n\n- History: CARFAX and AutoCheck with no reported accidents, structural damage, salvage, rebuilt, flood, or other title brands. A clean report alone would not satisfy me.\n- Independent inspection: Have your mechanic inspect for repaired collision damage, leaks, underbody condition, brakes, tires, and diagnostic faults.\n- Safety equipment: Verify the actual vehicle’s automatic emergency braking and other advertised systems; check outstanding recalls by VIN.\n- Winter budget: Price suitable winter tires before agreeing on the car, and include that cost in the $22,000 limit.\n- Family test: Bring both child seats and check installation, front-seat room, and daily loading.\n- Fuel-cost comparison: Compare the exact trim’s EPA combined rating and annual fuel estimate—not a model-wide marketing number.\n\nI’d choose the inspected, documented Forester over a cheaper car with uncertain history. Send me three to five listing links or VINs, asking prices, and mileages, and I can help narrow them down; the specific offer should depend on those cars rather than an unverified market estimate.\n",
+          "sourceUrl": "https://www.perplexity.ai/search/c91aef16-0000-4f0b-9135-60e3a8f481d0"
         }
       },
-      "winner": "tie_lemonless",
-      "winnerLabel": "Tie: both Lemonless variants",
-      "why": "Neither Lemonless run invented a sold price or a clean history. Both marked unknowns and required inspection. The plain model also refused to fake a listing \u2014 that is a point in its favor \u2014 but several unsourced figures in the same answer cannot be verified."
+      "perplexityCapture": {
+        "title": "Perplexity claim check (as captured)",
+        "intro": "The shopper pasted this answer. The live Perplexity page was not re-fetched. Every URL and VIN in the captured text was checked. There was no VIN and no dealer listing URL. The two research citations were requested with a normal GET.",
+        "findings": [
+          {
+            "claim": "It could not verify a qualifying live listing within 75 miles of 80202",
+            "verdict": "honest",
+            "detail": "The answer does not name a specific car, dealer, URL, or VIN, and it refuses to identify an available car as the winner. That matches what is in the text: there is nothing to curl as a listing."
+          },
+          {
+            "claim": "Opening offer $20,000 out the door, ceiling $20,500, hard cap $22,000",
+            "verdict": "honest_budget_driven",
+            "detail": "The answer itself says these are budget-driven negotiating limits, not an appraisal supported by local comparable listings. No comps or live asking prices are given, and none were invented."
+          },
+          {
+            "claim": "Safety and inspection checks",
+            "verdict": "good_process_not_vehicle_specific",
+            "detail": "The checklist is thorough: history reports plus an independent inspection, recall checks by VIN, child-seat fit, winter-tire cost inside the cap, and official fuel figures for the exact trim. It also points to exact-year IIHS results and Top Safety Pick+. None of that is a crash rating, recall count, or fuel cost for a named vehicle."
+          },
+          {
+            "claim": "Citation: cars.com SUV research",
+            "verdict": "cited_unread_here",
+            "detail": "A GET of https://www.cars.com/research/suv/ from this environment returned HTTP 403 with a Cloudflare challenge. The citation exists in the text; the page content was not verified here.",
+            "href": "https://www.cars.com/research/suv/"
+          },
+          {
+            "claim": "Citation: CarGurus article on selecting a family car",
+            "verdict": "cited_unread_here",
+            "detail": "A GET of https://www.cargurus.com/research/articles/how-to-select-a-family-car returned HTTP 406 with an empty body, including with a normal browser user-agent. The citation exists in the text; the page content was not verified here.",
+            "href": "https://www.cargurus.com/research/articles/how-to-select-a-family-car"
+          },
+          {
+            "claim": "VINs and dealer listing URLs",
+            "verdict": "none_present",
+            "detail": "Zero 17-character VINs and zero dealer listing links. Nothing to decode or open as a car for sale."
+          },
+          {
+            "claim": "Fuel cost for the 40-mile commute",
+            "verdict": "not_computed",
+            "detail": "The answer tells the shopper to compare official combined ratings and annual estimates. It does not calculate gallons or dollars for the commute."
+          }
+        ]
+      }
     }
-  ],
-  "servFeaturesAdd": {
-    "title": "What SERV features add (features off vs features on)",
-    "intro": "The toggle worked: the features-off journal does not list the verdict review features; the features-on journal does, with no feature rejections. These were two real Find searches on production, same query, about one minute apart, each reporting 40 cars found. That is a close live window, not a frozen shared inventory snapshot. Where the two runs agree, this page says so.",
-    "differences": [
-      {
-        "point": "The chosen car changed",
-        "detail": "Features-off picked a 2024 Forester Premium in Denver at $17,950 (VIN JF2SKACC5RH515915) with no dealer URL. Features-on picked a 2019 Forester Sport in Colorado Springs at $19,892 (VIN JF2SKAKC9KH427473) with a working dealer URL. We cannot prove the review step alone caused the switch, because each run searched live inventory separately.",
-        "links": [
-          {
-            "label": "Features-off /run",
-            "href": "https://autoflip-umber.vercel.app/run/run_92e6facff18941b28355"
-          },
-          {
-            "label": "Features-on /run",
-            "href": "https://autoflip-umber.vercel.app/run/run_bfdb7995ccf7407f97b9"
-          }
-        ]
-      },
-      {
-        "point": "Only features-on produced a checkable dealer page",
-        "detail": "GET https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228 returned HTTP 200. Features-off explicitly warned that the inventory row lacked a direct dealer URL.",
-        "links": [
-          {
-            "label": "Dealer listing",
-            "href": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
-          },
-          {
-            "label": "URL checks",
-            "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/url-status.json"
-          }
-        ]
-      },
-      {
-        "point": "Features-on cited sources more specifically",
-        "detail": "It linked Official crash-test ratings, vehicle 13404, stated 29 mpg combined and 1.38 gallons for a 40-mile commute, named two asking comps, and listed the three 2019 recall topics. Features-off reported matching 2024 recall/complaint counts and 5-star ratings, but left commute MPG unknown and did not publish the SafetyRatings URL.",
-        "links": [
-          {
-            "label": "SafetyRatings 13404",
-            "href": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404"
-          },
-          {
-            "label": "FuelEconomy.gov 40381",
-            "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
-          }
-        ]
-      },
-      {
-        "point": "Cost and work: one extra SERV call",
-        "detail": "Features-off: 7 SERV calls, 11 tool rounds, 72,079 tokens (51,777 cached), harness estimate $0.12. Features-on: 8 SERV calls, 12 tool rounds, 87,525 tokens (46,238 cached), harness estimate $0.12. Provider usage.cost was null on both, so dollar cost is the harness estimate only. No feature rejections on either run.",
-        "links": [
-          {
-            "label": "Features-off report",
-            "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-off-report.json"
-          },
-          {
-            "label": "Features-on report",
-            "href": "https://github.com/aspekt19/autoflip/blob/main/eval/results/compare-2026-11-13/features-on-report.json"
-          }
-        ]
-      }
-    ],
-    "same": [
-      "Both are Subaru Forester AWD SUVs under 90,000 miles, verdict needs_inspection, confidence medium.",
-      "Both queried the same six evidence sources and recorded queried_with_data.",
-      "Both required a written all-in total no higher than $22,000 and an independent inspection.",
-      "Both listings show accidentCount=1 in the feed; both refused to treat history as clean.",
-      "Both have distanceMiles=null on the /run record.",
-      "Both buyer messages include an opening offer, and both structured offer fields say an opening offer was \u201cnot given.\u201d That tension is the same in both runs."
-    ]
-  },
-  "plainLlmFabrication": {
-    "title": "Plain LLM claim check",
-    "intro": "Every URL and VIN in the plain-model answer was checked. There were none. Remaining factual claims were checked against public sources where possible.",
-    "findings": [
-      {
-        "claim": "Listing URLs",
-        "verdict": "none_present",
-        "detail": "Zero http(s) URLs in the answer. Nothing to curl."
-      },
-      {
-        "claim": "VINs",
-        "verdict": "none_present",
-        "detail": "Zero 17-character VINs. Nothing to decode."
-      },
-      {
-        "claim": "It cannot check live inventory",
-        "verdict": "honest",
-        "detail": "Correct: this call had no tools and no listing data."
-      },
-      {
-        "claim": "2019 Forester Premium AWD is about 29 mpg combined",
-        "verdict": "supported",
-        "detail": "FuelEconomy.gov vehicle 40381 (2019 Subaru Forester AWD) is 26 city / 33 highway / 29 combined.",
-        "href": "https://www.fueleconomy.gov/feg/noframes/40381.shtml"
-      },
-      {
-        "claim": "About $1,450/year in fuel at 12,000 miles and $3.50/gallon",
-        "verdict": "arithmetic_ok_not_epa",
-        "detail": "12,000 \u00f7 29 \u00d7 $3.50 \u2248 $1,448. EPA\u2019s published annual fuel cost for that vehicle is $2,050, which uses a different price and mileage basis. The shopper\u2019s 40-mile daily commute was not used."
-      },
-      {
-        "claim": "Sample tax at 9.15% for the Denver address, plus $500 title/registration and $1,100 tires",
-        "verdict": "unverified",
-        "detail": "No source was given. Not confirmed here. There is also no actual vehicle to apply them to."
-      },
-      {
-        "claim": "About 8.7 inches of ground clearance; thermo control valve as a known issue",
-        "verdict": "unverified",
-        "detail": "Not checked against an official specification or an official recall campaign in this review."
-      }
-    ]
-  },
-  "cost": {
-    "plain_llm": {
-      "servCalls": 1,
-      "inputTokens": 265,
-      "outputTokens": 1696,
-      "reasoningTokens": 891,
-      "totalTokens": 1961,
-      "cachedTokens": 0,
-      "harnessEstimatedUsd": null,
-      "providerCost": null,
-      "latencyMs": 52116,
-      "responseId": "chatcmpl-EjmGOo5FLFaTaVR8UttBpQQuaksEf"
-    },
-    "features_off": {
-      "servCalls": 7,
-      "inputTokens": 70572,
-      "outputTokens": 1507,
-      "reasoningTokens": 0,
-      "totalTokens": 72079,
-      "cachedTokens": 51777,
-      "harnessEstimatedUsd": 0.12,
-      "providerCost": null
-    },
-    "features_on": {
-      "servCalls": 8,
-      "inputTokens": 85662,
-      "outputTokens": 1863,
-      "reasoningTokens": 0,
-      "totalTokens": 87525,
-      "cachedTokens": 46238,
-      "harnessEstimatedUsd": 0.12,
-      "providerCost": null
-    },
-    "note": "Harness estimatedUsd ($0.12 per Find) is the live-eval planning figure, not a provider invoice. usage.cost was null on both Find runs. Plain LLM cost is reported as tokens only."
-  }
+  ]
 }

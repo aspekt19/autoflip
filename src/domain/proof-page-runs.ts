@@ -42,8 +42,47 @@ export type ProofCriterion = {
   why: string;
 };
 
-export type ProofServCompare = {
+export type ProofPlainAnswer = {
+  headline: string;
+  verbatim: string;
+  sourceUrl?: string;
+};
+
+export type ProofLemonlessAnswer = {
+  pick: string;
+  recommendation: string;
+  whyThisCar: string;
+  whyThisOffer: string;
+  checked: string[];
+  unknown: string[];
+  rejected: string;
+};
+
+export type ProofVariant = {
+  label: string;
+  short: string;
+  description: string;
+  pick: string;
+  links: ProofLink[];
+  runId?: string | null;
+  responseId?: string | null;
+  servVerdictFeatures?: string;
+  servCalls?: number;
+  featuresActive?: string[];
+  sourceUrl?: string;
+  capture?: string;
+};
+
+export type ProofClaimCheck = {
+  title: string;
+  intro: string;
+  findings: Array<{ claim: string; verdict: string; detail: string; href?: string }>;
+};
+
+export type ProofExample = {
   id: string;
+  slug: string;
+  title: string;
   query: string;
   seed: number;
   model: string;
@@ -51,18 +90,14 @@ export type ProofServCompare = {
   generatedAtLabel: string;
   prod: string;
   note: string;
-  variants: Record<string, {
-    label: string;
-    short: string;
-    description: string;
-    pick: string;
-    links: ProofLink[];
-    runId?: string | null;
-    responseId?: string | null;
-    servVerdictFeatures?: string;
-    servCalls?: number;
-    featuresActive?: string[];
-  }>;
+  variantOrder: string[];
+  variants: Record<string, ProofVariant>;
+  answers: {
+    plain_llm?: ProofPlainAnswer;
+    features_off?: ProofLemonlessAnswer;
+    features_on?: ProofLemonlessAnswer;
+    perplexity?: ProofPlainAnswer;
+  };
   criteria: ProofCriterion[];
   servFeaturesAdd: {
     title: string;
@@ -70,11 +105,8 @@ export type ProofServCompare = {
     differences: Array<{ point: string; detail: string; links: ProofLink[] }>;
     same: string[];
   };
-  plainLlmFabrication: {
-    title: string;
-    intro: string;
-    findings: Array<{ claim: string; verdict: string; detail: string; href?: string }>;
-  };
+  plainLlmFabrication: ProofClaimCheck;
+  perplexityCapture?: ProofClaimCheck;
   cost: {
     plain_llm: Record<string, unknown>;
     features_off: Record<string, unknown>;
@@ -96,9 +128,18 @@ export type ProofPageData = {
     disclosure: string;
     decision: string | null;
   }>;
-  /** Live 3-variant SERV comparison (plain LLM vs features off vs features on). */
-  servCompare: ProofServCompare | null;
+  /** Live comparison examples (plain chat, Lemonless, and any captured third-party answers). */
+  examples: ProofExample[];
+  /** First committed example, when present. Kept so older tests can read one comparison. */
+  servCompare: ProofExample | null;
 };
+
+export const CANONICAL_VARIANT_ORDER = [
+  "plain_llm",
+  "features_off",
+  "features_on",
+  "perplexity",
+] as const;
 
 function readJson(rel: string): unknown | null {
   const full = path.join(process.cwd(), rel);
@@ -126,7 +167,6 @@ function armFromOutput(output: Record<string, unknown>, generatedAt: string | nu
     generatedAt;
   const rawResponse = typeof output.rawResponse === "string" ? output.rawResponse : null;
   const costUsd = typeof output.costUsd === "number" && Number.isFinite(output.costUsd) ? output.costUsd : null;
-  // Live arms need provenance; not_run / fixture stubs are listed but flagged.
   return {
     arm,
     status,
@@ -150,34 +190,164 @@ export function isProvenancedArm(arm: ProofRunArm): boolean {
 
 export const SERV_COMPARE_PROOF_PATH = "eval/results/proof-serv-compare-2026-11-13.json";
 
-export function loadServCompareProof(): ProofServCompare | null {
-  // Import the JSON so the serverless bundle includes it. process.cwd() read
-  // works in local tests but is not enough on Vercel (Hobby traces omit loose files).
-  const raw = (servCompareFile as unknown) ?? readJson(SERV_COMPARE_PROOF_PATH);
+function isLink(value: unknown): value is ProofLink {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as ProofLink).label === "string" &&
+      typeof (value as ProofLink).href === "string" &&
+      (value as ProofLink).href.startsWith("http"),
+  );
+}
+
+function variantOrderFor(variants: Record<string, ProofVariant>, listed?: unknown): string[] {
+  const known = new Set(Object.keys(variants));
+  const fromFile = Array.isArray(listed)
+    ? listed.filter((key): key is string => typeof key === "string" && known.has(key))
+    : [];
+  const extras = CANONICAL_VARIANT_ORDER.filter((key) => known.has(key) && !fromFile.includes(key));
+  const leftover = Object.keys(variants).filter((key) => !fromFile.includes(key) && !extras.includes(key as (typeof CANONICAL_VARIANT_ORDER)[number]));
+  return [...fromFile, ...extras, ...leftover];
+}
+
+function parsePlainAnswer(raw: unknown): ProofPlainAnswer | null {
   if (!raw || typeof raw !== "object") return null;
-  const row = raw as Partial<ProofServCompare>;
+  const row = raw as Partial<ProofPlainAnswer>;
+  if (typeof row.headline !== "string" || !row.headline.trim()) return null;
+  if (typeof row.verbatim !== "string" || !row.verbatim.trim()) return null;
+  return {
+    headline: row.headline,
+    verbatim: row.verbatim,
+    sourceUrl: typeof row.sourceUrl === "string" ? row.sourceUrl : undefined,
+  };
+}
+
+function parseLemonlessAnswer(raw: unknown): ProofLemonlessAnswer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<ProofLemonlessAnswer>;
+  if (typeof row.pick !== "string" || !row.pick.trim()) return null;
+  if (typeof row.recommendation !== "string" || !row.recommendation.trim()) return null;
+  if (typeof row.whyThisCar !== "string" || !row.whyThisCar.trim()) return null;
+  if (typeof row.whyThisOffer !== "string" || !row.whyThisOffer.trim()) return null;
+  if (!Array.isArray(row.checked) || row.checked.some((item) => typeof item !== "string") || row.checked.length === 0) {
+    return null;
+  }
+  if (!Array.isArray(row.unknown) || row.unknown.some((item) => typeof item !== "string") || row.unknown.length === 0) {
+    return null;
+  }
+  if (typeof row.rejected !== "string" || !row.rejected.trim()) return null;
+  return {
+    pick: row.pick,
+    recommendation: row.recommendation,
+    whyThisCar: row.whyThisCar,
+    whyThisOffer: row.whyThisOffer,
+    checked: row.checked,
+    unknown: row.unknown,
+    rejected: row.rejected,
+  };
+}
+
+function parseClaimCheck(raw: unknown): ProofClaimCheck | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<ProofClaimCheck>;
+  if (typeof row.title !== "string" || typeof row.intro !== "string" || !Array.isArray(row.findings)) return null;
+  if (row.findings.length === 0) return null;
+  for (const finding of row.findings) {
+    if (!finding || typeof finding.claim !== "string" || typeof finding.verdict !== "string" || typeof finding.detail !== "string") {
+      return null;
+    }
+  }
+  return row as ProofClaimCheck;
+}
+
+function parseExample(raw: unknown): ProofExample | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<ProofExample> & { answers?: Record<string, unknown> };
   if (typeof row.query !== "string" || !row.query.trim()) return null;
   if (!Array.isArray(row.criteria) || row.criteria.length === 0) return null;
   if (!row.variants || typeof row.variants !== "object") return null;
+  const variants = row.variants as Record<string, ProofVariant>;
   const required = ["plain_llm", "features_off", "features_on"];
   for (const key of required) {
-    const v = (row.variants as Record<string, { pick?: unknown }>)[key];
-    if (!v || typeof v.pick !== "string") return null;
+    const variant = variants[key];
+    if (!variant || typeof variant.pick !== "string" || !Array.isArray(variant.links)) return null;
   }
+  const order = variantOrderFor(variants, (row as { variantOrder?: unknown }).variantOrder);
   for (const criterion of row.criteria) {
     if (!criterion?.cells) return null;
-    for (const key of required) {
+    for (const key of order) {
       const cell = criterion.cells[key];
       if (!cell || typeof cell.summary !== "string" || !Array.isArray(cell.links) || cell.links.length === 0) {
         return null;
       }
+      if (!cell.links.every(isLink)) return null;
     }
+    if (typeof criterion.winnerLabel !== "string" || typeof criterion.why !== "string") return null;
   }
-  return row as ProofServCompare;
+  const answersRaw = row.answers ?? {};
+  const plain = parsePlainAnswer(answersRaw.plain_llm);
+  const featuresOff = parseLemonlessAnswer(answersRaw.features_off);
+  const featuresOn = parseLemonlessAnswer(answersRaw.features_on);
+  if (!plain || !featuresOff || !featuresOn) return null;
+  const answers: ProofExample["answers"] = {
+    plain_llm: plain,
+    features_off: featuresOff,
+    features_on: featuresOn,
+  };
+  if (order.includes("perplexity")) {
+    const captured = parsePlainAnswer(answersRaw.perplexity);
+    if (!captured) return null;
+    answers.perplexity = captured;
+  }
+  const fabrication = parseClaimCheck(row.plainLlmFabrication);
+  if (!fabrication) return null;
+  const servFeaturesAdd = row.servFeaturesAdd;
+  if (!servFeaturesAdd || !Array.isArray(servFeaturesAdd.differences) || !Array.isArray(servFeaturesAdd.same)) {
+    return null;
+  }
+  return {
+    id: typeof row.id === "string" ? row.id : "proof-example",
+    slug: typeof row.slug === "string" ? row.slug : "example",
+    title: typeof row.title === "string" ? row.title : "Comparison",
+    query: row.query,
+    seed: typeof row.seed === "number" ? row.seed : 0,
+    model: typeof row.model === "string" ? row.model : "",
+    generatedAt: typeof row.generatedAt === "string" ? row.generatedAt : "",
+    generatedAtLabel: typeof row.generatedAtLabel === "string" ? row.generatedAtLabel : "",
+    prod: typeof row.prod === "string" ? row.prod : "",
+    note: typeof row.note === "string" ? row.note : "",
+    variantOrder: order,
+    variants,
+    answers,
+    criteria: row.criteria,
+    servFeaturesAdd,
+    plainLlmFabrication: fabrication,
+    perplexityCapture: parseClaimCheck((row as { perplexityCapture?: unknown }).perplexityCapture) ?? undefined,
+    cost: (row.cost ?? { plain_llm: {}, features_off: {}, features_on: {}, note: "" }) as ProofExample["cost"],
+  };
+}
+
+export function loadServCompareProof(): ProofExample | null {
+  const examples = loadProofExamples();
+  return examples[0] ?? null;
+}
+
+export function loadProofExamples(): ProofExample[] {
+  // Import the JSON so the serverless bundle includes it. process.cwd() read
+  // works in local tests but is not enough on Vercel (Hobby traces omit loose files).
+  const raw = (servCompareFile as unknown) ?? readJson(SERV_COMPARE_PROOF_PATH);
+  if (!raw || typeof raw !== "object") return [];
+  const bag = raw as { examples?: unknown; query?: unknown };
+  const rows = Array.isArray(bag.examples) ? bag.examples : [raw];
+  const examples: ProofExample[] = [];
+  for (const row of rows) {
+    const parsed = parseExample(row);
+    if (parsed) examples.push(parsed);
+  }
+  return examples;
 }
 
 export function loadProofPageData(): ProofPageData {
-
   const comparison = readJson("eval/results/comparison-latest.json") as {
     hasLiveScores?: boolean;
     generatedAt?: string;
@@ -231,12 +401,13 @@ export function loadProofPageData(): ProofPageData {
     });
   }
 
-  const servCompare = loadServCompareProof();
+  const examples = loadProofExamples();
   return {
     hasLiveComparisons: cases.length > 0,
-    generatedAt: servCompare?.generatedAt ?? generatedAt,
+    generatedAt: examples[0]?.generatedAt ?? generatedAt,
     cases,
     committedTraces,
-    servCompare,
+    examples,
+    servCompare: examples[0] ?? null,
   };
 }
