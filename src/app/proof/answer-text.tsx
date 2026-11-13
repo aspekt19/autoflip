@@ -7,8 +7,8 @@ export function Links({ links, heading }: { links: ProofLink[]; heading?: string
     <div className="proof-links">
       {heading ? <h4>{heading}</h4> : null}
       <ul className="refuse">
-        {links.map((link) => (
-          <li key={`${link.href}-${link.label}`}>
+        {links.map((link, index) => (
+          <li key={`${link.href}-${link.label}-${index}`}>
             <a href={link.href} target="_blank" rel="noreferrer">
               {link.label}
             </a>

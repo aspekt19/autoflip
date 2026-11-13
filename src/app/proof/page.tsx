@@ -6,7 +6,20 @@ import {
   VerbatimAnswer,
   verdictLabel,
 } from "@/app/proof/answer-text";
-import { loadProofPageData, type ProofExample } from "@/domain/proof-page-runs";
+import { loadProofPageData, type ProofExample, type ProofLink } from "@/domain/proof-page-runs";
+
+function uniqueLinks(links: ProofLink[]): ProofLink[] {
+  const seen = new Set<string>();
+  const unique: ProofLink[] = [];
+  for (const link of links) {
+    const key = `${link.href}\0${link.label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(link);
+  }
+  return unique;
+}
+
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Proof" };
@@ -96,7 +109,7 @@ function ExampleBlock({ example, index, total }: { example: ProofExample; index:
                 {criterion.why}
               </p>
               <Links
-                links={order.flatMap((key) => criterion.cells[key]?.links ?? [])}
+                links={uniqueLinks(order.flatMap((key) => criterion.cells[key]?.links ?? []))}
                 heading="Links for this point"
               />
             </article>
