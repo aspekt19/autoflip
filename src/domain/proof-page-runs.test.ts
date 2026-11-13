@@ -113,4 +113,20 @@ describe("proof-page-runs", () => {
       true,
     );
   });
+  it("loads the live frozen-snapshot SERV A/B result without treating it as a full vehicle verification", () => {
+    const data = loadProofPageData();
+    const snapshot = data.snapshotComparison;
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.metadata.runId).toBe(43488440689);
+    expect(snapshot!.metadata.candidateCount).toBe(12);
+    expect(snapshot!.snapshot.candidates).toHaveLength(12);
+    expect(snapshot!.arms.features_off.pick.vin).toBe("3GNAXUEG8RL339688");
+    expect(snapshot!.arms.features_on.pick.vin).toBe("3GNAXSEV4LS557854");
+    expect(snapshot!.criteria).toHaveLength(3);
+    expect(snapshot!.criteria.every((row) => row.winner === "Tie")).toBe(true);
+    expect(snapshot!.snapshot.dataCaveats.join(" ")).toContain("AWD was requested but not verified");
+    expect(snapshot!.metadata.providersNotCalled).toContain("NHTSA VIN decode");
+    expect(snapshot!.result.conclusion).toContain("not statistically significant");
+  });
+
 });
