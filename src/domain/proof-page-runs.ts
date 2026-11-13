@@ -25,6 +25,63 @@ export type ProofComparisonCase = {
   arms: ProofRunArm[];
 };
 
+export type ProofLink = { label: string; href: string };
+
+export type ProofCompareCell = {
+  summary: string;
+  links: ProofLink[];
+};
+
+export type ProofCriterion = {
+  id: string;
+  label: string;
+  cells: Record<string, ProofCompareCell>;
+  winner: string;
+  winnerLabel: string;
+  why: string;
+};
+
+export type ProofServCompare = {
+  id: string;
+  query: string;
+  seed: number;
+  model: string;
+  generatedAt: string;
+  generatedAtLabel: string;
+  prod: string;
+  note: string;
+  variants: Record<string, {
+    label: string;
+    short: string;
+    description: string;
+    pick: string;
+    links: ProofLink[];
+    runId?: string | null;
+    responseId?: string | null;
+    servVerdictFeatures?: string;
+    servCalls?: number;
+    featuresActive?: string[];
+  }>;
+  criteria: ProofCriterion[];
+  servFeaturesAdd: {
+    title: string;
+    intro: string;
+    differences: Array<{ point: string; detail: string; links: ProofLink[] }>;
+    same: string[];
+  };
+  plainLlmFabrication: {
+    title: string;
+    intro: string;
+    findings: Array<{ claim: string; verdict: string; detail: string; href?: string }>;
+  };
+  cost: {
+    plain_llm: Record<string, unknown>;
+    features_off: Record<string, unknown>;
+    features_on: Record<string, unknown>;
+    note: string;
+  };
+};
+
 export type ProofPageData = {
   hasLiveComparisons: boolean;
   generatedAt: string | null;
@@ -38,6 +95,8 @@ export type ProofPageData = {
     disclosure: string;
     decision: string | null;
   }>;
+  /** Live 3-variant SERV comparison (plain LLM vs features off vs features on). */
+  servCompare: ProofServCompare | null;
 };
 
 function readJson(rel: string): unknown | null {
@@ -88,7 +147,34 @@ export function isProvenancedArm(arm: ProofRunArm): boolean {
   return Boolean(arm.runId && arm.model && arm.timestamp);
 }
 
+export const SERV_COMPARE_PROOF_PATH = "eval/results/proof-serv-compare-2026-11-13.json";
+
+export function loadServCompareProof(): ProofServCompare | null {
+  const raw = readJson(SERV_COMPARE_PROOF_PATH);
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<ProofServCompare>;
+  if (typeof row.query !== "string" || !row.query.trim()) return null;
+  if (!Array.isArray(row.criteria) || row.criteria.length === 0) return null;
+  if (!row.variants || typeof row.variants !== "object") return null;
+  const required = ["plain_llm", "features_off", "features_on"];
+  for (const key of required) {
+    const v = (row.variants as Record<string, { pick?: unknown }>)[key];
+    if (!v || typeof v.pick !== "string") return null;
+  }
+  for (const criterion of row.criteria) {
+    if (!criterion?.cells) return null;
+    for (const key of required) {
+      const cell = criterion.cells[key];
+      if (!cell || typeof cell.summary !== "string" || !Array.isArray(cell.links) || cell.links.length === 0) {
+        return null;
+      }
+    }
+  }
+  return row as ProofServCompare;
+}
+
 export function loadProofPageData(): ProofPageData {
+
   const comparison = readJson("eval/results/comparison-latest.json") as {
     hasLiveScores?: boolean;
     generatedAt?: string;
@@ -142,10 +228,12 @@ export function loadProofPageData(): ProofPageData {
     });
   }
 
+  const servCompare = loadServCompareProof();
   return {
     hasLiveComparisons: cases.length > 0,
-    generatedAt,
+    generatedAt: servCompare?.generatedAt ?? generatedAt,
     cases,
     committedTraces,
+    servCompare,
   };
 }

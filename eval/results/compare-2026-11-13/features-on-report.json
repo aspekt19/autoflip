@@ -1,0 +1,437 @@
+{
+  "ok": true,
+  "charged": false,
+  "done": true,
+  "batchId": "d35c80c8e78042e19ca5d8501a7890c4",
+  "nextIndex": 1,
+  "queryId": "01_find_custom",
+  "product": "find",
+  "hopStatus": "done",
+  "sessionId": "2e098859-08e7-4c57-a2d7-2ec2906ff354",
+  "hops": 2,
+  "asked": false,
+  "briefConfirmed": true,
+  "active": null,
+  "lastResult": {
+    "id": "01_find_custom",
+    "product": "find",
+    "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+    "elapsedMs": 51338,
+    "durationMs": 51338,
+    "estimatedUsd": 0.12,
+    "fixtureDir": null,
+    "ok": true,
+    "searchSpec": {
+      "hard": {},
+      "soft": {},
+      "planSummary": "Find an AWD SUV within 75 miles of Denver 80202, under 90,000 miles, for winter mountain driving, a 40-mile commute, and two kids; prioritize safety and low fuel costs."
+    },
+    "carsFound": 40,
+    "pick": {
+      "vin": "JF2SKAKC9KH427473",
+      "label": "2019 Subaru Forester · $19,892 · 79,882 mi",
+      "verdict": "needs_inspection",
+      "confidence": "medium",
+      "priceUsd": 19892,
+      "miles": 79882,
+      "distanceMiles": null,
+      "vdp": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+    },
+    "failure": null,
+    "proofRecords": [],
+    "agentMode": "tools",
+    "toolRounds": 12,
+    "verdictReached": true,
+    "relaxedConditions": [
+      {
+        "name": "search_1",
+        "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+      },
+      {
+        "name": "search_2",
+        "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); 0 listing(s) kept."
+      },
+      {
+        "name": "search_3",
+        "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+      }
+    ],
+    "passReason": null,
+    "journalServCalls": 8,
+    "journalToolCalls": 13,
+    "servUsageTotal": {
+      "calls": 8,
+      "input_tokens": 85662,
+      "output_tokens": 1863,
+      "total_tokens": 87525,
+      "reasoning_tokens": 0,
+      "cached_tokens": 46238,
+      "cost": null
+    },
+    "featuresActive": [
+      "serv_prompt_guard",
+      "content_filter",
+      "reasoning_effort",
+      "prompt_cache",
+      "responses_reasoning",
+      "usage",
+      "serv_shadow_agent",
+      "multipath",
+      "kronos"
+    ],
+    "featuresActivePerCall": [
+      [
+        "serv_prompt_guard",
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ],
+      [
+        "content_filter",
+        "serv_shadow_agent",
+        "multipath",
+        "kronos",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage"
+      ]
+    ],
+    "featureRejections": [],
+    "chosenListingCount": 1,
+    "servResponseIds": [
+      "resp_09c7aae93ec17d1f016af71ea8312887d2b34b89ba7d57f4fd",
+      "resp_09c7aae93ec17d1f016af71eaa120887d28c281fc2887bedb6",
+      "resp_09c7aae93ec17d1f016af71eb248b087d2a04d468bdce159f2",
+      "resp_09c7aae93ec17d1f016af71eb74e2487d2b8024d2e0eaa8863",
+      "resp_09c7aae93ec17d1f016af71ebb352087d2a351e903e1c2cb2f",
+      "resp_09c7aae93ec17d1f016af71ebdf67487d28185adddb878aaa3",
+      "resp_09c7aae93ec17d1f016af71ec3ea6487d2963f615d1f251218",
+      "resp_09c7aae93ec17d1f016af71ecfe98c87d2902fa569900768d0"
+    ],
+    "runId": "run_bfdb7995ccf7407f97b9",
+    "confirmedBrief": {
+      "summary": "Find an AWD SUV within 75 miles of Denver 80202, under 90,000 miles, for winter mountain driving, a 40-mile commute, and two kids; prioritize safety and low fuel costs.",
+      "budget": {
+        "maxUsd": 22000,
+        "userQuote": "budget $22k all-in"
+      },
+      "zip": "80202",
+      "radiusMi": 75,
+      "notes": "Keep the total including taxes and fees within $22,000; listing prices alone do not establish the all-in cost. Require verification of no accident or salvage history before purchase.",
+      "hardConstraints": [
+        {
+          "key": "drivetrain",
+          "value": "AWD"
+        },
+        {
+          "key": "body",
+          "value": "SUV"
+        },
+        {
+          "key": "mileage",
+          "value": "Under 90,000 miles"
+        },
+        {
+          "key": "history",
+          "value": "No accident or salvage history"
+        },
+        {
+          "key": "total_budget",
+          "value": "$22,000 all-in"
+        },
+        {
+          "key": "distance",
+          "value": "Within 75 miles of 80202"
+        }
+      ],
+      "softConstraints": [
+        {
+          "key": "priority",
+          "value": "Safety first for two kids"
+        },
+        {
+          "key": "running_cost",
+          "value": "Low fuel cost"
+        },
+        {
+          "key": "use",
+          "value": "Mountain winters and 40-mile daily commute"
+        }
+      ]
+    }
+  },
+  "lastHop": {
+    "status": "done",
+    "ok": true,
+    "httpStatus": 200
+  },
+  "mode": "live",
+  "seed": 926041385,
+  "maxQueries": 1,
+  "maxUsd": 1.5,
+  "estimatedUsd": 0.12,
+  "servCallsAssumedPerQuery": 4,
+  "usdPerServCall": 0.03,
+  "stoppedReason": "max_queries",
+  "generatedAt": "2026-11-13T14:29:45.877Z",
+  "queries": [
+    {
+      "id": "01_find_custom",
+      "product": "find",
+      "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+      "zip": "80202",
+      "distanceMiles": null,
+      "tags": {
+        "product": "find",
+        "city": "custom",
+        "budget": "custom",
+        "body": "custom",
+        "need": "custom",
+        "messy": false
+      }
+    }
+  ],
+  "results": [
+    {
+      "id": "01_find_custom",
+      "product": "find",
+      "note": "I'm in Denver 80202, budget $22k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 90k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?",
+      "elapsedMs": 51338,
+      "durationMs": 51338,
+      "estimatedUsd": 0.12,
+      "fixtureDir": null,
+      "ok": true,
+      "searchSpec": {
+        "hard": {},
+        "soft": {},
+        "planSummary": "Find an AWD SUV within 75 miles of Denver 80202, under 90,000 miles, for winter mountain driving, a 40-mile commute, and two kids; prioritize safety and low fuel costs."
+      },
+      "carsFound": 40,
+      "pick": {
+        "vin": "JF2SKAKC9KH427473",
+        "label": "2019 Subaru Forester · $19,892 · 79,882 mi",
+        "verdict": "needs_inspection",
+        "confidence": "medium",
+        "priceUsd": 19892,
+        "miles": 79882,
+        "distanceMiles": null,
+        "vdp": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228"
+      },
+      "failure": null,
+      "proofRecords": [],
+      "agentMode": "tools",
+      "toolRounds": 12,
+      "verdictReached": true,
+      "relaxedConditions": [
+        {
+          "name": "search_1",
+          "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+        },
+        {
+          "name": "search_2",
+          "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); 0 listing(s) kept."
+        },
+        {
+          "name": "search_3",
+          "why": "Ran search (zip=80202, radius=75mi, priceMax=$22000, bodyFamily=suv); funnel provider_raw=20 → normalized_vin_ymm=20 → passenger_gate=20 → transmission=20 → body_family=20 → price=20 → miles=20 → radius=20; kept 20."
+        }
+      ],
+      "passReason": null,
+      "journalServCalls": 8,
+      "journalToolCalls": 13,
+      "servUsageTotal": {
+        "calls": 8,
+        "input_tokens": 85662,
+        "output_tokens": 1863,
+        "total_tokens": 87525,
+        "reasoning_tokens": 0,
+        "cached_tokens": 46238,
+        "cost": null
+      },
+      "featuresActive": [
+        "serv_prompt_guard",
+        "content_filter",
+        "reasoning_effort",
+        "prompt_cache",
+        "responses_reasoning",
+        "usage",
+        "serv_shadow_agent",
+        "multipath",
+        "kronos"
+      ],
+      "featuresActivePerCall": [
+        [
+          "serv_prompt_guard",
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ],
+        [
+          "content_filter",
+          "serv_shadow_agent",
+          "multipath",
+          "kronos",
+          "reasoning_effort",
+          "prompt_cache",
+          "responses_reasoning",
+          "usage"
+        ]
+      ],
+      "featureRejections": [],
+      "chosenListingCount": 1,
+      "servResponseIds": [
+        "resp_09c7aae93ec17d1f016af71ea8312887d2b34b89ba7d57f4fd",
+        "resp_09c7aae93ec17d1f016af71eaa120887d28c281fc2887bedb6",
+        "resp_09c7aae93ec17d1f016af71eb248b087d2a04d468bdce159f2",
+        "resp_09c7aae93ec17d1f016af71eb74e2487d2b8024d2e0eaa8863",
+        "resp_09c7aae93ec17d1f016af71ebb352087d2a351e903e1c2cb2f",
+        "resp_09c7aae93ec17d1f016af71ebdf67487d28185adddb878aaa3",
+        "resp_09c7aae93ec17d1f016af71ec3ea6487d2963f615d1f251218",
+        "resp_09c7aae93ec17d1f016af71ecfe98c87d2902fa569900768d0"
+      ],
+      "runId": "run_bfdb7995ccf7407f97b9",
+      "confirmedBrief": {
+        "summary": "Find an AWD SUV within 75 miles of Denver 80202, under 90,000 miles, for winter mountain driving, a 40-mile commute, and two kids; prioritize safety and low fuel costs.",
+        "budget": {
+          "maxUsd": 22000,
+          "userQuote": "budget $22k all-in"
+        },
+        "zip": "80202",
+        "radiusMi": 75,
+        "notes": "Keep the total including taxes and fees within $22,000; listing prices alone do not establish the all-in cost. Require verification of no accident or salvage history before purchase.",
+        "hardConstraints": [
+          {
+            "key": "drivetrain",
+            "value": "AWD"
+          },
+          {
+            "key": "body",
+            "value": "SUV"
+          },
+          {
+            "key": "mileage",
+            "value": "Under 90,000 miles"
+          },
+          {
+            "key": "history",
+            "value": "No accident or salvage history"
+          },
+          {
+            "key": "total_budget",
+            "value": "$22,000 all-in"
+          },
+          {
+            "key": "distance",
+            "value": "Within 75 miles of 80202"
+          }
+        ],
+        "softConstraints": [
+          {
+            "key": "priority",
+            "value": "Safety first for two kids"
+          },
+          {
+            "key": "running_cost",
+            "value": "Low fuel cost"
+          },
+          {
+            "key": "use",
+            "value": "Mountain winters and 40-mile daily commute"
+          }
+        ]
+      }
+    }
+  ],
+  "findCount": 1,
+  "resaleCount": 0,
+  "servVerdictFeatures": "on"
+}

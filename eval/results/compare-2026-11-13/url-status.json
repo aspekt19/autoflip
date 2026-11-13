@@ -1,0 +1,65 @@
+[
+  {
+    "name": "features_on_vdp",
+    "url": "https://southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228",
+    "http": 200,
+    "final": "https://www.southcoloradomotors.com/inventory/2019-subaru-forester-sport/1228228",
+    "bytes_preview": 200
+  },
+  {
+    "name": "features_off_carfax_from_eval_pick",
+    "url": "https://www.carfax.com/vehicle/JF2SKACC5RH515915",
+    "http": 403,
+    "final": "https://www.carfax.com/vehicle/JF2SKACC5RH515915",
+    "bytes_preview": 200
+  },
+  {
+    "name": "nhtsa_safety_2019",
+    "url": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404",
+    "http": 200,
+    "final": "https://api.nhtsa.gov/SafetyRatings/VehicleId/13404",
+    "bytes_preview": 200
+  },
+  {
+    "name": "vpic_off",
+    "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json",
+    "http": 200,
+    "final": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKACC5RH515915?format=json",
+    "bytes_preview": 200
+  },
+  {
+    "name": "vpic_on",
+    "url": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json",
+    "http": 200,
+    "final": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAKC9KH427473?format=json",
+    "bytes_preview": 200
+  },
+  {
+    "name": "recalls_2019",
+    "url": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2019",
+    "http": 200,
+    "final": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2019",
+    "bytes_preview": 200
+  },
+  {
+    "name": "recalls_2024",
+    "url": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2024",
+    "http": 200,
+    "final": "https://api.nhtsa.gov/recalls/recallsByVehicle?make=subaru&model=forester&modelYear=2024",
+    "bytes_preview": 200
+  },
+  {
+    "name": "complaints_2019",
+    "url": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2019",
+    "http": 200,
+    "final": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2019",
+    "bytes_preview": 200
+  },
+  {
+    "name": "complaints_2024",
+    "url": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2024",
+    "http": 200,
+    "final": "https://api.nhtsa.gov/complaints/complaintsByVehicle?make=subaru&model=forester&modelYear=2024",
+    "bytes_preview": 200
+  }
+]
