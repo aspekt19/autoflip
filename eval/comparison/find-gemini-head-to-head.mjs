@@ -13,7 +13,7 @@ import path from "node:path";
 const ORIGIN = (process.env.EVAL_LIVE_URL || "https://autoflip-umber.vercel.app").replace(/\/$/, "");
 const EVAL_SECRET = (process.env.EVAL_LIVE_SECRET || "").trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || "").trim();
-const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-3.8-flash").trim();
+const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
 const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || "eval/results/find-gemini-head-to-head-2026-11-13");
 const WAIT_MS = 10 * 60 * 1000;
 
@@ -219,7 +219,7 @@ async function main() {
       "Search inventory can change between T0 and T+10; compare listing evidence and timestamps before calling answer changes inconsistent.",
       "Accident-free/salvage, AWD and out-the-door price require independent evidence; listing feed accidentCount=0 is not proof.",
       "The public Find run record is retained when the endpoint returns a runId.",
-      "Google Search grounding is unavailable on the Gemini API Free tier. On the paid tier Google lists 5,000 monthly free Search grounding requests for Gemini 3+ shared usage, then $14 per 1,000 search queries; model token charges apply on paid tier. Actual entitlement and billing depend on the API project.",
+      "For the selected gemini-2.5-flash model, Google lists Free Tier input/output tokens and Google Search grounding free up to 500 requests per day, shared with Gemini 2.5 Flash-Lite. The model is deprecated and scheduled to stop being selectable in AI Studio; direct API requests remain available through November 30, 2026, then route to Gemini 3.5 Flash-Lite from December 1. The test must run before that cutoff.",
       "Token usage and grounding-query count are provider telemetry, not a billing invoice. Exact cost is not asserted unless returned by the provider.",
     ],
     startedAt: new Date().toISOString(),
