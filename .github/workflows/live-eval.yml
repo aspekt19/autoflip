@@ -301,7 +301,7 @@ jobs:
           EVAL_LIVE_SECRET: ${{ secrets.CRON_SECRET || secrets.RADAR_CRON_SECRET }}
           EVAL_LIVE_URL: ${{ secrets.EVAL_LIVE_URL || 'https://autoflip-umber.vercel.app' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-3.8-flash
+          GEMINI_MODEL: gemini-2.5-flash
           OUTPUT_DIR: eval/results/find-gemini-head-to-head-2026-11-13
         run: node eval/comparison/find-gemini-head-to-head.mjs
 
