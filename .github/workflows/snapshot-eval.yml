@@ -9,6 +9,9 @@ name: Frozen snapshot eval
 
 on:
   workflow_dispatch:
+  pull_request:
+    types: [opened]
+    branches: [main]
 
 permissions:
   contents: read
