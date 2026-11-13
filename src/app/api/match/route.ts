@@ -24,12 +24,16 @@ import {
   findSearchInflightKey,
   findSearchSpendKey,
   readFindSearchDelivery,
-  debitFindDelivery,
-  reserveFindSearchCreditReliable,
   storeFindSearchDelivery,
   waitForFindSearchDelivery,
   type FindSearchDelivery,
 } from "@/server/find-search-credit";
+import {
+  commitSearchCreditOnDelivery,
+  creditsRequiredBody,
+  releaseSearchCredit,
+  reserveSearchCreditBeforeServ,
+} from "@/server/search-billing-gate";
 import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +44,8 @@ export const maxDuration = 300;
  * Find / search — always paid (1 internal credit) for a new Show-cars search.
  * Requires the same verified Auth.js account as vehicle checks — anonymous
  * af_uid cookies cannot debit legacy balances or mint Find ownership.
- * Debit once, only after results and the owner-bound search context are stored.
- * A failed search does not debit. The same user-scoped idempotency key returns
- * the stored delivery — it does not search again, mint a second context, or
- * open a fresh paid-check budget. A later failure of that key does not refund.
+ * Reserve 1 credit BEFORE SERV; commit on delivered cars; release on empty/error.
+ * The same user-scoped idempotency key returns the stored delivery.
  * Owned next-check rematches reuse searchContextToken and do not debit again.
  * The 3 free VIN / own-URL checks per verified account per UTC month never apply here.
  */
@@ -102,17 +104,17 @@ export async function POST(request: Request) {
   }
 
   let balanceAfter = await creditBalance(kv, id);
-  // Gate before any provider work. A replay whose delivery is already stored
-  // returned above, including when the balance is now zero.
-  if (!continuation && !alreadyPaid && balanceAfter < 1) {
-    return Response.json(
-      {
-        error: "credits_required",
-        balance: balanceAfter,
-        message: "Find search costs 1 report credit. Buy credits to search dealer listings.",
-      },
-      { status: 403 },
-    );
+  let reservedSpendKey: string | null = alreadyPaid && spendKey ? spendKey : null;
+  // Reserve BEFORE any provider/SERV work. Replay of a paid delivery returned above.
+  if (!continuation && idemKey && !alreadyPaid) {
+    const reserved = await reserveSearchCreditBeforeServ(kv, "find", id, idemKey);
+    if (!reserved.ok) {
+      return Response.json(creditsRequiredBody({ balance: reserved.balance, surface: "find" }), {
+        status: 403,
+      });
+    }
+    reservedSpendKey = reserved.spendKey;
+    balanceAfter = reserved.balance;
   }
 
   const inflightKey = spendKey ? findSearchInflightKey(spendKey) : null;
@@ -162,14 +164,14 @@ export async function POST(request: Request) {
         env: process.env,
       });
     } catch {
-      const paid = spendKey ? await creditEventSeen(kv, spendKey) : false;
+      if (reservedSpendKey && !alreadyPaid) {
+        balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
+      }
       return Response.json(
         {
           error: "search_failed",
-          message: paid
-            ? "The search did not finish. An earlier delivery of this search already used 1 credit, and it was not refunded."
-            : "The search did not finish. No credit was used.",
-          balance: await creditBalance(kv, id),
+          message: "The search did not finish. No credit was used.",
+          balance: balanceAfter,
           charged: false,
         },
         { status: 500 },
@@ -177,15 +179,17 @@ export async function POST(request: Request) {
     }
 
     if (!result.ok) {
-      // Provider / validation failure — nothing was delivered, so do not debit.
-      // Do not compensate an earlier successful delivery that shares this key.
-      const paid = spendKey ? await creditEventSeen(kv, spendKey) : false;
+      // Provider / validation failure — release reservation unless this key already delivered.
+      const priorDelivery = spendKey ? await readFindSearchDelivery(kv, spendKey) : null;
+      if (reservedSpendKey && !priorDelivery && !alreadyPaid) {
+        balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
+      }
       return Response.json(
         {
           ...result.body,
-          balance: await creditBalance(kv, id),
+          balance: balanceAfter,
           charged: false,
-          ...(paid
+          ...(priorDelivery
             ? {
                 message:
                   "This search was already delivered and the credit was already used. The retry did not finish, and the credit was not refunded.",
@@ -280,11 +284,14 @@ export async function POST(request: Request) {
         }
       }
     } catch {
+      if (reservedSpendKey && !alreadyPaid) {
+        balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
+      }
       return Response.json(
         {
           error: "search_failed",
           message: "The search did not finish. No credit was used.",
-          balance: await creditBalance(kv, id),
+          balance: balanceAfter,
           charged: false,
         },
         { status: 500 },
@@ -292,21 +299,23 @@ export async function POST(request: Request) {
     }
 
     // A paid Find must leave a context. Returning cards without one repeats the
-    // "loop never starts" failure and still would have charged.
+    // "loop never starts" failure — release the reservation.
     if (!continuation && !searchContextToken) {
+      if (reservedSpendKey && !alreadyPaid) {
+        balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
+      }
       return Response.json(
         {
           error: "search_failed",
           message: "The search did not finish. No credit was used.",
-          balance: await creditBalance(kv, id),
+          balance: balanceAfter,
           charged: false,
         },
         { status: 500 },
       );
     }
 
-    // Never charge when no listing search ran or zero cars came back (REPORT_356a /
-    // AUDIT R8). Shared gate with API v1 / MCP agent find.
+    // Commit when cars delivered; release on empty / plan failure / nothing-fits.
     const providerQueriesUsed =
       typeof result.body.providerQueriesUsed === "number" ? result.body.providerQueriesUsed : 0;
     const listingCount = Array.isArray(result.body.directions)
@@ -332,48 +341,23 @@ export async function POST(request: Request) {
       });
 
     let charged = false;
-    if (!continuation && idemKey && deliveredSearch) {
-      const reserved = await debitFindDelivery(kv, id, idemKey, {
-        ok: result.body.ok === true,
-        providerQueriesUsed,
-        listingCount,
-        emptyReason,
-      });
-      if (!reserved.charged && (await creditBalance(kv, id)) < 1) {
+    if (!continuation && idemKey && reservedSpendKey && deliveredSearch) {
+      const committed = await commitSearchCreditOnDelivery(kv, id, reservedSpendKey);
+      balanceAfter = committed.balance;
+      charged = committed.committed;
+      if (!charged) {
+        balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
         return Response.json(
-          {
-            error: "credits_required",
-            balance: reserved.balance,
-            message: "Find search costs 1 report credit. Buy credits to search dealer listings.",
-          },
+          creditsRequiredBody({ balance: balanceAfter, surface: "find" }),
           { status: 403 },
         );
       }
-      if (!reserved.charged) {
-        return Response.json(
-          {
-            error: "search_busy",
-            message: "The credit balance could not be updated. Retry this search in a moment. No credit was used.",
-            balance: reserved.balance,
-            charged: false,
-          },
-          { status: 503 },
-        );
-      }
-      balanceAfter = reserved.balance;
-      charged = true;
-    } else if (!continuation && idemKey && planFailed) {
-      balanceAfter = await creditBalance(kv, id);
+    } else if (!continuation && idemKey && reservedSpendKey && (planFailed || !deliveredSearch)) {
+      balanceAfter = (await releaseSearchCredit(kv, id, reservedSpendKey)).balance;
       charged = false;
-      const honesty = "We could not plan this search, so there is no verdict and no credit was used.";
-      const prior = typeof result.body.message === "string" ? result.body.message.trim() : "";
-      result.body.message = prior && !/no credit was used/i.test(prior) ? `${prior.replace(/\.*$/, "")}. ${honesty}` : prior || honesty;
-    } else if (!continuation && idemKey && !deliveredSearch) {
-      // Honest empty delivery — keep tokens for rematch but do not debit.
-      balanceAfter = await creditBalance(kv, id);
-      charged = false;
-      const honesty =
-        emptyReason === "no_directions"
+      const honesty = planFailed
+        ? "We could not plan this search, so there is no verdict and no credit was used."
+        : emptyReason === "no_directions"
           ? "No model directions could be built for this note, so no listing search ran and no credit was used."
           : listingCount === 0
             ? "No cars came back from this search, so no credit was used."

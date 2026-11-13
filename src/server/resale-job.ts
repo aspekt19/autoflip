@@ -1,7 +1,8 @@
 /**
  * Client-driven stepped Resale search job.
  * Step 1: plan. Step 2: SERV agent loop (search + choose). Later steps remain for in-flight
- * classic settle jobs only. Credit charged on final delivery only.
+ * classic settle jobs only.
+ * Credit is reserved BEFORE plan/SERV; committed on a chosen flip; released on nothing-fits/error.
  */
 import { randomUUID } from "node:crypto";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
@@ -24,11 +25,16 @@ import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import {
   findSearchIdempotencyKey,
   readResaleSearchDelivery,
-  reserveResaleSearchCreditReliable,
   resaleSearchSpendKey,
   storeResaleSearchDelivery,
   type ResaleSearchDelivery,
 } from "@/server/resale-search-credit";
+import {
+  commitSearchCreditOnDelivery,
+  creditsRequiredBody,
+  releaseSearchCredit,
+  reserveSearchCreditBeforeServ,
+} from "@/server/search-billing-gate";
 import {
   runResaleSearch,
   type ResaleSearchDeps,
@@ -104,16 +110,13 @@ export type ResaleJobRecord = {
   /** Highest completed step (0 = created, not yet run). Final delivery is step 6. */
   stepCompleted: 0 | ResaleJobStep;
   /**
-   * - running: steps in progress
-   * - completed: delivery stored and credit charged (or already paid for this spend key)
-   * - delivered_unpaid: SERV finished and result is shown, but debit failed — retry charge on next advance/replay
-   * - failed: hard failure before a deliverable result
+   * - running: steps in progress (1 credit already reserved)
+   * - completed: delivery stored; charged=true only when a flip was chosen
+   * - failed: hard failure; reservation released
    *
-   * Product choice when debit fails: still return the computed result (the user already waited through
-   * SERV) with an honest "Credit not charged" label, keep the job in delivered_unpaid, and retry the
-   * debit without re-running SERV. Never claim chargedCredit when no debit happened.
+   * Never deliver unpaid results — credit is reserved before SERV starts.
    */
-  status: "running" | "completed" | "delivered_unpaid" | "failed";
+  status: "running" | "completed" | "failed";
   candidates: ResaleCandidatePnl[];
   /** @deprecated Always null for new jobs — do not collapse inventory to one model. */
   planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
@@ -213,20 +216,20 @@ function mergeJournals(
 export const RESALE_CREDIT_NOTE_CHARGED =
   resaleCardCopy.creditNote;
 
-export const RESALE_CREDIT_NOTE_UNPAID =
-  "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
-
-/** Incomplete empty (no SERV nothing-fits) — free; not an unpaid debit. */
+/** Nothing-fits / no flip — reservation released, no charge. */
 export const RESALE_CREDIT_NOTE_NO_FLIP =
   "No report credit charged — no flip was chosen.";
 
-/** Documented nothing-fits still uses a report credit (SERV settled). */
+/** @deprecated Unpaid delivery path removed — never show results without a reserved credit. */
+export const RESALE_CREDIT_NOTE_UNPAID =
+  "No report credit charged — search did not start without a reserved credit.";
+
+/** Nothing-fits releases the pre-SERV reservation. */
 export const RESALE_CREDIT_NOTE_NOTHING_FITS =
-  "1 report credit used — SERV explained why nothing fit.";
+  "No report credit charged — nothing fit; the reserved credit was released.";
 
 /**
- * Charge when a flip VIN was published OR SERV documented nothing-fits.
- * Incomplete empties (no agent explanation) do not charge.
+ * Commit when a flip VIN was published. Nothing-fits / empty release the reservation.
  */
 export function resaleDeliveryChargesCredit(
   delivery: Partial<
@@ -238,23 +241,6 @@ export function resaleDeliveryChargesCredit(
     const vin = typeof (best as { vin?: unknown }).vin === "string" ? (best as { vin: string }).vin.trim() : "";
     if (vin.length > 0) return true;
   }
-  // Documented nothing-fits: agent verdict present with a real explanation.
-  const verdict = delivery.agentVerdict as unknown as { summary?: unknown; why?: unknown } | null | undefined;
-  const summary =
-    verdict && typeof verdict.summary === "string"
-      ? verdict.summary
-      : verdict && typeof verdict.why === "string"
-        ? verdict.why
-        : "";
-  const note = [
-    typeof delivery.reviewNote === "string" ? delivery.reviewNote : "",
-    typeof delivery.message === "string" ? delivery.message : "",
-    summary,
-  ]
-    .join(" ")
-    .trim();
-  const empty = typeof delivery.emptyReason === "string" ? delivery.emptyReason.trim() : "";
-  if (delivery.agentVerdict && empty && note.length >= 12) return true;
   return false;
 }
 
@@ -266,11 +252,7 @@ export function jobToClientBody(
   const freeComplete =
     job.status === "completed" &&
     !job.charged &&
-    job.delivery != null &&
-    !resaleDeliveryChargesCredit(job.delivery);
-  const unpaidDelivered = job.status === "delivered_unpaid" && job.delivery != null;
-  // Unpaid deliveries are "done" for SERV work but not final — client may advance to retry charge.
-  // Free completes (documented nothing-fits / empty) are done without a debit.
+    job.delivery != null;
   const done = paidComplete || freeComplete;
   const progress = buildResaleJobProgress(job.stepCompleted);
   const journal =
@@ -284,13 +266,9 @@ export function jobToClientBody(
     jobId: job.jobId,
     step: job.stepCompleted,
     nextStep:
-      paidComplete
+      done || job.stepCompleted >= RESALE_JOB_FINAL_STEP
         ? null
-        : unpaidDelivered
-          ? RESALE_JOB_FINAL_STEP
-          : job.stepCompleted >= RESALE_JOB_FINAL_STEP
-            ? null
-            : ((job.stepCompleted + 1) as ResaleJobStep),
+        : ((job.stepCompleted + 1) as ResaleJobStep),
     done,
     progress,
     journal,
@@ -316,15 +294,10 @@ export function jobToClientBody(
       proofRecords: job.delivery.proofRecords,
       headline: job.delivery.headline,
       message: job.delivery.message,
-      nextStepHint: unpaidDelivered
-        ? "Buy credits, then continue this search to settle the unpaid charge. SERV will not re-run."
-        : job.delivery.nextStep,
+      nextStepHint: job.delivery.nextStep,
       creditNote: job.charged
         ? job.delivery.creditNote || RESALE_CREDIT_NOTE_CHARGED
-        : freeComplete
-          ? job.delivery.creditNote || RESALE_CREDIT_NOTE_NO_FLIP
-          : RESALE_CREDIT_NOTE_UNPAID,
-      // Always the real ledger flag — never force true because a delivery exists.
+        : job.delivery.creditNote || RESALE_CREDIT_NOTE_NO_FLIP,
       chargedCredit: job.charged,
     };
   }
@@ -440,17 +413,22 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
 }
 
 /**
- * Persist a no-flip / empty delivery without debiting. Completes the job free.
+ * Persist a no-flip / nothing-fits delivery and release the pre-SERV reservation.
  */
 async function storeFreeNoFlipDelivery(
   kv: Kv,
   job: ResaleJobRecord,
   delivery: ResaleSearchOkBody,
 ): Promise<{ job: ResaleJobRecord; balance: number }> {
+  const released = await releaseSearchCredit(kv, job.ownerId, job.spendKey);
+  const note =
+    typeof delivery.emptyReason === "string" && delivery.emptyReason.trim()
+      ? RESALE_CREDIT_NOTE_NOTHING_FITS
+      : RESALE_CREDIT_NOTE_NO_FLIP;
   const honestDelivery: ResaleSearchOkBody = {
     ...delivery,
     chargedCredit: false,
-    creditNote: RESALE_CREDIT_NOTE_NO_FLIP,
+    creditNote: note,
   };
   const payload: ResaleSearchDelivery = {
     ...honestDelivery,
@@ -459,7 +437,6 @@ async function storeFreeNoFlipDelivery(
     charged: false,
   };
   await storeResaleSearchDelivery(kv, job.spendKey, payload);
-  // Pass/empty is not reusable as a paid verdict cache.
   const next: ResaleJobRecord = {
     ...job,
     status: "completed",
@@ -472,13 +449,12 @@ async function storeFreeNoFlipDelivery(
     emptyReason: honestDelivery.emptyReason ?? job.emptyReason,
   };
   await storeResaleJob(kv, next);
-  return { job: next, balance: await creditBalance(kv, job.ownerId) };
+  return { job: next, balance: released.balance };
 }
 
 /**
- * Persist delivery, then attempt debit only when a flip was chosen.
- * Nothing-fits / empty → free complete (no charge). On debit failure the job stays
- * `delivered_unpaid` (result still shown) so the next advance/replay can retry the charge.
+ * Persist a chosen-flip delivery. Credit was reserved before SERV — commit it.
+ * Nothing-fits / empty → release. Never deliver without a prior reservation.
  */
 async function chargeAndStoreDelivery(
   kv: Kv,
@@ -488,73 +464,50 @@ async function chargeAndStoreDelivery(
   if (!resaleDeliveryChargesCredit(delivery)) {
     return storeFreeNoFlipDelivery(kv, job, delivery);
   }
-  const reserved = await reserveResaleSearchCreditReliable(kv, job.ownerId, job.idempotencyKey);
-  const charged = reserved.ok;
+  const committed = await commitSearchCreditOnDelivery(kv, job.ownerId, job.spendKey);
+  if (!committed.committed) {
+    // Fail closed — never show a chosen result without a reserved credit.
+    const released = await releaseSearchCredit(kv, job.ownerId, job.spendKey);
+    const next: ResaleJobRecord = {
+      ...job,
+      status: "failed",
+      stepCompleted: job.stepCompleted,
+      delivery: null,
+      charged: false,
+      updatedAt: new Date().toISOString(),
+      error: {
+        error: "credits_required",
+        message: "Resale search costs 1 report credit. Buy credits to start a search.",
+      },
+    };
+    await storeResaleJob(kv, next);
+    return { job: next, balance: released.balance };
+  }
   const honestDelivery: ResaleSearchOkBody = {
     ...delivery,
-    chargedCredit: charged,
-    creditNote: charged ? RESALE_CREDIT_NOTE_CHARGED : RESALE_CREDIT_NOTE_UNPAID,
+    chargedCredit: true,
+    creditNote: RESALE_CREDIT_NOTE_CHARGED,
   };
   const payload: ResaleSearchDelivery = {
     ...honestDelivery,
     searchIdempotencyKey: job.idempotencyKey,
     jobId: job.jobId,
-    charged,
+    charged: true,
   };
   await storeResaleSearchDelivery(kv, job.spendKey, payload);
   await writeResaleSpecCache(kv, job.ownerId, job.input, payload);
   const next: ResaleJobRecord = {
     ...job,
-    status: charged ? "completed" : "delivered_unpaid",
+    status: "completed",
     stepCompleted: RESALE_JOB_FINAL_STEP,
     delivery: honestDelivery,
-    charged,
+    charged: true,
     settleCheckpoint: job.settleCheckpoint,
     updatedAt: new Date().toISOString(),
-    error: charged
-      ? null
-      : {
-          error: "credits_required",
-          message:
-            "Results are ready, but 1 report credit could not be charged. Buy credits and continue this search to settle — SERV will not re-run.",
-        },
+    error: null,
   };
   await storeResaleJob(kv, next);
-  return { job: next, balance: reserved.balance };
-}
-
-/** Retry debit for a delivered_unpaid job without re-running SERV. */
-async function retryUnpaidCharge(
-  kv: Kv,
-  job: ResaleJobRecord,
-): Promise<{ job: ResaleJobRecord; balance: number }> {
-  if (job.charged || !job.delivery) {
-    return { job, balance: await creditBalance(kv, job.ownerId) };
-  }
-  if (await creditEventSeen(kv, job.spendKey)) {
-    const paidDelivery: ResaleSearchOkBody = {
-      ...job.delivery,
-      chargedCredit: true,
-      creditNote: RESALE_CREDIT_NOTE_CHARGED,
-    };
-    const next: ResaleJobRecord = {
-      ...job,
-      status: "completed",
-      charged: true,
-      delivery: paidDelivery,
-      error: null,
-      updatedAt: new Date().toISOString(),
-    };
-    await storeResaleSearchDelivery(kv, job.spendKey, {
-      ...paidDelivery,
-      searchIdempotencyKey: job.idempotencyKey,
-      jobId: job.jobId,
-      charged: true,
-    });
-    await storeResaleJob(kv, next);
-    return { job: next, balance: await creditBalance(kv, job.ownerId) };
-  }
-  return chargeAndStoreDelivery(kv, job, job.delivery);
+  return { job: next, balance: committed.balance };
 }
 
 export type CreateResaleJobResult =
@@ -629,11 +582,6 @@ export async function createAndRunResaleJobStep1(
   if (existingId) {
     const existing = await readResaleJob(deps.kv, existingId);
     if (existing && existing.ownerId === deps.ownerId && existing.exp * 1000 > Date.now()) {
-      // Retry unpaid debit on create/replay of the same idempotency key.
-      if (existing.status === "delivered_unpaid" && existing.delivery && !existing.charged) {
-        const retried = await retryUnpaidCharge(deps.kv, existing);
-        return { ok: true, kind: "job", job: retried.job, balance: retried.balance };
-      }
       if (existing.stepCompleted >= 1) {
         const balance = await creditBalance(deps.kv, deps.ownerId);
         return { ok: true, kind: "job", job: existing, balance };
@@ -644,7 +592,6 @@ export async function createAndRunResaleJobStep1(
   const cached = await readResaleSearchDelivery(deps.kv, spendKey);
   if (cached) {
     const balance = await creditBalance(deps.kv, deps.ownerId);
-    // Prefer job ledger truth when present; never force charged:true from a stale delivery flag.
     const linkedId =
       typeof cached.jobId === "string"
         ? cached.jobId
@@ -652,27 +599,19 @@ export async function createAndRunResaleJobStep1(
     if (linkedId) {
       const linked = await readResaleJob(deps.kv, linkedId);
       if (linked && linked.ownerId === deps.ownerId) {
-        if (linked.status === "delivered_unpaid" && linked.delivery && !linked.charged) {
-          const retried = await retryUnpaidCharge(deps.kv, linked);
-          return { ok: true, kind: "job", job: retried.job, balance: retried.balance };
-        }
         return { ok: true, kind: "job", job: linked, balance };
       }
     }
     return { ok: true, kind: "replay", delivery: cached, balance };
   }
 
-  const alreadyPaid = await creditEventSeen(deps.kv, spendKey);
-  const balance = await creditBalance(deps.kv, deps.ownerId);
-  if (!alreadyPaid && balance < 1) {
+  // Reserve 1 credit BEFORE plan/SERV — search does not start without it.
+  const reserved = await reserveSearchCreditBeforeServ(deps.kv, "resale", deps.ownerId, idempotencyKey);
+  if (!reserved.ok) {
     return {
       ok: false,
       status: 403,
-      body: {
-        error: "credits_required",
-        balance,
-        message: "Resale search costs 1 report credit (same as Find). Buy credits to search flip inventory.",
-      },
+      body: creditsRequiredBody({ balance: reserved.balance, surface: "resale" }),
     };
   }
 
@@ -717,6 +656,7 @@ export async function createAndRunResaleJobStep1(
   });
 
   if (!planned.ok) {
+    const released = await releaseSearchCredit(deps.kv, deps.ownerId, spendKey);
     job = {
       ...job,
       status: "failed",
@@ -734,7 +674,7 @@ export async function createAndRunResaleJobStep1(
       body: {
         ...planned.body,
         jobId,
-        balance: await creditBalance(deps.kv, deps.ownerId),
+        balance: released.balance,
         charged: false,
       },
     };
@@ -817,27 +757,19 @@ export async function advanceResaleJob(
 
   let balance = await creditBalance(deps.kv, deps.ownerId);
 
-  // Paid complete → idempotent replay.
-  if (job.status === "completed" && job.charged && job.delivery) {
+  // Complete → idempotent replay (charged or released nothing-fits).
+  if (job.status === "completed" && job.delivery) {
     return { ok: true, job, balance };
   }
 
-  // SERV finished but debit failed — retry charge only (no SERV redo).
-  if (job.status === "delivered_unpaid" && job.delivery && !job.charged) {
-    const retried = await retryUnpaidCharge(deps.kv, job);
-    return { ok: true, job: retried.job, balance: retried.balance };
-  }
-
-  if (job.stepCompleted >= RESALE_JOB_FINAL_STEP && job.charged) {
+  if (job.stepCompleted >= RESALE_JOB_FINAL_STEP && job.status === "completed") {
     return { ok: true, job, balance };
   }
 
   const requested =
     typeof deps.step === "number" && Number.isFinite(deps.step)
       ? Math.floor(deps.step)
-      : job.status === "delivered_unpaid"
-        ? RESALE_JOB_FINAL_STEP
-        : job.stepCompleted + 1;
+      : job.stepCompleted + 1;
 
   if (requested < 2 || requested > RESALE_JOB_FINAL_STEP) {
     return {
@@ -887,10 +819,6 @@ export async function advanceResaleJob(
           stepCompleted: RESALE_JOB_FINAL_STEP,
           updatedAt: new Date().toISOString(),
         };
-        if (!job.charged) {
-          const retried = await retryUnpaidCharge(deps.kv, job);
-          return { ok: true, job: retried.job, balance: retried.balance };
-        }
         return { ok: true, job, balance };
       }
 
@@ -904,6 +832,7 @@ export async function advanceResaleJob(
       ).trim();
       const agentEnabled = resaleAgentLoopEnabled(env, { servKey });
       if (!agentEnabled || !servKey || !autodevKey) {
+        const released = await releaseSearchCredit(deps.kv, deps.ownerId, job.spendKey);
         job = {
           ...job,
           status: "failed",
@@ -924,7 +853,7 @@ export async function advanceResaleJob(
               "Resale requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic inventory/PnL is removed.",
             jobId,
             charged: false,
-            balance,
+            balance: released.balance,
           },
         };
       }
@@ -1038,6 +967,7 @@ export async function advanceResaleJob(
           typeof agent.message === "string" && agent.message.trim()
             ? agent.message
             : "The SERV Resale agent loop did not finish. No code fallback pick was published.";
+      const released = await releaseSearchCredit(deps.kv, deps.ownerId, job.spendKey);
       job = {
           ...job,
           status: "failed",
@@ -1049,7 +979,7 @@ export async function advanceResaleJob(
           updatedAt: new Date().toISOString(),
       };
       await storeResaleJob(deps.kv, job);
-      // Never fall through to classic inventory / code choose. No charge to refund.
+      // Never fall through to classic inventory / code choose — reservation already released.
       return {
           ok: false,
           status: 503,
@@ -1058,7 +988,7 @@ export async function advanceResaleJob(
             message: failMessage,
             jobId,
             charged: false,
-            balance,
+            balance: released.balance,
           },
       };
 
@@ -1201,12 +1131,8 @@ export async function advanceResaleJob(
       return { ok: true, job, balance };
     }
 
-    // Step 6: shopper decide + charge
+    // Step 6: shopper decide + commit/release reserved credit
     if (job.settleCheckpoint?.phaseCompleted === "shopper" && job.delivery) {
-      if (!job.charged) {
-        const retried = await retryUnpaidCharge(deps.kv, job);
-        return { ok: true, job: retried.job, balance: retried.balance };
-      }
       return { ok: true, job, balance };
     }
     if (

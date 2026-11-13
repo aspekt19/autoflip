@@ -106,6 +106,10 @@ export type WatchAlert = {
   trim: string | null;
   priceUsd: number;
   miles: number | null;
+  /** Miles from search ZIP when the listing record includes it. */
+  distanceMiles?: number | null;
+  /** Dealer listing https URL from the per-VIN record (vdp / dealerUrl). */
+  listingUrl?: string | null;
   city: string | null;
   state: string | null;
   why: string;

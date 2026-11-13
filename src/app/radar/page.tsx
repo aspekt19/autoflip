@@ -57,6 +57,7 @@ function RadarInner() {
   const [skippedReviews, setSkippedReviews] = useState<typeof alerts>([]);
   const [notReviewed, setNotReviewed] = useState<typeof alerts>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
+  const [telegramNote, setTelegramNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
   const [feedReady, setFeedReady] = useState(false);
@@ -296,6 +297,21 @@ function RadarInner() {
     await loadFeed();
   }
 
+  async function connectTelegram() {
+    setTelegramNote(null);
+    const response = await fetch("/api/telegram/link", { method: "POST" });
+    const body = (await response.json()) as { configured?: boolean; url?: string; message?: string };
+    if (response.status === 401) {
+      window.location.href = `/login?callbackUrl=${encodeURIComponent("/radar")}`;
+      return;
+    }
+    if (!body.configured || !body.url) {
+      setTelegramNote(body.message || "Telegram is not configured. Alerts stay in this app.");
+      return;
+    }
+    window.open(body.url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <>
         {demo ? <p className="kicker">Guided preview</p> : null}
@@ -329,13 +345,20 @@ function RadarInner() {
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
-        <p className="hint">Checks daily. Run now checks the saved watches immediately.</p>
+        <p className="hint">
+          Checks daily. Run now checks the saved watches immediately. In-app alerts stay here; optionally connect
+          @autoflip_radar_bot (Lemonless Radar) for Telegram copies.
+        </p>
         <div className="hero-actions">
           <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
             {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Run now"}
           </button>
+          <button className="quiet" type="button" onClick={() => void connectTelegram()}>
+            Connect Telegram
+          </button>
         </div>
         {watchNote ? <p className="warn">{watchNote}</p> : null}
+        {telegramNote ? <p className="warn-box">{telegramNote}</p> : null}
         <h2>Subscribed searches</h2>
         {searches.length === 0 ? (
           <article className="warn-box">

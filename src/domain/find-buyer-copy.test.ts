@@ -256,7 +256,7 @@ describe("buyer-safe Find copy", () => {
 
     const home = readFileSync(path.join(process.cwd(), "src/components/HomeStage.tsx"), "utf8");
     expect(home).not.toMatch(/free Good, Fair, or High/i);
-    expect(home).toMatch(/Find costs 1 report credit per delivered search/i);
+    expect(home).toMatch(/Find reserves 1 report credit before search starts/i);
     expect(home).not.toMatch(/Title, recalls and odometer checks/i);
     const homeText = [...home.matchAll(/>([^<{]+)</g)].map((match) => match[1]!.replace(/\s+/g, " ").trim()).filter(Boolean);
     expect(homeText.length).toBeGreaterThan(3);

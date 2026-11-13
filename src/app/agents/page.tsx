@@ -29,10 +29,10 @@ export default function AgentsPage() {
               <code>check_car</code> / <code>POST /api/v1/check</code> — free monthly Check allotment when available, else 1 report credit after success. Scope: <code>check</code>. Returns <code>proofRecords</code>.
             </li>
             <li>
-              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>. Result includes <code>proofRecords</code>.
+              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; reserves 1 report credit before SERV; commits on a chosen car; releases on nothing-fits/error. Scope: <code>find</code>. Result includes <code>proofRecords</code>.
             </li>
             <li>
-              <code>resale_search</code> / <code>POST /api/v1/resale</code> — async budget Resale; 1 report credit when the final verdict is delivered. Scope: <code>find</code>. Poll status/result for journal + <code>proofRecords</code>.
+              <code>resale_search</code> / <code>POST /api/v1/resale</code> — async budget Resale; same reserve/commit/release gate as Find. Scope: <code>find</code>. Poll status/result for journal + <code>proofRecords</code>.
             </li>
             <li>
               <code>deal_radar</code> is a one-shot listing scan under scope <code>read</code>. Saved watches use{" "}

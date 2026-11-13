@@ -41,7 +41,24 @@ import {
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { decideRadarFlip, flipCandidateOutcome } from "@/server/serv-plan-decide";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
-import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, type StoredRun, listAlerts } from "./radar-store";
+import {
+  radarAlertKeyboard,
+  radarAlertTelegramText,
+} from "@/io/telegram";
+import {
+  listSearches,
+  upsertRun,
+  saveAlerts,
+  saveSearches,
+  seenBook,
+  storeSeenPrices,
+  readListingCache,
+  writeListingCache,
+  telegramChat,
+  telegramPaused,
+  type StoredRun,
+  listAlerts,
+} from "./radar-store";
 
 /** Stay under the 300s route cap so the log write still happens. */
 export const CYCLE_BUDGET_MS = 270_000;
@@ -735,6 +752,61 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
     notes.push("New matches stay on the Deal Radar page.");
     steps.push({ id: "delivery", status: "in_app", detail: "Alerts stay in the app." });
+
+    // Telegram — failure never blocks the Radar run; log per alert.
+    const telegramToken = deps.env.TELEGRAM_BOT_TOKEN?.trim();
+    if (!telegramToken) {
+      steps.push({ id: "telegram", status: "not_configured" });
+    } else if (freshAlerts.length === 0) {
+      steps.push({ id: "telegram", status: "no_alerts" });
+    } else {
+      const searchesNow = await listSearches(deps.kv);
+      let sent = 0;
+      let failed = 0;
+      for (const alert of freshAlerts) {
+        try {
+          if (await telegramPaused(deps.kv, alert.ownerId)) continue;
+          const chatId = await telegramChat(deps.kv, alert.ownerId);
+          if (!chatId) continue;
+          const search = searchesNow.find((s) => s.id === alert.searchId);
+          const reportUrl = `${deps.origin.replace(/\/$/, "")}/radar#alert-${alert.id}`;
+          const text = radarAlertTelegramText({
+            year: alert.year,
+            make: alert.make,
+            model: alert.model,
+            priceUsd: alert.priceUsd,
+            miles: alert.miles,
+            distanceMiles: alert.distanceMiles ?? null,
+            listingUrl: alert.listingUrl ?? null,
+            reportUrl,
+            searchName: search?.name ?? null,
+          });
+          const reply_markup = radarAlertKeyboard(reportUrl, alert.listingUrl ?? null);
+          const res = await deps.fetchImpl(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text, reply_markup }),
+            signal: AbortSignal.timeout(Math.min(5_000, Math.max(500, remain()))),
+          });
+          if (res.ok) sent += 1;
+          else {
+            failed += 1;
+            notes.push(`Telegram alert ${alert.id} failed: HTTP ${res.status}`);
+          }
+        } catch (err) {
+          failed += 1;
+          notes.push(
+            `Telegram alert ${alert.id} failed: ${err instanceof Error ? err.message : "send error"}`,
+          );
+        }
+      }
+      steps.push({
+        id: "telegram",
+        status: failed > 0 ? "partial" : sent > 0 ? "ok" : "no_chat",
+        detail: `sent=${sent} failed=${failed}`,
+      });
+    }
+
     steps.push({ id: "payment", status: payment.status, detail: payment.detail });
 
     const run = snapshot();
@@ -998,6 +1070,21 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function httpsFromListing(listing: Listing): string | null {
+  for (const raw of [listing.vdp, listing.dealerUrl]) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!/^https:\/\//i.test(trimmed)) continue;
+    try {
+      const u = new URL(trimmed);
+      if (u.protocol === "https:") return u.toString();
+    } catch {
+      /* skip */
+    }
+  }
+  return null;
+}
+
 function makeAlert(
   search: SavedSearch,
   listing: Listing,
@@ -1026,6 +1113,8 @@ function makeAlert(
     trim: listing.trim,
     priceUsd: listing.priceUsd ?? numbers.priceUsd,
     miles: listing.miles,
+    distanceMiles: typeof listing.distanceMiles === "number" ? listing.distanceMiles : null,
+    listingUrl: httpsFromListing(listing),
     city: listing.city,
     state: listing.state,
     why,

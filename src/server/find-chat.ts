@@ -1,6 +1,7 @@
 /**
  * Find chat intake — one SERV conversation (ask_shopper + search tools).
- * Chat turns without a delivered verdict do not charge report credits.
+ * Briefing turns stay free. Confirming the brief reserves 1 credit BEFORE search SERV;
+ * commit on a chosen car; release on nothing-fits / error / no car.
  */
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { emptyNeed, type StructuredNeed } from "@/domain/need";
@@ -10,7 +11,7 @@ import { chatLimitViolation, type ShopperBrief } from "@/domain/shopper-brief";
 import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import { TtlCache } from "@/io/cache";
-import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
+import { creditBalance } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import {
@@ -25,6 +26,12 @@ import {
   findSearchSpendKey,
   storeFindSearchDelivery,
 } from "@/server/find-search-credit";
+import {
+  commitSearchCreditOnDelivery,
+  creditsRequiredBody,
+  releaseSearchCredit,
+  reserveSearchCreditBeforeServ,
+} from "@/server/search-billing-gate";
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
 import { formatShopperBriefCard } from "@/domain/shopper-brief";
@@ -42,6 +49,9 @@ export type FindChatSession = {
   /** Set once the shopper confirms the card; kept after pendingBrief is cleared. */
   confirmedBrief: ShopperBrief | null;
   spendKey: string;
+  idempotencyKey: string;
+  /** True after reserveSearchCreditBeforeServ for this search. */
+  reserved: boolean;
   charged: boolean;
   result: Record<string, unknown> | null;
   error: string | null;
@@ -60,6 +70,10 @@ export async function loadFindChatSession(kv: Kv, sessionId: string): Promise<Fi
     if (!parsed || typeof parsed !== "object" || typeof parsed.sessionId !== "string") return null;
     if (!("pendingBrief" in parsed)) (parsed as FindChatSession).pendingBrief = null;
     if (!("confirmedBrief" in parsed)) (parsed as FindChatSession).confirmedBrief = null;
+    if (!("reserved" in parsed)) (parsed as FindChatSession).reserved = false;
+    if (!("idempotencyKey" in parsed) || typeof parsed.idempotencyKey !== "string") {
+      (parsed as FindChatSession).idempotencyKey = parsed.sessionId;
+    }
     return parsed;
   } catch {
     return null;
@@ -164,6 +178,17 @@ export async function runFindChatTurn(input: {
     }
     const sessionId = crypto.randomUUID();
     const idem = findSearchIdempotencyKey({ clientKey: null });
+    // Must have ≥1 credit to start Find (buy-credits CTA). Reserve happens on brief confirm.
+    if (!input.skipCredit) {
+      const bal = await creditBalance(input.kv, input.userId);
+      if (bal < 1) {
+        return {
+          ok: false,
+          status: 403,
+          body: creditsRequiredBody({ balance: bal, surface: "find" }),
+        };
+      }
+    }
     session = {
       sessionId,
       userId: input.userId,
@@ -173,7 +198,9 @@ export async function runFindChatTurn(input: {
       pendingQuestion: null,
       pendingBrief: null,
       confirmedBrief: null,
+      idempotencyKey: idem,
       spendKey: findSearchSpendKey(input.userId, idem),
+      reserved: false,
       charged: false,
       result: null,
       error: null,
@@ -214,6 +241,28 @@ export async function runFindChatTurn(input: {
     });
     session.pendingQuestion = null;
     session.status = "searching";
+    // Reserve 1 credit BEFORE search SERV runs.
+    if (!input.skipCredit && !session.reserved && !session.charged) {
+      const reserved = await reserveSearchCreditBeforeServ(
+        input.kv,
+        "find",
+        input.userId,
+        session.idempotencyKey,
+      );
+      if (!reserved.ok) {
+        return {
+          ok: false,
+          status: 403,
+          body: {
+            ...creditsRequiredBody({ balance: reserved.balance, surface: "find" }),
+            sessionId: session.sessionId,
+            messages: session.messages,
+          },
+        };
+      }
+      session.reserved = true;
+      session.spendKey = reserved.spendKey;
+    }
   } else if (userText) {
     session.messages.push({ role: "user", content: userText, at: new Date().toISOString() });
     session.pendingQuestion = null;
@@ -318,6 +367,10 @@ export async function runFindChatTurn(input: {
     const honesty =
       agent.message?.trim() ||
       "We couldn't finish this search.";
+    if (session.reserved && !session.charged && !input.skipCredit) {
+      await releaseSearchCredit(input.kv, input.userId, session.spendKey);
+      session.reserved = false;
+    }
     session.status = "done";
     session.error = honesty;
     session.checkpoint = null;
@@ -367,7 +420,7 @@ export async function runFindChatTurn(input: {
         servResponseIds: journalMeta.servResponseIds,
       },
       honesty,
-      creditNote: "No report credit charged — incomplete chat stays free.",
+      creditNote: "No report credit charged — incomplete search released the reservation.",
       charged: false,
       transcript: session.messages,
       confirmedBrief: session.confirmedBrief,
@@ -412,11 +465,18 @@ export async function runFindChatTurn(input: {
   });
 
   let charged = session.charged;
-  if (shouldCharge && !charged && !input.skipCredit) {
-    if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
-    else charged = (await creditSpend(input.kv, input.userId, session.spendKey)).ok;
+  let balance = await creditBalance(input.kv, input.userId);
+  if (!input.skipCredit && session.reserved) {
+    if (shouldCharge && !charged) {
+      const committed = await commitSearchCreditOnDelivery(input.kv, input.userId, session.spendKey);
+      charged = committed.committed;
+      balance = committed.balance;
+    } else if (!shouldCharge) {
+      balance = (await releaseSearchCredit(input.kv, input.userId, session.spendKey)).balance;
+      session.reserved = false;
+      charged = false;
+    }
   }
-  const balance = await creditBalance(input.kv, input.userId);
 
   const assistantSummary = clipBuyerText(
     agent.verdict.summary?.trim() ||
@@ -531,7 +591,9 @@ export async function runFindChatTurn(input: {
       : "SERV searched live inventory and chose from returned listings.",
     creditNote: charged
       ? "1 report credit used for this delivered Find verdict."
-      : "No report credit charged — chat turns without a delivered verdict stay free.",
+      : nothingFits
+        ? "No report credit charged — nothing fit; the reserved credit was released."
+        : "No report credit charged — incomplete search released the reservation.",
     charged,
     balance,
     transcript: session.messages,

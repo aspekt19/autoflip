@@ -508,7 +508,7 @@ describe("Scenario2 defect 6 — Find is not promised free and does not invent b
       expect(line).not.toMatch(/The (one-time )?search is free/i);
       expect(line).not.toMatch(/\bfree search\b/i);
       expect(line).not.toMatch(/3 VIN|own-URL|stay free/i);
-      expect(line).toMatch(/Find costs 1 report credit per delivered search/i);
+      expect(line).toMatch(/Find reserves 1 report credit before search starts/i);
       expect(assertBuyerSafeText(line).ok).toBe(true);
     }
   });

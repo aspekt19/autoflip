@@ -13,7 +13,7 @@ describe("findDeliveryChargesCredit", () => {
     ).toBe(true);
   });
 
-  it("charges on documented nothing-fits outcome", () => {
+  it("releases (does not charge) on documented nothing-fits outcome", () => {
     expect(
       findDeliveryChargesCredit({
         ok: true,
@@ -21,7 +21,7 @@ describe("findDeliveryChargesCredit", () => {
         listingCount: 0,
         outcome: "nothing_fits",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not charge incomplete agent settlement", () => {

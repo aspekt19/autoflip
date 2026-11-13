@@ -29,7 +29,7 @@ export default async function FindPage({
           </ol>
           {resolveProductFlags().dealRadar ? (
             <p>
-              Deal Radar watches require a paid plan (Radar or Radar Pro). Opening a full report still costs 1 credit.
+              Deal Radar watches require a paid plan (Radar $100/mo = 1 watch, Radar Pro $250/mo = 3 watches). Opening a full report still costs 1 credit.
             </p>
           ) : null}
         </div>

@@ -8,7 +8,7 @@ const FLAGS = {
   resaleEvaluate: true,
   dealRadar: true,
   scout: false,
-  telegram: false,
+  telegram: true,
 };
 
 function car(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "miles" | "priceUsd">): Listing {
@@ -97,7 +97,7 @@ async function scoutTelegramHrefs(page: Page) {
   );
 }
 
-test("Scout and Telegram stay hidden; Deal Radar is available when default-on", async ({ page }) => {
+test("Scout stays hidden; Deal Radar and Telegram connect are available when default-on", async ({ page }) => {
   await mockFlags(page);
   await mockAccount(page, false);
   for (const width of [1280, 390]) {
@@ -110,7 +110,6 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
     await expect(primaryNav.getByRole("link", { name: "Resale" })).toBeVisible();
     await expect(primaryNav.getByRole("link", { name: "Deal Radar" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scout" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /telegram/i })).toHaveCount(0);
     expect(await scoutTelegramHrefs(page)).toEqual([]);
   }
 
@@ -145,7 +144,7 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
   await page.goto("/radar");
   await expect(page.getByRole("heading", { name: "Deal Radar" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Not available" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /connect telegram/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /connect telegram/i })).toBeVisible();
 
   await page.goto("/agents");
   await expect(page.getByRole("heading", { name: "For AI agents" })).toBeVisible();
@@ -193,7 +192,7 @@ test("resale requires sign-in then SERV chat; charge copy stays honest", async (
   await page.goto("/resale");
   await expect(page.getByRole("heading", { name: "Resale" })).toBeVisible();
   await expect(page.getByText(/1 report credit/i).first()).toBeVisible();
-  await expect(page.getByText(/no verdict/i).first()).toBeVisible();
+  await expect(page.getByText(/nothing-fits|nothing fit|released/i).first()).toBeVisible();
   await expect(page.getByText(/not a profit guarantee/i).first()).toBeVisible();
   await expect(page.locator("#resale-budget")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Find flips/i })).toHaveCount(0);

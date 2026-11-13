@@ -28,11 +28,20 @@ export async function POST(request: Request) {
   const id = access.id;
   const origin = originOf(request);
   const back = safeAuthCallbackUrl(body?.returnTo);
+  // Stay on the page that started checkout when returnTo is /pricing or /credits.
+  const returnPath =
+    back === "/pricing" || back?.startsWith("/pricing?")
+      ? "/pricing"
+      : "/credits";
+  const returnQuery =
+    returnPath === "/credits" && back && back !== "/credits"
+      ? `&return=${encodeURIComponent(back)}`
+      : "";
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: access.email,
-    success_url: `${origin}/credits?status=success${back ? `&return=${encodeURIComponent(back)}` : ""}`,
-    cancel_url: `${origin}/credits?status=cancel${back ? `&return=${encodeURIComponent(back)}` : ""}`,
+    success_url: `${origin}${returnPath}?status=success${returnQuery}`,
+    cancel_url: `${origin}${returnPath}?status=cancel${returnQuery}`,
     adaptive_pricing: { enabled: false },
     client_reference_id: id,
     metadata: { userId: id, credits: String(pack.credits), packId: pack.id },

@@ -4,7 +4,8 @@
 
 | Surface | Cost |
 | --- | --- |
-| **Find / search** (`POST /api/match`) | **Verified Auth.js account required** + **1 report credit** for a new Show-cars search. Anonymous `af_uid` cannot debit. Owned next-check rematches (`searchContextToken`) do **not** debit again. |
+| **Find / search** (`POST /api/match`, Find chat, API v1 / MCP) | **Verified Auth.js account required** + **reserve 1 report credit BEFORE SERV**. Commit on a chosen result; **release** on nothing-fits / error / no car. Balance &lt; 1 → search does not start. Anonymous `af_uid` cannot debit. Owned next-check rematches (`searchContextToken`) do **not** debit again. |
+| **Resale search** | Same shared gate as Find (`src/server/search-billing-gate.ts`). Never show unpaid results. |
 | **Vehicle CHECK** (listing link fetch, pasted listing text, or VIN dossier via `POST /api/check`, and VIN/URL → full report) | **3 free / verified account / UTC calendar month**, then **1 report credit** each. Free key is **VIN-scoped** (not mode): personal↔flip on the same VIN burns **one** free slot; a second analysis after commit uses credits (`already_completed`). Listing links may be any public URL — Lemonless fetches the page (no login/captcha bypass). |
 | **Sign-in gate** (`/check`, `/find`) | Verified sign-in is required **before** the form is shown (not after submit). |
 | **Find → full analysis** | Always **1 report credit** (existing claim / idempotency fences). Not a free check. |

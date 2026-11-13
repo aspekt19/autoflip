@@ -123,15 +123,15 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
 
 /**
  * Find billing copy (shared by /find page + results hint).
- * A new Find search debits 1 report credit for a verified signed-in account.
+ * A new Find search reserves 1 report credit before SERV for a verified account.
  * Do not promise a free Find, and do not fold Find into the separate monthly
  * VIN / own-listing-URL check allotment.
  */
 export const FIND_PAGE_BILLING_STEP =
-  "Find costs 1 report credit per delivered search. Open a full report for any car you want to investigate further (1 report credit).";
+  "Find reserves 1 report credit before search starts (released if nothing fits). Open a full report for any car you want to investigate further (1 report credit).";
 
 export const FIND_RESULTS_BILLING_HINT =
-  "Find costs 1 report credit per delivered search. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
+  "Find reserves 1 report credit before search starts. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan (1 or 3 watches).";
 
 /**
  * /credits?need=1 copy. Find is never paid by the monthly VIN / own-URL allotment.
@@ -141,12 +141,12 @@ export function creditsNeedNotice(returnTo: string | null | undefined): string {
   const back = returnTo ?? "";
   const free = FREE_VEHICLE_CHECKS_PER_MONTH;
   if (back.startsWith("/find")) {
-    return `Find costs 1 report credit each time a search is delivered. The ${free} free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.`;
+    return `Find reserves 1 report credit before each search starts (released if nothing fits). The ${free} free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.`;
   }
   if (back.startsWith("/check")) {
     return checkCreditsNeedMessage();
   }
-  return `Find costs 1 report credit per delivered search. A listing link or VIN uses one of ${free} free checks per verified account each UTC month; after that a check costs 1 credit.`;
+  return `Find and Resale reserve 1 report credit before each search. A listing link or VIN uses one of ${free} free checks per verified account each UTC month; after that a check costs 1 credit.`;
 }
 
 /**

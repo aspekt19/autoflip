@@ -8,20 +8,20 @@ import {
 } from "./plans";
 
 describe("Deal Radar paid plans (no free tier)", () => {
-  it("defines Radar $100 and Radar Pro $250 with shared watch caps", () => {
+  it("defines Radar $100 = 1 watch and Radar Pro $250 = 3 watches; no report credits", () => {
     const radar = planById("radar");
     expect(radar?.amountCents).toBe(10_000);
-    expect(radar?.watchLimit).toBe(5);
+    expect(radar?.watchLimit).toBe(1);
     expect(radar?.intervalHours).toBe(24);
-    expect(radar?.servCallCapPerMonth).toBe(1500);
-    expect(radar?.reportCreditsPerMonth).toBe(5);
+    expect(radar?.servCallCapPerMonth).toBe(300);
+    expect(radar?.reportCreditsPerMonth).toBe(0);
 
     const pro = planById("radar_pro");
     expect(pro?.amountCents).toBe(25_000);
-    expect(pro?.watchLimit).toBe(20);
+    expect(pro?.watchLimit).toBe(3);
     expect(pro?.intervalHours).toBe(24);
-    expect(pro?.servCallCapPerMonth).toBe(6000);
-    expect(pro?.reportCreditsPerMonth).toBe(15);
+    expect(pro?.servCallCapPerMonth).toBe(900);
+    expect(pro?.reportCreditsPerMonth).toBe(0);
 
     expect(PLAN_CATALOG).toHaveLength(2);
     expect(PLAN_CATALOG.map((p) => p.id)).toEqual(["radar", "radar_pro"]);
@@ -35,7 +35,9 @@ describe("Deal Radar paid plans (no free tier)", () => {
   it("resolves cadence from plan limits", () => {
     const radar = radarLimitsForLookup("autoflip_radar_monthly");
     expect(watchIntervalHours(radar)).toBe(24);
+    expect(radar.watchLimit).toBe(1);
     const pro = radarLimitsForLookup("radar_pro");
     expect(watchIntervalHours(pro)).toBe(24);
+    expect(pro.watchLimit).toBe(3);
   });
 });

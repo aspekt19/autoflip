@@ -48,7 +48,7 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
         <>
           <p className="hint">
             Enter a budget. Lemonless searches what you can buy now and returns cars priced below similar listings
-            (after costs), plus alternatives. 1 report credit per search. Not a profit guarantee.
+            (after costs), plus alternatives. Reserves 1 report credit before search starts. Not a profit guarantee.
           </p>
           <div className="btn-row">
             <Link className="action" href="/resale">

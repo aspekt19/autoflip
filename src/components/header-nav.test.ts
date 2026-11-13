@@ -4,7 +4,7 @@ import { primaryNavLinks, splitPrimaryNavLinks } from "./header-nav";
 describe("primaryNavLinks", () => {
   it("keeps Resale and Deal Radar together when both product flags are on", () => {
     const links = primaryNavLinks({
-      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
+      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: true },
     });
     const labels = links.map((link) => link.label);
     expect(labels).toContain("Resale");
@@ -16,7 +16,7 @@ describe("primaryNavLinks", () => {
 
   it("does not drop Resale when Deal Radar is on", () => {
     const withRadar = primaryNavLinks({
-      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
+      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: true },
     });
     const withoutRadar = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: false, scout: false, telegram: false },
@@ -36,7 +36,7 @@ describe("primaryNavLinks", () => {
 describe("splitPrimaryNavLinks", () => {
   it("keeps product verbs + Pricing in core and parks docs under More, with frozen pages out of the nav", () => {
     const links = primaryNavLinks({
-      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
+      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: true },
     });
     const { core, more } = splitPrimaryNavLinks(links);
     expect(core.map((link) => link.href)).toEqual([

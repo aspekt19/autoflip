@@ -37,7 +37,7 @@ async function mockSignedIn(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        flags: { resaleEvaluate: true, dealRadar: true, scout: true, telegram: false },
+        flags: { resaleEvaluate: true, dealRadar: true, scout: true, telegram: true },
       }),
     });
   });

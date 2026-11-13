@@ -23,7 +23,7 @@ vi.mock("@/io/kv", async (importOriginal) => {
 });
 
 vi.mock("@/domain/product-flags", () => ({
-  resolveProductFlags: () => ({ resaleEvaluate: true, dealRadar: true, scout: false, telegram: false }),
+  resolveProductFlags: () => ({ resaleEvaluate: true, dealRadar: true, scout: false, telegram: true }),
   productFlagsUnavailableMessage: () => "unavailable",
 }));
 
@@ -33,10 +33,10 @@ vi.mock("@/server/plan-book", () => ({
     limits: {
       id: "radar",
       name: "Radar",
-      watchLimit: 5,
+      watchLimit: 1,
       intervalHours: 6,
-      servCallCapPerMonth: 1500,
-      reportCreditsPerMonth: 5,
+      servCallCapPerMonth: 300,
+      reportCreditsPerMonth: 0,
       paid: true,
     },
   }),

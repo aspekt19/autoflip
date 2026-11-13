@@ -1,7 +1,7 @@
 /**
  * Shared Find delivery → charge gate.
- * Credit is owed on a SERV-chosen listing OR a documented nothing-fits.
- * Incomplete / empty-without-explanation must never charge.
+ * Credit is committed only on a SERV-chosen listing.
+ * Nothing-fits / incomplete / empty must release the pre-SERV reservation.
  */
 import {
   chargeOutcomeFromAgentSettlement,
@@ -29,8 +29,8 @@ export type FindDeliveryChargeInput = {
 };
 
 /**
- * Charge when SERV settled chosen or documented nothing-fits.
- * Without an agent outcome, charge only when real listings were delivered
+ * Commit when SERV chose a car. Nothing-fits releases the reservation.
+ * Without an agent outcome, commit only when real listings were delivered
  * (legacy match path while decidePath is off).
  */
 export function findDeliveryChargesCredit(input: FindDeliveryChargeInput): boolean {

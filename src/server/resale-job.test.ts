@@ -2,7 +2,7 @@
  * Stepped Resale job — agent loop is the only settle path (classic inventory deleted).
  */
 import { describe, expect, it, vi } from "vitest";
-import { creditBalance, creditEventSeen, creditGrant, creditSpend } from "@/io/credit-book";
+import { creditBalance, creditEventSeen, creditGrant } from "@/io/credit-book";
 import { MemoryKv } from "@/io/kv";
 import type { Listing } from "@/domain/types";
 import { buildResaleCandidatePnls } from "@/domain/resale-pnl";
@@ -12,7 +12,7 @@ import {
   createAndRunResaleJobStep1,
   jobToClientBody,
   readResaleJob,
-  RESALE_CREDIT_NOTE_UNPAID,
+  RESALE_CREDIT_NOTE_CHARGED,
   RESALE_JOB_FINAL_STEP,
 } from "./resale-job";
 import { resaleSearchSpendKey } from "./resale-search-credit";
@@ -296,18 +296,18 @@ describe("resale stepped job (agent loop only)", () => {
     expect(denied.body.error).toBe("forbidden");
   });
 
-  it("failed debit after agent settle: delivered_unpaid then retry charge", async () => {
+  it("reserves before SERV and never delivers unpaid results", async () => {
     const kv = new MemoryKv();
     const ownerId = "55555555-5555-4555-8555-555555555555";
-    await creditGrant(kv, ownerId, 1, "test-grant-unpaid");
+    await creditGrant(kv, ownerId, 1, "test-grant-reserve");
     const listings = pool();
 
     const created = await createAndRunResaleJobStep1(
-      { budgetUsd: 15_000, searchIdempotencyKey: "job-unpaid-1" },
+      { budgetUsd: 15_000, searchIdempotencyKey: "job-reserve-1" },
       {
         kv,
         ownerId,
-        clientIdempotencyKey: "job-unpaid-1",
+        clientIdempotencyKey: "job-reserve-1",
         assembleRadarImpl: assembleFixture(listings) as never,
         autodevKey: "test",
         autodev: { cache: undefined as never, counter: undefined as never },
@@ -320,12 +320,11 @@ describe("resale stepped job (agent loop only)", () => {
     );
     expect(created.ok && created.kind === "job").toBe(true);
     if (!created.ok || created.kind !== "job") return;
+    // Credit reserved at create — balance already 0 before agent settle.
+    expect(await creditBalance(kv, ownerId)).toBe(0);
+    expect(await creditEventSeen(kv, created.job.spendKey)).toBe(true);
 
-    // Drain credit before settle so charge fails.
-    const drained = await creditSpend(kv, ownerId, "drain-before-agent");
-    expect(drained.ok).toBe(true);
-
-    const unpaid = await advanceResaleJob({
+    const settled = await advanceResaleJob({
       kv,
       ownerId,
       jobId: created.job.jobId,
@@ -344,25 +343,38 @@ describe("resale stepped job (agent loop only)", () => {
       },
       runResaleAgentLoopImpl: async () => mockAgentOk(listings) as never,
     });
-    expect(unpaid.ok).toBe(true);
-    if (!unpaid.ok) return;
-    expect(unpaid.job.status).toBe("delivered_unpaid");
-    expect(unpaid.job.charged).toBe(false);
-    expect(jobToClientBody(unpaid.job).creditNote).toBe(RESALE_CREDIT_NOTE_UNPAID);
+    expect(settled.ok).toBe(true);
+    if (!settled.ok) return;
+    expect(settled.job.status).toBe("completed");
+    expect(settled.job.charged).toBe(true);
+    expect(settled.job.status).not.toBe("delivered_unpaid" as never);
+    expect(jobToClientBody(settled.job).creditNote).toBe(RESALE_CREDIT_NOTE_CHARGED);
+  });
 
-    await creditGrant(kv, ownerId, 1, "test-grant-unpaid-retry");
-    const paid = await advanceResaleJob({
-      kv,
-      ownerId,
-      jobId: created.job.jobId,
-      step: RESALE_JOB_FINAL_STEP,
-      servKey: "test-key",
-      env: {},
-    });
-    expect(paid.ok).toBe(true);
-    if (!paid.ok) return;
-    expect(paid.job.status).toBe("completed");
-    expect(paid.job.charged).toBe(true);
+  it("does not start a search when balance is zero", async () => {
+    const kv = new MemoryKv();
+    const ownerId = "66666666-6666-4666-8666-666666666666";
+    await creditGrant(kv, ownerId, 0, "test-grant-zero");
+    const denied = await createAndRunResaleJobStep1(
+      { budgetUsd: 15_000, searchIdempotencyKey: "job-zero-1" },
+      {
+        kv,
+        ownerId,
+        clientIdempotencyKey: "job-zero-1",
+        assembleRadarImpl: assembleFixture([]) as never,
+        autodevKey: "test",
+        autodev: { cache: undefined as never, counter: undefined as never },
+        servKey: "test-key",
+        fetchImpl: fetch,
+        env: { VERCEL: undefined, NETLIFY: undefined },
+        maxProviderQueries: 6,
+        parallelProviderQueries: true,
+      },
+    );
+    expect(denied.ok).toBe(false);
+    if (denied.ok) return;
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe("credits_required");
   });
 
   it("LEMONLESS_E2E_STUB no longer disables the agent loop", async () => {
