@@ -212,7 +212,7 @@ describe("E) empty-search terminal → honest nothing-fits", () => {
     const findLoop = readFileSync(path.join(__dirname, "loop.ts"), "utf8");
     const resaleLoop = readFileSync(path.join(__dirname, "../resale-agent/loop.ts"), "utf8");
     expect(findLoop).toMatch(/honestEmptyNothingFitsFromJournal/);
-    expect(findLoop).toMatch(/submit_nothing_fits with a short written reason now/);
+    expect(findLoop).toMatch(/submit_nothing_fits with rejectedCandidates: \\[\\] and a short written reason/);
     expect(resaleLoop).toMatch(/honestEmptyNothingFitsFromResaleJournal/);
     expect(resaleLoop).toMatch(/submit_nothing_fits with a short written reason now/);
   });
