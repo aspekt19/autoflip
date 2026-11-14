@@ -264,7 +264,7 @@ describe("radar cycle", () => {
     const search = { ...demoPresets()[0]!, id: "stopped-radar", ownerId: "stopped-owner", preset: false };
     await grantRadarPlan(kv, search.ownerId);
     await saveSearches(kv, [search]);
-    await stopRadarAfterFirstTestAlert(kv, "kept-alert-id", "2026-11-14T12:00:00.000Z");
+    await stopRadarAfterFirstTestAlert(kv, "kept-alert-id", "2026-11-14T12:00:00.000Z", { RADAR_TEST_MODE: "1" });
 
     let upstreamCalls = 0;
     const run = await runRadarCycle({
@@ -278,7 +278,7 @@ describe("radar cycle", () => {
       autodevKey: "test",
       servKey: "serv-test",
       origin: "https://autoflip.example",
-      env: {},
+      env: { RADAR_TEST_MODE: "1" },
     });
 
     expect(upstreamCalls).toBe(0);
