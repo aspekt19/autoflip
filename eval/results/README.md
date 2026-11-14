@@ -7,13 +7,13 @@ This directory contains measured SERV traces, profile evaluations, comparison fi
 | File | Purpose |
 |---|---|
 | latest.json / latest.md | Recorded 44-pair profile evaluation snapshot generated 6 November 2026. The report includes profile-level outcomes, latency, token usage, and case-level results. |
-| serv-proof-trace.json / serv-proof-trace.md | Redacted real SERV inference trace for the fixed flip-clear fixture, using the flip_judge profile. Captures the response ID, requested/reported model, SERV features, tool markers, decision, latency, usage, and code-computed fields. |
+| serv-proof-trace.json / serv-proof-trace.md | Historical redacted real SERV inference trace generated 6 November 2026 for the fixed flip-clear fixture and flip_judge profile. That run records requested model gpt-5.4-mini-serv-multipath and reported model gpt-5.4-mini-2026-03-17. It is preserved as a dated execution record; the current application default is gpt-6.1-sol in src/server/serv/profiles.ts. |
 | find-gemini-proof-2026-11-13.json | Captured Find case used by the public Proof page and the Gemini comparison. |
 | proof-serv-compare-2026-11-13.json | Structured proof/comparison record associated with the public Find case. |
 | comparison-latest.json / comparison-latest.md | Fixture-mode output from the Find/Check comparison harness. The harness defines common input payloads for the Lemonless, plain-model and price-sort arms. |
 | compare-2026-11-13/ | Source/evidence artifacts associated with the November 13 comparison exercise. |
 | serv-vs-baseline-latest.json | Offline/dry-run evaluation artifact for the deterministic decision and baseline harness. It does not dispatch a live SERV request. |
-| verdict-latest.json / verdict-latest.md | Current verdict-evaluation harness output and its run metadata. |
+| verdict-latest.json / verdict-latest.md | Recorded verdict-evaluation harness output and its run metadata. |
 
 ## Run the evaluations
 
@@ -36,4 +36,3 @@ The comparison and snapshot harnesses keep common inputs fixed across their eval
 - A fixture/dry-run artifact is labelled as such and does not count as a live model response.
 - A case-level result is associated with the exact fixture and evaluation code that generated it.
 - Raw shopper prompts, VINs, provider facts and free-form model output are not included in the redacted SERV proof trace.
-
