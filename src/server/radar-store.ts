@@ -312,10 +312,14 @@ async function disableRadarWatchesGlobally(kv: Kv): Promise<void> {
 }
 
 /** Admin-only emergency stop. */
-export async function stopRadarTestMode(kv: Kv, now = new Date()): Promise<RadarTestModeState> {
+export async function stopRadarTestMode(
+  kv: Kv,
+  now = new Date(),
+  env: Record<string, string | undefined> = process.env,
+): Promise<RadarTestModeState> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raw = await kv.get(RADAR_TEST_MODE_KEY);
-    const current = await getRadarTestMode(kv);
+    const current = await getRadarTestMode(kv, env);
     if (current.status === "stopped") return current;
     const next: RadarTestModeState = {
       status: "stopped",
