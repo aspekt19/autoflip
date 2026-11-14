@@ -194,7 +194,6 @@ export default function ProofPage() {
 
           <h2>What Find did during this run</h2>
           <ul className="refuse">
-            <li>{proof.run.inventorySearchCount} live inventory searches in ZIP 80202 within 75 miles returned {proof.run.inventoryListingsReturned} vehicle listings in total.</li>
             <li>SERV made {proof.run.servCalls} calls and {proof.run.toolCalls} tool calls across {proof.run.toolRounds} tool rounds.</li>
             <li>VIN decode, safety, recall/complaint, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
             <li>The run completed in {duration} seconds with a {proof.run.confidence}-confidence, needs-inspection verdict.</li>
@@ -211,6 +210,17 @@ export default function ProofPage() {
                 <li>Credits charged: {proof.run.creditsCharged ? "yes" : "no"}.</li>
                 <li>Production data changed: {proof.run.productionDataChanged ? "yes" : "no"}.</li>
                 <li>Find run ID: {proof.run.id}.</li>
+                <li>
+                  Archived record of this Find execution:{" "}
+                  <a
+                    href="https://github.com/aspekt19/autoflip/blob/3d3994fc1e1e8db34cd1dc5ad3e1a48d1bbee2f8/eval/results/find-gemini-proof-2026-11-13.json"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open the saved run evidence (JSON)
+                  </a>
+                  .
+                </li>
               </ul>
             </div>
           </details>
