@@ -51,4 +51,14 @@ describe("Radar one-notification test mode", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain("shared persistent storage");
   });
+
+  it("can re-arm normal Radar through the environment switch", async () => {
+    const kv = new MemoryKv();
+    await stopRadarAfterFirstTestAlert(kv, "alert-1", "2026-11-14T12:00:00.000Z");
+    const normal = await readRadarTestModeState(kv, { RADAR_TEST_MODE: "0" });
+    expect(normal.stopped).toBe(false);
+    expect(normal.alertId).toBeNull();
+    expect(await acquireRadarTestCycle(kv, "normal-run", { RADAR_TEST_MODE: "0" })).toEqual({ ok: true });
+    await releaseRadarTestCycle(kv, "normal-run");
+  });
 });
