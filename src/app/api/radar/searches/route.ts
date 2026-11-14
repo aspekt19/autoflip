@@ -7,7 +7,7 @@ import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
-import { readRadarTestModeState } from "@/server/radar-test-mode";
+import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
   }
   const searches = await listSearches(kv);
-  if (searches.some((item) => item.enabled)) {
+  if (isRadarTestModeEnabled() && searches.some((item) => item.enabled)) {
     return Response.json({
       error: "radar_test_watch_limit",
       message: "The current test allows one active Deal Radar watch across the entire project. Pause or remove the existing watch before creating another.",
