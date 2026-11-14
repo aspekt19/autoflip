@@ -63,6 +63,7 @@ import {
   acquireRadarTestCycle,
   releaseRadarTestCycle,
   stopRadarAfterFirstTestAlert,
+  isRadarTestModeEnabled,
 } from "./radar-test-mode";
 
 /** Stay under the 300s route cap so the log write still happens. */
@@ -100,6 +101,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   const budget = deps.deadlineMs ?? CYCLE_BUDGET_MS;
   const remain = () => budget - (Date.now() - startedWall);
   const limits = { ...CALL_MS, ...deps.timeouts };
+  const testModeEnabled = isRadarTestModeEnabled(deps.env);
   const notes: string[] = [];
   const steps: Step[] = [];
   const runId = randomUUID();
@@ -361,7 +363,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const reasons = new Map<string, number>();
     let listingTimeouts = 0;
     for (const job of fetched) {
-      if (freshAlerts.length > 0) break;
+      if (testModeEnabled && freshAlerts.length > 0) break;
       if (!job.listings) {
         notes.push(job.error ?? "Listings call failed.");
         if (job.error === "timeout") listingTimeouts += 1;
@@ -370,7 +372,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       }
       listings += job.listings.length;
       for (const search of job.group) {
-        if (freshAlerts.length > 0) break;
+        if (testModeEnabled && freshAlerts.length > 0) break;
         if (isBroadFlip(search)) {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
             repairAbility: search.criteria.repairAbility,
@@ -771,7 +773,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
     await saveAlerts(deps.kv, alerts);
     const mergedSearches = await mergeChecked(deps.kv, searches);
-    if (freshAlerts.length > 0) {
+    if (testModeEnabled && freshAlerts.length > 0) {
       const firstAlert = freshAlerts[0]!;
       const stopped = await stopRadarAfterFirstTestAlert(deps.kv, firstAlert.id, deps.now.toISOString());
       await saveSearches(
