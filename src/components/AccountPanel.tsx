@@ -124,7 +124,10 @@ export function AccountPanel() {
         Balance: <strong>{typeof body.credits === "number" ? body.credits : "…"}</strong> report credit
         {body.credits === 1 ? "" : "s"}
         <br />
-        Find and Resale reserve 1 credit before each search. Checks: 3 free / UTC month, then 1 credit.
+        {body.isAdmin
+          ? "Admin access: Find and Resale bypass the temporary session cap and report-credit debit."
+          : "Find and Resale reserve 1 credit before each search."}{" "}
+        Checks: 3 free / UTC month, then 1 credit.
         <br />
         {freeCheckLine === "missing" || freeCheckLine === "signed-out"
           ? "Free checks could not be loaded."
