@@ -43,9 +43,8 @@ type ProofPayload = {
     searchTrail: Array<{ zip: string; radiusMiles: number; priceMaxUsd: number; bodyFamily: string; returned: number }>;
     creditsCharged: boolean;
     productionDataChanged: boolean;
-    githubRunUrl: string;
   };
-  links: { geminiChat: string; listing: string; vinDecode: string; safety: string; fuel: string; githubRun: string };
+  links: { geminiChat: string; listing: string; vinDecode: string; safety: string; fuel: string };
   disclosures: string[];
 };
 
@@ -79,6 +78,13 @@ export default function ProofPage() {
           <p>
             Captured from the shared Gemini conversation. Auto mode selected the underlying model;
             this comparison does not assign a specific model version.
+          </p>
+          <p className="hint">
+            Comparison method: the Gemini answer was captured manually from the shared conversation
+            because an automated Gemini API call was unavailable in the test environment. Lemonless
+            Find was executed separately through the same server-side workflow used by /api/find/chat
+            and completed successfully. The Find run used isolated in-memory state; no customer credits
+            were charged and no production data was changed.
           </p>
           <details className="decision">
             <summary>Read the full Gemini answer</summary>
@@ -159,7 +165,7 @@ export default function ProofPage() {
                 <tr>
                   <th scope="row">Traceability</th>
                   <td>Shared conversational advice and a Gemini chat link.</td>
-                  <td>Links the recommendation to the actual listing, VIN decoder, official vehicle safety lookup, fuel-economy source and technical run record.</td>
+                  <td>Links the recommendation to the actual listing, VIN decoder, official vehicle safety lookup and fuel-economy source; the page also records the successful Find run details.</td>
                 </tr>
               </tbody>
             </table>
@@ -177,7 +183,7 @@ export default function ProofPage() {
             <li><strong>Evidence attached to the candidate.</strong> The answer connected the selected VIN to configuration data, safety lookup, fuel-economy estimates and local comparable listings.</li>
             <li><strong>A negotiation anchor, not just a budget reminder.</strong> The opening offer and walk-away point were tied to the selected car's asking price and the local comparison set.</li>
             <li><strong>Decision support with a safety brake.</strong> SERV gave a “needs inspection” verdict rather than turning incomplete evidence into an unconditional buy recommendation.</li>
-            <li><strong>Auditable workflow.</strong> The page exposes the source links and technical run record, so a reviewer can inspect how the result was produced.</li>
+            <li><strong>Auditable workflow.</strong> The page exposes the source links and successful Find run details, so a reviewer can inspect the evidence and execution summary.</li>
           </ul>
           <p className="hint">
             Gemini also delivered useful high-level advice on winter capability, family use and OTD
@@ -205,7 +211,6 @@ export default function ProofPage() {
                 <li>Production data changed: {proof.run.productionDataChanged ? "yes" : "no"}.</li>
                 <li>Find run ID: {proof.run.id}.</li>
               </ul>
-              <Links links={[{ label: "Open the GitHub Actions test record", href: proof.run.githubRunUrl }]} />
             </div>
           </details>
 

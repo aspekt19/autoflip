@@ -94,9 +94,11 @@ Gemini's answer was useful for choosing model families and planning a Denver-are
 
 The difference is workflow depth: Find takes the buyer from a natural-language brief to a specific vehicle, vehicle-level evidence, local price context and a structured next step. It does not claim to replace a vehicle-history report or an in-person inspection, and the final dealer OTD amount must still be confirmed.
 
- The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
+The offer fields are explicit structured values, not numbers inferred from prose. The result recommends an inspection and an itemized out-the-door quote before purchase; it is not an instruction to buy immediately.
 
-**Run record:** 13 November 2026, 20:29:50 UTC · 47.5 seconds · 8 SERV calls · 13 tool calls · 12 tool rounds · 88,084 reported tokens. Find ran through the same server-side function used by `/api/find/chat`, with isolated in-memory state. No customer credit was charged and no production data was changed. The [GitHub Actions run](https://github.com/aspekt19/autoflip/actions/runs/43502039509) and the source links are available from Proof.
+**Run record:** 13 November 2026, 20:29:50 UTC · 47.5 seconds · 8 SERV calls · 13 tool calls · 12 tool rounds · 88,084 reported tokens. Find ran through the same server-side function used by `/api/find/chat`, with isolated in-memory state. No customer credit was charged and no production data was changed.
+
+**Comparison method:** The Gemini Chat · Auto answer was captured manually from the shared Gemini conversation because an automated Gemini API call was unavailable in the test environment. Lemonless Find was run separately through the same server-side workflow used by `/api/find/chat` and completed successfully. The two systems were not invoked through one shared API harness.
 
 This is one case study, not a statistically representative benchmark and not a claim that Find always selects the best vehicle. The full captured Gemini answer, Find reasoning, comparison, and test disclosures are on [/proof](https://autoflip-umber.vercel.app/proof).
 
@@ -128,7 +130,7 @@ Payment network: `eip155:8453`. Token: Base USDC at `0x833589fCD6eDb6E08f4c7C32D
 
 The initial 402 response advertises the amount and machine-readable Bazaar input/output schema. Agents send the signed payload in `PAYMENT-SIGNATURE`; successful settlement returns `PAYMENT-RESPONSE`. Registration binds an `af_` key to the payer wallet. The key is returned once and must be stored securely by the agent. Credit packs and Radar plans require that key; Radar plans are prepaid for 30 days and do not auto-renew.
 
-**Operational configuration:** x402 requires `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. Current readiness is exposed by `GET /api/agents/payment-info`. The receiving wallet's private key is not stored in the application. Human browser checkout is separate and remains in **Stripe test mode**.
+**Operational configuration:** x402 requires persistent Upstash storage (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`) as well as `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. Current readiness is exposed by `GET /api/agents/payment-info`. The receiving wallet's private key is not stored in the application. Human browser checkout is separate and remains in **Stripe test mode**.
 
 ## Agent API
 

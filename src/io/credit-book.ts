@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Kv } from "./kv";
 
 type Ledger = {
@@ -35,16 +36,18 @@ async function write(kv: Kv, ledger: Ledger): Promise<void> {
 
 async function withLedgerLock<T>(kv: Kv, run: () => Promise<T>): Promise<T | null> {
   let held = false;
+  const lockToken = randomUUID();
   for (let attempt = 0; attempt < 8 && !held; attempt += 1) {
-    // Short lock only — TTL is intentional. Never reuse this for durable monthly counters.
-    held = await kv.setNx(LOCK, "1", { ttlMs: 4000 });
+    // Keep the lease longer than the two bounded Upstash calls in a ledger transaction.
+    held = await kv.setNx(LOCK, lockToken, { ttlMs: 30_000 });
     if (!held) await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
   }
   if (!held) return null;
   try {
     return await run();
   } finally {
-    await kv.delete(LOCK);
+    // An expired owner must never delete a successor's lock.
+    await kv.compareAndSwap(LOCK, lockToken, null).catch(() => false);
   }
 }
 

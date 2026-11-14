@@ -17,6 +17,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { bazaarResourceServerExtension, declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { creditPack } from "@/domain/assumptions";
 import { planById } from "@/domain/plans";
+import { moneyAuthStorageOk } from "@/io/kv-guard";
 
 export const X402_NETWORK = "eip155:8453";
 export const X402_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -316,6 +317,15 @@ function adapterFor(request: Request): HTTPAdapter {
 }
 
 export async function withX402Payment(request: Request, operation: X402Operation): Promise<Response> {
+  if (!moneyAuthStorageOk()) {
+    return Response.json({
+      error_code: "payment_storage_unavailable",
+      message: "Persistent storage must be configured before x402 payments can be accepted on this deployment.",
+      retry_safe: true,
+      charged: false,
+    }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+
   let http: x402HTTPResourceServer;
   try {
     http = await getServer();
@@ -481,9 +491,11 @@ export async function withX402Payment(request: Request, operation: X402Operation
 }
 
 export function agentPaymentInfo(origin: string) {
+  const storageReady = moneyAuthStorageOk();
   return {
     protocol: "x402-v2",
-    available: isX402Configured(),
+    available: isX402Configured() && storageReady,
+    storage_ready: storageReady,
     network: X402_NETWORK,
     chain: "Base Mainnet",
     asset: "USDC",
