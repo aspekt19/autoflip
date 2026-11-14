@@ -7,6 +7,8 @@ export function isRadarTestModeEnabled(env: Record<string, string | undefined> =
   return env.RADAR_TEST_MODE !== "0";
 }
 const CYCLE_LOCK_KEY = "radar:test-mode:cycle-lock";
+const CYCLE_COUNT_KEY = "radar:test-mode:cycle-count";
+export const RADAR_TEST_CYCLE_LIMIT = 3;
 const CYCLE_LOCK_TTL_MS = 8 * 60 * 1000;
 
 export type RadarTestModeState = {
@@ -97,6 +99,31 @@ export async function acquireRadarTestCycle(
       ok: false,
       stopped: false,
       message: "Deal Radar check skipped: its shared safety lock is unavailable. No external lookup was started.",
+    };
+  }
+}
+
+export async function reserveRadarTestAttempt(
+  kv: Kv,
+  env: Record<string, string | undefined>,
+  nowIso: string,
+): Promise<{ ok: true; count: number | null } | { ok: false; stopped: boolean; message: string }> {
+  if (!isRadarTestModeEnabled(env)) return { ok: true, count: null };
+  try {
+    const count = await kv.incr(CYCLE_COUNT_KEY);
+    if (count <= RADAR_TEST_CYCLE_LIMIT) return { ok: true, count };
+    const message =
+      `Deal Radar test reached its ${RADAR_TEST_CYCLE_LIMIT}-cycle safety limit without a notification. Monitoring has been paused; no further provider checks will run.`;
+    await kv.setNx(
+      STOP_KEY,
+      JSON.stringify({ stoppedAt: nowIso, alertId: null, message }),
+    ).catch(() => false);
+    return { ok: false, stopped: true, message };
+  } catch {
+    return {
+      ok: false,
+      stopped: false,
+      message: "Deal Radar test budget is unavailable. This check was stopped before any external provider request.",
     };
   }
 }
