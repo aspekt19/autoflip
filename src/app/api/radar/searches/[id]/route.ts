@@ -1,6 +1,6 @@
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 import { getKv } from "@/io/kv";
-import { listSearches, saveSearches } from "@/server/radar-store";
+import { getRadarTestMode, listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,15 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return Response.json({ error: "invalid", message: "Send { enabled: true|false }." }, { status: 400 });
   }
   const { kv, searches, index } = await loadOwned(id, access.id);
+  if (body.enabled) {
+    const radarTestMode = await getRadarTestMode(kv);
+    if (radarTestMode.status !== "armed") {
+      return Response.json(
+        { error: "radar_test_paused", message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first." },
+        { status: 423 },
+      );
+    }
+  }
   if (index < 0) {
     return Response.json({ error: "not_found", message: "That saved search was not found." }, { status: 404 });
   }

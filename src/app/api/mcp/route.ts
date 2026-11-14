@@ -42,6 +42,7 @@ import { agentPaymentInfo } from "@/server/x402-payments";
 import { agentProof, plannedProof } from "@/server/serv";
 import type { AgentScope } from "@/server/agent-scopes";
 import { readResaleJob } from "@/server/resale-job";
+import { isRadarTestModeEnabled, RADAR_TEST_DIRECT_SCAN_MESSAGE } from "@/server/radar-test-mode";
 import type { WatchCriteria } from "@/domain/radar-watch";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +64,7 @@ export function GET() {
       find_cars: "1 credit after a successful search",
       resale_search: "1 credit when final Resale verdict is delivered",
       full_report: "1 credit with an af_ key, or $3 USDC direct x402 payment on /api/v1/report",
-      deal_radar: "free (scan)",
+      deal_radar: isRadarTestModeEnabled() ? "temporarily disabled during the one-notification test" : "free (scan)",
       radar_watches: "plan-gated saved searches (Radar / Radar Pro)",
       credits: "/credits",
       agentPayments: "/api/agents/payment-info",
@@ -151,6 +152,20 @@ export async function POST(request: Request) {
       status: auth.status,
       headers: auth.headers,
     });
+  }
+
+  if (name === "deal_radar" && isRadarTestModeEnabled()) {
+    return Response.json(
+      rpcResult(id, {
+        content: [{ type: "text", text: RADAR_TEST_DIRECT_SCAN_MESSAGE }],
+        isError: true,
+        structuredContent: {
+          error_code: "radar_test_mode_limited",
+          message: RADAR_TEST_DIRECT_SCAN_MESSAGE,
+          credit_spent: false,
+        },
+      }),
+    );
   }
 
   if (name === "check_car") {

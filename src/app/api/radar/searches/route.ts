@@ -5,7 +5,7 @@ import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
-import { listSearches, saveSearches } from "@/server/radar-store";
+import { getRadarTestMode, listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +70,13 @@ export async function POST(request: Request) {
   }
 
   const kv = getKv();
+  const radarTestMode = await getRadarTestMode(kv);
+  if (radarTestMode.status !== "armed") {
+    return Response.json(
+      { error: "radar_test_paused", message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first." },
+      { status: 423 },
+    );
+  }
   const searches = await listSearches(kv);
   const mine = searches.filter((item) => item.ownerId === id);
   const totalEnabled = mine.filter((item) => item.enabled).length;

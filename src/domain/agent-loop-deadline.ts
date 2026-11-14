@@ -22,7 +22,7 @@ export const AGENT_LOOP_REQUEST_BUDGET_MS = 270_000;
  * Do not start SERV when remaining request time is below this.
  * Already-started SERV calls keep SERV_HTTP_DEADLINE_MS (no clipped timeout).
  */
-export const AGENT_LOOP_SERV_FULL_CALL_MS = 90_000;
+export const AGENT_LOOP_SERV_FULL_CALL_MS = 210_000;
 
 /** @deprecated Use {@link AGENT_LOOP_SERV_FULL_CALL_MS}. */
 export const AGENT_LOOP_MIN_REMAINING_TO_START_MS = AGENT_LOOP_SERV_FULL_CALL_MS;

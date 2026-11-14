@@ -3,6 +3,7 @@ import { MemoryKv } from "@/io/kv";
 import { creditBalance, creditGrant } from "@/io/credit-book";
 import {
   commitSearchCreditOnDelivery,
+  grantAdditionalTrialSearchSessions,
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
@@ -134,4 +135,48 @@ describe("search billing gate (shared Find/Resale/MCP)", () => {
     if (!third.ok) expect(third.reason).toBe("limit");
   });
 
+  it("lets an admin grant extra combined Find and Resale sessions to an account", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 5, "grant-test-init");
+    expect((await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-first")).ok).toBe(true);
+    expect((await reserveSearchCreditBeforeServ(kv, "resale", USER, "grant-second")).ok).toBe(true);
+    const denied = await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-third-before");
+    expect(denied.ok).toBe(false);
+    expect(await grantAdditionalTrialSearchSessions(kv, USER, 2)).toBe(2);
+    expect((await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-third-after")).ok).toBe(true);
+    expect((await reserveSearchCreditBeforeServ(kv, "resale", USER, "grant-fourth-after")).ok).toBe(true);
+    const exhausted = await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-fifth");
+    expect(exhausted.ok).toBe(false);
+    if (!exhausted.ok) expect(exhausted.reason).toBe("trial_limit");
+    expect(await creditBalance(kv, USER)).toBe(1);
+  });
+
+});
+
+
+describe("verified admin account search allowance", () => {
+  it("allows unlimited Find and Resale starts without report-credit debits", async () => {
+    const { KvAdapter } = await import("@/auth/kv-adapter");
+    const kv = new MemoryKv();
+    const previous = process.env.LEMONLESS_ADMIN_EMAILS;
+    process.env.LEMONLESS_ADMIN_EMAILS = "GERASSYK@GMAIL.COM";
+    try {
+      const user = await KvAdapter(kv).createUser?.({
+        id: "admin-test-user",
+        name: "Admin",
+        email: "gerassyk@gmail.com",
+        emailVerified: new Date(),
+      });
+      expect(user?.id).toBeTruthy();
+      const first = await reserveSearchCreditBeforeServ(kv, "find", user!.id, "admin-first");
+      const second = await reserveSearchCreditBeforeServ(kv, "resale", user!.id, "admin-second");
+      const third = await reserveSearchCreditBeforeServ(kv, "find", user!.id, "admin-third");
+      expect(first.ok && second.ok && third.ok).toBe(true);
+      expect(await creditBalance(kv, user!.id)).toBe(0);
+      expect(await kv.get(`trial:search-quota:v1:${user!.id}`)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.LEMONLESS_ADMIN_EMAILS;
+      else process.env.LEMONLESS_ADMIN_EMAILS = previous;
+    }
+  });
 });

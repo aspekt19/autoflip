@@ -5,6 +5,7 @@ import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { ensureDemoAccount } from "./radar-store";
 import { authIsConfigured } from "@/auth/config";
 import { requireMoneyAuthStore } from "@/io/kv-guard";
+import { isAdminEmail } from "@/server/admin";
 
 const COOKIE = "af_uid";
 const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo-shared)$/i;
@@ -98,6 +99,7 @@ export async function authenticatedSession(): Promise<{
   id: string;
   email: string | null;
   emailVerified: Date | null;
+  isAdmin: boolean;
 } | null> {
   if (!authIsConfigured()) return null;
   try {
@@ -111,6 +113,7 @@ export async function authenticatedSession(): Promise<{
       id,
       email: session.user.email ?? null,
       emailVerified: emailVerified ? new Date(emailVerified) : null,
+      isAdmin: isAdminEmail(session.user.email ?? null),
     };
   } catch {
     return null;
@@ -139,7 +142,7 @@ export async function existingLedgerOwnerId(): Promise<string | null> {
   return existingUserId();
 }
 
-type VerifiedAccessOk = { ok: true; id: string; email: string };
+type VerifiedAccessOk = { ok: true; id: string; email: string; isAdmin: boolean };
 type VerifiedAccessErr = { ok: false; response: Response };
 
 type VerifiedPurpose = "checkout" | "vehicle_check" | "find_search" | "radar_search";
@@ -225,7 +228,7 @@ async function requireVerifiedSignedIn(
     };
   }
   await ensureAccount(session.id);
-  return { ok: true, id: session.id, email: session.email };
+  return { ok: true, id: session.id, email: session.email, isAdmin: isAdminEmail(session.email) };
 }
 
 /**

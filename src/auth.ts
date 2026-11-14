@@ -17,6 +17,7 @@ import { KvAdapter } from "@/auth/kv-adapter";
 import { consumeRateLimit, emailSignInRateKey } from "@/auth/rate-limit";
 import { verifiedGoogleEmail } from "@/auth/email-address";
 import { ensureVerifiedEmailAccount } from "@/auth/verified-email-account";
+import { isAdminEmail } from "@/server/admin";
 
 function buildProviders(): Provider[] {
   const providers: Provider[] = [];
@@ -174,6 +175,7 @@ const nextAuth = NextAuth({
         if (typeof token.email === "string") session.user.email = token.email;
         session.user.emailVerified =
           typeof token.emailVerified === "string" && token.emailVerified ? new Date(token.emailVerified) : null;
+        session.user.isAdmin = isAdminEmail(typeof token.email === "string" ? token.email : null);
       }
       return session;
     },

@@ -1,9 +1,11 @@
+import { getKv } from "@/io/kv";
 import { flipAlertWhy, topFlipCandidates } from "@/domain/flip-rank";
 import { priceBadge } from "@/domain/price-badge";
 import { scoreRadar } from "@/domain/radar";
 import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
+import { getRadarTestMode } from "@/server/radar-store";
 import { parseMode, radarToolResult } from "@/server/mcp";
 import { requireVerifiedAccountForRadar } from "@/server/session";
 
@@ -12,6 +14,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForRadar();
   if (!access.ok) return access.response;
+  const radarTestMode = await getRadarTestMode(getKv());
+  if (radarTestMode.status !== "armed") {
+    return Response.json(
+      { error: "radar_test_paused", message: "Deal Radar scans are globally paused after the one test notification. An admin must re-arm the next test notification first." },
+      { status: 423 },
+    );
+  }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const make = autoDevMake(typeof body.make === "string" ? body.make : "");

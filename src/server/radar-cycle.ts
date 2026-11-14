@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { priceBadge } from "@/domain/price-badge";
 import {
@@ -59,6 +59,13 @@ import {
   type StoredRun,
   listAlerts,
 } from "./radar-store";
+import {
+  acquireRadarTestCycle,
+  releaseRadarTestCycle,
+  stopRadarAfterFirstTestAlert,
+  reserveRadarTestAttempt,
+  isRadarTestModeEnabled,
+} from "./radar-test-mode";
 
 /** Stay under the 300s route cap so the log write still happens. */
 export const CYCLE_BUDGET_MS = 270_000;
@@ -81,6 +88,8 @@ export type CycleDeps = {
   origin: string;
   env: Record<string, string | undefined>;
   forceAll?: boolean;
+  /** Production test mode can restrict the project-wide monitor to one saved watch. */
+  maxEnabledWatches?: number;
   deadlineMs?: number;
   timeouts?: Partial<typeof CALL_MS>;
 };
@@ -93,6 +102,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   const budget = deps.deadlineMs ?? CYCLE_BUDGET_MS;
   const remain = () => budget - (Date.now() - startedWall);
   const limits = { ...CALL_MS, ...deps.timeouts };
+  const testModeEnabled = isRadarTestModeEnabled(deps.env);
   const notes: string[] = [];
   const steps: Step[] = [];
   const runId = randomUUID();
@@ -160,9 +170,37 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       proofRecords,
     );
 
+  const gate = await acquireRadarTestCycle(deps.kv, runId, deps.env);
+  if (!gate.ok) {
+    notes.push(gate.message);
+    steps.push({ id: "trial_safety", status: gate.stopped ? "stopped" : "skipped" });
+    const run = snapshot();
+    await upsertRun(deps.kv, run).catch(() => undefined);
+    return run;
+  }
+
   try {
     // Never inject demo/preset watches on cron — only user-saved searches run in prod.
-    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
+    const allSavedSearches = await listSearches(deps.kv);
+    const enabledSearches = allSavedSearches.filter((item) => item.enabled);
+    const orderedSearches = [...enabledSearches].sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+    );
+    const watchLimit =
+      typeof deps.maxEnabledWatches === "number" ? Math.max(0, Math.floor(deps.maxEnabledWatches)) : null;
+    const searches = watchLimit === null ? orderedSearches : orderedSearches.slice(0, watchLimit);
+    if (watchLimit !== null && enabledSearches.length > searches.length) {
+      const keepIds = new Set(searches.map((item) => item.id));
+      await saveSearches(
+        deps.kv,
+        allSavedSearches.map((item) =>
+          item.enabled && !keepIds.has(item.id) ? { ...item, enabled: false } : item,
+        ),
+      );
+      notes.push(
+        `Test mode allows ${watchLimit} project-wide active watch${watchLimit === 1 ? "" : "es"}. Additional active watches were paused before external lookups.`,
+      );
+    }
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
     const planCache = new Map<string, StoredPlans>();
@@ -184,13 +222,70 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
-    const guardResult = await runGuard(
-      searches,
-      deps,
-      decisionStepBudget("radar_guard", remain(), limits.serv) ?? 0,
-      servChecks,
-    );
-    promptGuard = guardResult.status;
+    // In the controlled production test, don't spend either provider without
+    // one paid/eligible watch and both live credentials.
+    if (testModeEnabled && searches.length > 0) {
+      if (!Number.isFinite(minInterval)) {
+        notes.push("Deal Radar test check skipped: the saved watch has no active paid Radar plan.");
+        steps.push({ id: "trial_safety", status: "skipped" });
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      if (!deps.autodevKey || !deps.servKey) {
+        notes.push("Deal Radar test check skipped: both Auto.dev and SERV credentials are required. No provider requests were started.");
+        steps.push({ id: "trial_safety", status: "skipped" });
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      const attempt = await reserveRadarTestAttempt(deps.kv, deps.env, deps.now.toISOString());
+      if (!attempt.ok) {
+        notes.push(attempt.message);
+        steps.push({ id: "trial_safety", status: attempt.stopped ? "stopped" : "skipped" });
+        if (attempt.stopped) {
+          await saveSearches(
+            deps.kv,
+            allSavedSearches.map((item) => ({ ...item, enabled: false })),
+          );
+        }
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      steps.push({
+        id: "trial_safety",
+        status: "armed",
+        detail: `Test cycle ${attempt.count}/3. One uncached Auto.dev lookup and one candidate review are allowed in this cycle.`,
+      });
+    }
+
+    const guardText = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
+    const guardCacheKey = `radar:guard:allow:v1:${createHash("sha256").update(guardText).digest("hex")}`;
+    const guardAlreadyAllowed = (await deps.kv.get(guardCacheKey)) === "allow";
+    const guardResult = guardAlreadyAllowed
+      ? {
+          status: "allow" as const,
+          activity: null,
+          proofRecord: buildDecisionProofRecord({
+            purpose: "radar_guard",
+            rubricId: RADAR_VERDICT_RUBRIC_ID,
+            status: "ok",
+            recordedAt: deps.now.toISOString(),
+            inputs: { searchCount: searches.length, zips: searches.map((item) => item.criteria.zip) },
+            detail: "Identical saved criteria were already allowed by SERV. Reused the durable guard result; no new SERV request was sent.",
+          }),
+        }
+      : await runGuard(
+          searches,
+          deps,
+          decisionStepBudget("radar_guard", remain(), limits.serv) ?? 0,
+          servChecks,
+        );
+    if (!guardAlreadyAllowed && guardResult.status === "allow") {
+      await deps.kv.set(guardCacheKey, "allow").catch(() => undefined);
+    }
+    promptGuard = guardAlreadyAllowed ? "allow_cached" : guardResult.status;
     if (guardResult.activity) servActivity.push(guardResult.activity);
     // Stamp one guard proof per watch so Check/feed can filter by owner/search.
     if (guardResult.proofRecord && searches.length > 0) {
@@ -217,6 +312,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     if (!deps.autodevKey) notes.push("AUTODEV_API_KEY is not set. No listings were requested and no alerts were invented.");
 
     const due: { key: string; group: SavedSearch[]; urls: string[] }[] = [];
+    let testModeProviderCalls = 0;
     for (const [key, group] of groups) {
       // Paid-only: skip watches whose owner has no active radar plan.
       const paidGroup: SavedSearch[] = [];
@@ -258,6 +354,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           urls.push(url);
           continue;
         }
+        if (testModeEnabled && testModeProviderCalls >= 1) {
+          notes.push("Test mode permits one uncached Auto.dev inventory request per cycle. Additional model queries were skipped.");
+          halted = true;
+          break;
+        }
         if (remain() < 1_500) {
           notes.push("Stopped before another listings call so this run can be saved.");
           steps.push({ id: "listings", status: "partial", detail: "deadline" });
@@ -272,6 +373,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           break;
         }
         autodevCalls += 1;
+        if (testModeEnabled) testModeProviderCalls += 1;
         urls.push(url);
       }
       if (urls.length) due.push({ key, group: paidGroup, urls });
@@ -307,6 +409,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const reasons = new Map<string, number>();
     let listingTimeouts = 0;
     for (const job of fetched) {
+      if (testModeEnabled && freshAlerts.length > 0) break;
       if (!job.listings) {
         notes.push(job.error ?? "Listings call failed.");
         if (job.error === "timeout") listingTimeouts += 1;
@@ -315,6 +418,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       }
       listings += job.listings.length;
       for (const search of job.group) {
+        if (testModeEnabled && freshAlerts.length > 0) break;
         if (isBroadFlip(search)) {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
             repairAbility: search.criteria.repairAbility,
@@ -354,7 +458,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
           let judged: Awaited<ReturnType<typeof decideRadarFlip>> | null = null;
-          if (fresh.length > 0 && deps.servKey) {
+          const reviewFresh = testModeEnabled ? fresh.slice(0, 1) : fresh;
+          if (reviewFresh.length > 0 && deps.servKey) {
             const ownerPlans = await plansOf(search.ownerId);
             const servSlot = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
             if (!servSlot.ok) {
@@ -362,7 +467,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             } else {
               // Thin decide façade — PR B plugs into decideRadarFlip / ports.decideRadarFlip.
               judged = await decideRadarFlip({
-                fresh,
+                fresh: reviewFresh,
                 searchId: search.id,
                 remainMs: remain(),
                 ceilingMs: limits.serv,
@@ -378,9 +483,9 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 await incrementServUsage(deps.kv, search.ownerId, 1);
               }
             }
-          } else if (fresh.length > 0) {
+          } else if (reviewFresh.length > 0) {
             judged = await decideRadarFlip({
-              fresh,
+              fresh: reviewFresh,
               searchId: search.id,
               remainMs: remain(),
               ceilingMs: limits.serv,
@@ -403,7 +508,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 : "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
             );
           }
-          for (const item of fresh) {
+          for (const item of reviewFresh) {
+            if (testModeEnabled && freshAlerts.length > 0) break;
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -549,7 +655,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         );
-        const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
+        const winners = ranked.slice(0, testModeEnabled ? 1 : ASSUMPTIONS.radarMaxServPerSearch);
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
@@ -560,6 +666,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           if (hardReject(item.listing, search.criteria, deps.now.getUTCFullYear())) continue;
           if (item.listing.priceUsd == null) continue;
           if (winnerVins.has(item.listing.vin)) continue;
+          if (testModeEnabled) continue; // Keep later candidates eligible for the next bounded test cycle.
           book.set(item.listing.vin, item.listing.priceUsd);
         }
         touchedOwnerIds.add(search.ownerId);
@@ -567,6 +674,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         bumpSearch(search.id, { listings: scoped.length });
         let servSlot = 0;
         for (const winner of winners) {
+          if (testModeEnabled && freshAlerts.length > 0) break;
           // Observational badge facts only — do not drop before SERV on tone.
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
           const personalCoverage = {
@@ -711,8 +819,20 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       detail: `${listings} rows, ${autodevCalls} calls`,
     });
 
-    await saveSearches(deps.kv, await mergeChecked(deps.kv, searches));
     await saveAlerts(deps.kv, alerts);
+    const mergedSearches = await mergeChecked(deps.kv, searches);
+    if (testModeEnabled && freshAlerts.length > 0) {
+      const firstAlert = freshAlerts[0]!;
+      const stopped = await stopRadarAfterFirstTestAlert(deps.kv, firstAlert.id, deps.now.toISOString(), deps.env);
+      await saveSearches(
+        deps.kv,
+        mergedSearches.map((item) => ({ ...item, enabled: false })),
+      );
+      notes.push(stopped.message ?? "Deal Radar was paused after its first test notification.");
+      steps.push({ id: "trial_safety", status: "stopped", detail: `first alert ${firstAlert.id}; all watches disabled` });
+    } else {
+      await saveSearches(deps.kv, mergedSearches);
+    }
     shadow = deps.servKey ? "pending" : "not_configured";
     await upsertRun(deps.kv, snapshot());
 
@@ -821,6 +941,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const run = snapshot();
     await upsertRun(deps.kv, run).catch(() => undefined);
     return run;
+  } finally {
+    await releaseRadarTestCycle(deps.kv, runId);
   }
 }
 

@@ -253,3 +253,141 @@ export async function unlinkTelegram(kv: Kv, ownerId: string, chatId: string): P
   await kv.delete(`telegram:owner:${chatId}`);
   await kv.delete(`telegram:paused:${ownerId}`);
 }
+
+
+export type RadarTestModeState = {
+  status: "armed" | "stopped";
+  updatedAt: string | null;
+  stoppedAt: string | null;
+  alertId: string | null;
+  reason: "notification_sent" | "admin" | "state_unavailable" | null;
+};
+
+const RADAR_TEST_MODE_KEY = "radar:test-mode:stopped";
+
+export async function getRadarTestMode(
+  kv: Kv,
+  env: Record<string, string | undefined> = process.env,
+): Promise<RadarTestModeState> {
+  const raw = await kv.get(RADAR_TEST_MODE_KEY);
+  if (raw === null) {
+    return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<RadarTestModeState>;
+    if (parsed.status !== "armed" && parsed.status !== "stopped") throw new Error("invalid radar test mode");
+    if (env.RADAR_TEST_MODE === "0" && parsed.status === "stopped" && parsed.reason === "notification_sent") {
+      return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
+    }
+    return {
+      status: parsed.status,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
+      stoppedAt: typeof parsed.stoppedAt === "string" ? parsed.stoppedAt : null,
+      alertId: typeof parsed.alertId === "string" ? parsed.alertId : null,
+      reason:
+        parsed.reason === "notification_sent" || parsed.reason === "admin" || parsed.reason === "state_unavailable"
+          ? parsed.reason
+          : null,
+    };
+  } catch {
+    // Corrupt state must not silently restore paid scans.
+    return {
+      status: "stopped",
+      updatedAt: null,
+      stoppedAt: null,
+      alertId: null,
+      reason: "state_unavailable",
+    };
+  }
+}
+
+async function disableRadarWatchesGlobally(kv: Kv): Promise<void> {
+  const searches = await listSearches(kv);
+  await saveSearches(
+    kv,
+    searches.map((row) =>
+      row.enabled ? { ...row, enabled: false, pauseReason: "global_test_complete" as const } : row,
+    ),
+  );
+}
+
+/** Admin-only emergency stop. */
+export async function stopRadarTestMode(
+  kv: Kv,
+  now = new Date(),
+  env: Record<string, string | undefined> = process.env,
+): Promise<RadarTestModeState> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const raw = await kv.get(RADAR_TEST_MODE_KEY);
+    const current = await getRadarTestMode(kv, env);
+    if (current.status === "stopped") return current;
+    const next: RadarTestModeState = {
+      status: "stopped",
+      updatedAt: now.toISOString(),
+      stoppedAt: now.toISOString(),
+      alertId: null,
+      reason: "admin",
+    };
+    if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, JSON.stringify(next))) {
+      await disableRadarWatchesGlobally(kv);
+      return next;
+    }
+  }
+  throw new Error("Could not persist the global Deal Radar stop — failing closed.");
+}
+
+/** Atomically claims the one allowed project-wide notification. False means stopped/already claimed. */
+export async function claimRadarTestNotification(
+  kv: Kv,
+  alertId: string,
+  now = new Date(),
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const raw = await kv.get(RADAR_TEST_MODE_KEY);
+    const current = await getRadarTestMode(kv);
+    if (current.status !== "armed") return false;
+    const next: RadarTestModeState = {
+      status: "stopped",
+      updatedAt: now.toISOString(),
+      stoppedAt: now.toISOString(),
+      alertId,
+      reason: "notification_sent",
+    };
+    if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, JSON.stringify(next))) {
+      await disableRadarWatchesGlobally(kv);
+      return true;
+    }
+  }
+  throw new Error("Could not claim the one Deal Radar test notification — failing closed.");
+}
+
+/** Admin-only re-arm for the next single test notification. */
+export async function armRadarTestMode(kv: Kv, now = new Date()): Promise<RadarTestModeState> {
+  const next: RadarTestModeState = {
+    status: "armed",
+    updatedAt: now.toISOString(),
+    stoppedAt: null,
+    alertId: null,
+    reason: null,
+  };
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const raw = await kv.get(RADAR_TEST_MODE_KEY);
+    if (raw === null) return next;
+    // The Cron safety reader treats any non-empty stop key as stopped.
+    // Re-arming therefore deletes the shared stop marker atomically.
+    if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, null)) {
+      await kv.delete("radar:test-mode:cycle-count");
+      const searches = await listSearches(kv);
+      await saveSearches(
+        kv,
+        searches.map((row) =>
+          row.pauseReason === "global_test_complete"
+            ? { ...row, enabled: true, pauseReason: null }
+            : row,
+        ),
+      );
+      return next;
+    }
+  }
+  throw new Error("Could not re-arm the global Deal Radar test mode.");
+}

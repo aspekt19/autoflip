@@ -6,6 +6,7 @@ import { quotaSnapshot } from "@/io/persistent-quota";
 import { emptyPlans, writePlans } from "./plan-book";
 import { listAlerts, listRuns, listSearches, saveSearches, seenVins } from "./radar-store";
 import { runRadarCycle } from "./radar-cycle";
+import { stopRadarAfterFirstTestAlert } from "./radar-test-mode";
 
 async function grantRadarPlan(kv: MemoryKv, userId: string) {
   await writePlans(kv, userId, {
@@ -256,5 +257,33 @@ describe("radar cycle", () => {
     expect(alert.numbers.fairValueUsd).toBe(alert.badge?.fairValueUsd);
     expect(alert.numbers.priceLabel).toBe(alert.badge?.label);
     expect(alert.why).toContain("fair value");
+  });
+
+  it("does not dispatch Auto.dev or SERV after the global first-notification stop", async () => {
+    const kv = new MemoryKv();
+    const search = { ...demoPresets()[0]!, id: "stopped-radar", ownerId: "stopped-owner", preset: false };
+    await grantRadarPlan(kv, search.ownerId);
+    await saveSearches(kv, [search]);
+    await stopRadarAfterFirstTestAlert(kv, "kept-alert-id", "2026-11-14T12:00:00.000Z", { RADAR_TEST_MODE: "1" });
+
+    let upstreamCalls = 0;
+    const run = await runRadarCycle({
+      kv,
+      now: new Date("2026-11-14T14:00:00.000Z"),
+      trigger: "cron",
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        return new Response(JSON.stringify(listings), { status: 200 });
+      },
+      autodevKey: "test",
+      servKey: "serv-test",
+      origin: "https://autoflip.example",
+      env: { RADAR_TEST_MODE: "1" },
+    });
+
+    expect(upstreamCalls).toBe(0);
+    expect(run.autodevCalls).toBe(0);
+    expect(run.notes.join(" ")).toContain("first test notification");
+    expect((await listSearches(kv))[0]?.enabled).toBe(false);
   });
 });

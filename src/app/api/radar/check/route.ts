@@ -5,7 +5,7 @@ import {
 } from "@/domain/radar-legacy-skip";
 import { checkNowAllowed } from "@/domain/radar-watch";
 import { getKv, storageMode } from "@/io/kv";
-import { lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/radar-store";
+import { getRadarTestMode, lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
@@ -24,6 +24,13 @@ export async function POST(request: Request) {
   }
   const id = access.id;
   const kv = getKv();
+  const radarTestMode = await getRadarTestMode(kv);
+  if (radarTestMode.status !== "armed") {
+    return Response.json(
+      { error: "radar_test_paused", message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first.", radarTestMode },
+      { status: 423 },
+    );
+  }
   const mine = (await listSearches(kv)).filter((item) => item.ownerId === id && item.enabled);
   if (!isDemoUser(id) && mine.length === 0) {
     return Response.json({
@@ -37,7 +44,7 @@ export async function POST(request: Request) {
   const now = Date.now();
   // Stub HTTP acceptance may re-run Check in the same minute; skip the shared preview window.
   const stubE2e = process.env.LEMONLESS_E2E_STUB === "1" && !process.env.VERCEL;
-  if (!stubE2e && !checkNowAllowed(await lastCheckNow(kv), now)) {
+  if (!stubE2e && !access.isAdmin && !checkNowAllowed(await lastCheckNow(kv), now)) {
     return Response.json(
       { error: "rate_limited", message: "A check already ran in the last 30 minutes. The shared preview is limited so the listings budget lasts the month." },
       { status: 429 },

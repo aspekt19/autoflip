@@ -1,4 +1,5 @@
 import type { Kv } from "@/io/kv";
+import { isAdminUser } from "@/server/admin";
 import { monthKey } from "@/io/quota";
 import { creditGrant } from "@/io/credit-book";
 import {
@@ -74,6 +75,14 @@ export function demoPlans(): StoredPlans {
 }
 
 export async function plansFor(kv: Kv, userId: string): Promise<StoredPlans> {
+  if (await isAdminUser(kv, userId)) {
+    return {
+      personal: { status: "active", lookupKey: "admin", searchLimit: Number.MAX_SAFE_INTEGER, expiresAt: null },
+      flip: { status: "active", lookupKey: "admin", searchLimit: Number.MAX_SAFE_INTEGER, expiresAt: null },
+      stripeCustomerId: null,
+      planId: "admin",
+    };
+  }
   // Demo account is not a free Radar tier — same paid-only rules as every account.
   return readPlans(kv, userId);
 }
@@ -97,6 +106,17 @@ export function effectiveRadarLimits(plans: StoredPlans): RadarPlanLimits {
     (entitlementIsActive(plans.personal) ? plans.personal.lookupKey : null) ??
     (entitlementIsActive(plans.flip) ? plans.flip.lookupKey : null) ??
     plans.planId;
+  if (lookup === "admin") {
+    return {
+      id: "admin",
+      name: "Admin",
+      watchLimit: Number.MAX_SAFE_INTEGER,
+      intervalHours: 24,
+      servCallCapPerMonth: Number.MAX_SAFE_INTEGER,
+      reportCreditsPerMonth: 0,
+      paid: true,
+    };
+  }
   if (lookup === "demo") {
     const pro = planById("radar_pro")!;
     return {

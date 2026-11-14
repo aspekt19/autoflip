@@ -10,7 +10,7 @@ import type { Kv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { runRadarCycle } from "@/server/radar-cycle";
-import { listAlerts, listSearches, saveSearches } from "@/server/radar-store";
+import { getRadarTestMode, listAlerts, listSearches, saveSearches } from "@/server/radar-store";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, type AgentErrorEnvelope } from "./agent-envelope";
 
@@ -75,6 +75,18 @@ export async function agentSaveRadarWatch(
 ) {
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
+  }
+  const testMode = await getRadarTestMode(deps.kv);
+  if (testMode.status !== "armed") {
+    return {
+      ok: false as const,
+      status: 423,
+      body: agentError({
+        error_code: "radar_test_paused",
+        message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first.",
+        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification.", request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` } },
+      }),
+    };
   }
   const criteria = input.criteria;
   const mode = input.mode === "flip" ? "flip" : "personal";
@@ -236,6 +248,18 @@ export async function agentSaveRadarWatch(
 export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDeps) {
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
+  }
+  const testMode = await getRadarTestMode(deps.kv);
+  if (testMode.status !== "armed") {
+    return {
+      ok: false as const,
+      status: 423,
+      body: agentError({
+        error_code: "radar_test_paused",
+        message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first.",
+        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification.", request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` } },
+      }),
+    };
   }
   const mine = (await listSearches(deps.kv)).filter(
     (item) => item.ownerId === caller.userId && item.enabled,

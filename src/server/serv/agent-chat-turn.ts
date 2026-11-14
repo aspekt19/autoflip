@@ -11,8 +11,11 @@
  * (OpenServ billing uses the ceiling for balance checks). HTTP still uses a
  * platform deadline so Hobby requests can step; that is not a model token budget.
  */
-import { SERV_HTTP_DEADLINE_MS, servApiBase } from "./run";
+import { servApiBase } from "./run";
 import { BASE_MODEL } from "./profiles";
+
+/** One agent HTTP hop must finish before the route budget is exhausted. */
+export const SERV_AGENT_HTTP_DEADLINE_MS = 210_000;
 
 /** SERV-supported efforts for production BASE_MODEL. Never "none". */
 export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high"] as const;
@@ -241,7 +244,7 @@ async function postServEndpoint(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(input.body),
-      signal: AbortSignal.timeout(SERV_HTTP_DEADLINE_MS),
+      signal: AbortSignal.timeout(SERV_AGENT_HTTP_DEADLINE_MS),
     });
     const payload: unknown = await response.json().catch(() => null);
     return {
