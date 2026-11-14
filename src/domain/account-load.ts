@@ -36,6 +36,7 @@ export type AccountSnapshot = {
   authenticated?: boolean;
   email?: string | null;
   emailVerified?: boolean;
+  isAdmin?: boolean;
   auth?: { configured?: boolean };
   browserClaimable?: boolean;
   freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
