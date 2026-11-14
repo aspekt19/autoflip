@@ -76,6 +76,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
   }
   const searches = await listSearches(kv);
+  if (searches.some((item) => item.enabled)) {
+    return Response.json({
+      error: "radar_test_watch_limit",
+      message: "The current test allows one active Deal Radar watch across the entire project. Pause or remove the existing watch before creating another.",
+    }, { status: 423 });
+  }
   const mine = searches.filter((item) => item.ownerId === id);
   const totalEnabled = mine.filter((item) => item.enabled).length;
   const allowed = await allowance(kv, id, totalEnabled);
