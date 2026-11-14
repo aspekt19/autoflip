@@ -10,9 +10,10 @@ import type { Kv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { runRadarCycle } from "@/server/radar-cycle";
-import { listAlerts, listSearches, saveSearches } from "@/server/radar-store";
+import { lastCheckNow, listAlerts, listSearches, markCheckNow, saveSearches } from "@/server/radar-store";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, type AgentErrorEnvelope } from "./agent-envelope";
+import { checkNowAllowed } from "@/domain/radar-watch";
 import { isRadarTestModeEnabled, readRadarTestModeState } from "./radar-test-mode";
 
 export type AgentRadarDeps = {
@@ -194,7 +195,7 @@ export async function agentSaveRadarWatch(
   }
 
   const searches = await listSearches(deps.kv);
-  if (isRadarTestModeEnabled() && searches.some((item) => item.enabled)) {
+  if (isRadarTestModeEnabled() && searches.length > 0) {
     return {
       ok: false as const,
       status: 423,
@@ -277,6 +278,19 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
       trialStopped: true,
     } };
   }
+  const lastCheck = await lastCheckNow(deps.kv);
+  const nowMs = (deps.now ?? new Date()).getTime();
+  if (!checkNowAllowed(lastCheck, nowMs)) {
+    return { ok: false as const, status: 429, body: agentError({
+      error_code: "radar_check_rate_limited",
+      message: "A shared Deal Radar check ran in the last 30 minutes. No new provider requests were started.",
+      next_steps: {
+        action: "retry_after_cooldown",
+        summary: "Wait until the shared 30-minute check window has elapsed, then retry.",
+        request: { method: "POST", url: `${deps.origin}/api/v1/radar/check` },
+      },
+    }) };
+  }
   const mine = (await listSearches(deps.kv)).filter(
     (item) => item.ownerId === caller.userId && item.enabled,
   );
@@ -294,6 +308,7 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
       },
     };
   }
+  await markCheckNow(deps.kv, nowMs);
   const run = await runRadarCycle({
     kv: deps.kv,
     now: deps.now ?? new Date(),
