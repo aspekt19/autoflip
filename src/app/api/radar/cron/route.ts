@@ -1,6 +1,7 @@
 import { getKv, storageMode } from "@/io/kv";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { bearer, originOf, secretMatch } from "@/server/secrets";
+import { readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 /** Hobby Fluid allows 300s. The cycle stops earlier so the run log is written first. */
@@ -45,7 +46,15 @@ async function handle(request: Request) {
     origin: originOf(request),
     env: process.env,
   });
-  return Response.json({ ok: true, id: run.id, alertsSent: run.alertsSent, autodevCalls: run.autodevCalls });
+  const testMode = await readRadarTestModeState(getKv());
+  return Response.json({
+    ok: true,
+    id: run.id,
+    alertsSent: run.alertsSent,
+    autodevCalls: run.autodevCalls,
+    trialStopped: testMode.stopped,
+    message: testMode.message ?? undefined,
+  });
 }
 
 export async function GET(request: Request) {
