@@ -13,6 +13,7 @@ import { runRadarCycle } from "@/server/radar-cycle";
 import { listAlerts, listSearches, saveSearches } from "@/server/radar-store";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, type AgentErrorEnvelope } from "./agent-envelope";
+import { readRadarTestModeState } from "./radar-test-mode";
 
 export type AgentRadarDeps = {
   kv: Kv;
@@ -42,6 +43,7 @@ export async function agentListRadarWatches(caller: AgentCaller, deps: AgentRada
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
   }
+  const testMode = await readRadarTestModeState(deps.kv);
   const searches = (await listSearches(deps.kv)).filter((row) => row.ownerId === caller.userId);
   const alerts = (await listAlerts(deps.kv)).filter((row) =>
     searches.some((search) => search.id === row.searchId),
@@ -59,6 +61,8 @@ export async function agentListRadarWatches(caller: AgentCaller, deps: AgentRada
         pauseReason: row.pauseReason ?? null,
       })),
       alertCount: alerts.filter((row) => row.status === "new" || row.status === "opened").length,
+      trialStopped: testMode.stopped,
+      trialStopMessage: testMode.message,
       credit_spent: false,
     },
   };
@@ -75,6 +79,14 @@ export async function agentSaveRadarWatch(
 ) {
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
+  }
+  const testMode = await readRadarTestModeState(deps.kv);
+  if (testMode.stopped) {
+    return { ok: false as const, status: 423, body: agentError({
+      error_code: "radar_test_complete",
+      message: testMode.message ?? "Deal Radar is paused after its first test notification.",
+      next_steps: { action: "read_existing_alerts", summary: "The test notification is saved. No further Radar watches can be activated." },
+    }) };
   }
   const criteria = input.criteria;
   const mode = input.mode === "flip" ? "flip" : "personal";
@@ -236,6 +248,15 @@ export async function agentSaveRadarWatch(
 export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDeps) {
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
+  }
+  const testMode = await readRadarTestModeState(deps.kv);
+  if (testMode.stopped) {
+    return { ok: true as const, body: {
+      runId: null, notes: [testMode.message ?? "Deal Radar is paused after its first test notification."],
+      alertsSent: 0, credit_spent: false, journal: null, proofRecords: [],
+      summary: "Deal Radar monitoring is stopped for the one-notification test.",
+      trialStopped: true,
+    } };
   }
   const mine = (await listSearches(deps.kv)).filter(
     (item) => item.ownerId === caller.userId && item.enabled,
