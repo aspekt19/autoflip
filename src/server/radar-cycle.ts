@@ -176,7 +176,23 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
   try {
     // Never inject demo/preset watches on cron — only user-saved searches run in prod.
-    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
+    const allSavedSearches = await listSearches(deps.kv);
+    const enabledSearches = allSavedSearches.filter((item) => item.enabled);
+    // This is a project-wide test, not one test per paying (test-mode) account.
+    // If older data already has several active watches, only the oldest is eligible.
+    const searches = [...enabledSearches]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .slice(0, 1);
+    if (enabledSearches.length > 1) {
+      const keepId = searches[0]?.id;
+      await saveSearches(
+        deps.kv,
+        allSavedSearches.map((item) =>
+          item.enabled && item.id !== keepId ? { ...item, enabled: false } : item,
+        ),
+      );
+      notes.push("Test mode allows one project-wide watch. Additional active watches were paused before external lookups.");
+    }
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
     const planCache = new Map<string, StoredPlans>();
