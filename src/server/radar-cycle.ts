@@ -446,7 +446,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             }
           } else if (reviewFresh.length > 0) {
             judged = await decideRadarFlip({
-              fresh,
+              fresh: reviewFresh,
               searchId: search.id,
               remainMs: remain(),
               ceilingMs: limits.serv,
