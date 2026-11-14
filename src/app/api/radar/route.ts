@@ -6,12 +6,22 @@ import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode, radarToolResult } from "@/server/mcp";
 import { requireVerifiedAccountForRadar } from "@/server/session";
+import { getKv } from "@/io/kv";
+import { radarTestModeIsBusy, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForRadar();
   if (!access.ok) return access.response;
+  const kv = getKv();
+  const testMode = await readRadarTestModeState(kv);
+  if (testMode.stopped) {
+    return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
+  }
+  if (await radarTestModeIsBusy(kv)) {
+    return Response.json({ error: "radar_cycle_running", message: "A saved-search test cycle is already running. Run this scan after it finishes." }, { status: 429 });
+  }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const make = autoDevMake(typeof body.make === "string" ? body.make : "");
