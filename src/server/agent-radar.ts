@@ -190,6 +190,17 @@ export async function agentSaveRadarWatch(
   }
 
   const searches = await listSearches(deps.kv);
+  if (searches.some((item) => item.enabled)) {
+    return {
+      ok: false as const,
+      status: 423,
+      body: agentError({
+        error_code: "radar_test_watch_limit",
+        message: "The current test allows one active Deal Radar watch across the entire project.",
+        next_steps: { action: "read_existing_watches", summary: "Pause or remove the existing watch before creating another." },
+      }),
+    };
+  }
   const mine = searches.filter((item) => item.ownerId === caller.userId);
   const totalEnabled = mine.filter((item) => item.enabled).length;
   const allowed = await allowance(deps.kv, caller.userId, totalEnabled);
