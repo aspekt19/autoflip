@@ -73,6 +73,7 @@ function RadarInner() {
   const [listingCounts, setListingCounts] = useState<Array<{ searchId: string; listingsSeen: number }>>([]);
   const [watchLimit, setWatchLimit] = useState(0);
   const [requiresPlan, setRequiresPlan] = useState(false);
+  const [trialStopMessage, setTrialStopMessage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   const [emailNote, setEmailNote] = useState<string | null>(null);
   const [activity, setActivity] = useState<{
@@ -113,6 +114,8 @@ function RadarInner() {
       listingCounts?: typeof listingCounts;
       watchLimit?: number;
       requiresPlan?: boolean;
+      trialStopped?: boolean;
+      trialStopMessage?: string | null;
       planName?: string | null;
       emailNote?: string;
       activity?: typeof activity;
@@ -127,6 +130,7 @@ function RadarInner() {
     setListingCounts(body.listingCounts ?? []);
     if (typeof body.watchLimit === "number") setWatchLimit(body.watchLimit);
     setRequiresPlan(body.requiresPlan === true);
+    setTrialStopMessage(body.trialStopped === true ? body.trialStopMessage || "Deal Radar is paused after its first test notification." : null);
     setPlanName(typeof body.planName === "string" ? body.planName : null);
     setEmailNote(body.emailNote ?? null);
     setActivity(body.activity ?? null);
@@ -326,6 +330,7 @@ function RadarInner() {
             Plan: {planName} (up to {watchLimit})
           </p>
         ) : null}
+        {trialStopMessage ? <p className="warn-box">{trialStopMessage}</p> : null}
         {requiresPlan ? (
           <p className="warn-box">
             No active Radar plan. Existing watches stay saved but are paused until you subscribe.{" "}
@@ -352,12 +357,12 @@ function RadarInner() {
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
         <p className="hint">
-          Checks daily. Run now checks the saved watches immediately. In-app alerts stay here; optionally connect
+          {trialStopMessage ? "Test monitoring is stopped. Existing alerts remain available." : "Checks daily. Run now checks the saved watches immediately."} In-app alerts stay here; optionally connect
           @autoflip_radar_bot (Lemonless Radar) for Telegram copies.
         </p>
         <div className="hero-actions">
-          <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
-            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Run now"}
+          <button className="action" type="button" onClick={checkNow} disabled={Boolean(trialStopMessage) || checking || !feedReady || (!demo && searches.length === 0)}>
+            {trialStopMessage ? "Radar paused" : checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Run now"}
           </button>
           <button className="quiet" type="button" onClick={() => void connectTelegram()}>
             Connect Telegram
@@ -439,6 +444,7 @@ function RadarInner() {
                     className="quiet"
                     type="button"
                     onClick={() => void toggleSearch(search.id, !search.enabled)}
+                    disabled={Boolean(trialStopMessage)}
                   >
                     {search.enabled ? "Pause" : "Resume"}
                   </button>
