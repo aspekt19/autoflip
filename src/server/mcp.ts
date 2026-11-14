@@ -70,7 +70,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "Temporarily disabled during the one-notification test to prevent ad-hoc provider spend. Use radar_save_watch and radar_check_now for the single controlled saved-watch test. This scan does not debit report credits when enabled.",
+        "During RADAR_TEST_MODE, ad-hoc scans are disabled to prevent provider spend; use radar_save_watch and radar_check_now for the single controlled saved-watch test. Outside test mode, this is a free live listing scan and does not debit report credits.",
       inputSchema: {
         type: "object",
         properties: {
