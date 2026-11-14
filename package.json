@@ -5,7 +5,7 @@
   "description": "Evaluation preview: a clear verdict on a used-car listing, plus a paid agent API for the same verdict.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/eval-free-llm-build.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -70,7 +70,6 @@
   "overrides": {
     "postcss": "8.5.32",
     "nodemailer": "10.4.0",
-    "@grpc/grpc-js": "1.14.7",
-    "zod": "4.6.7"
+    "@grpc/grpc-js": "1.14.7"
   }
 }
