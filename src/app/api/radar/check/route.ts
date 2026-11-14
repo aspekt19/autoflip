@@ -9,6 +9,7 @@ import { lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/r
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
+import { readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -24,6 +25,10 @@ export async function POST(request: Request) {
   }
   const id = access.id;
   const kv = getKv();
+  const testMode = await readRadarTestModeState(kv);
+  if (testMode.stopped) {
+    return Response.json({ ok: true, alertsSent: 0, listings: 0, filteredOut: 0, trialStopped: true, message: testMode.message });
+  }
   const mine = (await listSearches(kv)).filter((item) => item.ownerId === id && item.enabled);
   if (!isDemoUser(id) && mine.length === 0) {
     return Response.json({
