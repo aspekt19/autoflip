@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
  * Ad-hoc Radar scans are disabled during the controlled one-notification test.
  * The only enabled inventory path is the single saved-watch monitoring cycle.
  */
-export async function POST() {
+export async function POST(_request: Request) {
   const access = await requireVerifiedAccountForRadar();
   if (!access.ok) return access.response;
   return Response.json(
