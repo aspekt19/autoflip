@@ -9,6 +9,7 @@ declare module "next-auth" {
     user: DefaultSession["user"] & {
       id: string;
       emailVerified?: Date | null;
+      isAdmin?: boolean;
     };
   }
 }

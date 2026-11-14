@@ -9,6 +9,7 @@
 import type { ServChargeOutcome } from "@/domain/serv-boundary";
 import type { Kv } from "@/io/kv";
 import { creditBalance, creditCompensateSpend, creditEventSeen, creditSpend } from "@/io/credit-book";
+import { isAdminUser } from "@/server/admin";
 
 export type SearchBillingSurface = "find" | "resale";
 
@@ -39,6 +40,9 @@ export async function reserveTrialSearchQuota(
 ): Promise<TrialSearchQuotaResult> {
   if (!userId.trim() || !attemptKey.trim() || attemptKey.length > 240) {
     return { ok: false, used: 0, remaining: 0, reason: "unavailable" };
+  }
+  if (await isAdminUser(kv, userId)) {
+    return { ok: true, used: 0, remaining: Number.MAX_SAFE_INTEGER, alreadyReserved: false };
   }
   const key = trialSearchQuotaKey(userId);
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -151,6 +155,9 @@ export async function reserveSearchCreditBeforeServ(
   idempotencyKey: string,
 ): Promise<ReserveSearchCreditResult> {
   const spendKey = searchBillingSpendKey(surface, userId, idempotencyKey);
+  if (await isAdminUser(kv, userId)) {
+    return { ok: true, balance: await creditBalance(kv, userId), spendKey, alreadyReserved: false };
+  }
   if (await creditEventSeen(kv, spendKey)) {
     return { ok: true, balance: await creditBalance(kv, userId), spendKey, alreadyReserved: true };
   }
