@@ -38,6 +38,7 @@ async function handle(request: Request) {
     kv: getKv(),
     now: new Date(),
     trigger: "cron",
+    maxEnabledWatches: 1,
     fetchImpl: fetch,
     autodevKey: process.env.AUTODEV_API_KEY?.trim(),
     servKey: process.env.SERV_API_KEY?.trim(),
