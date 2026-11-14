@@ -40,7 +40,8 @@ type ProofPayload = {
     totalTokens: number;
     cachedTokens: number;
     features: string[];
-    searchTrail: Array<{ zip: string; radiusMiles: number; priceMaxUsd: number; bodyFamily: string; returned: number }>;
+    inventorySearchCount: number;
+    inventoryListingsReturned: number;
     creditsCharged: boolean;
     productionDataChanged: boolean;
   };
@@ -193,7 +194,7 @@ export default function ProofPage() {
 
           <h2>What Find did during this run</h2>
           <ul className="refuse">
-            <li>Three live inventory searches in ZIP 80202 within 75 miles; two returned 20 listings and one returned none.</li>
+            <li>{proof.run.inventorySearchCount} live inventory searches in ZIP 80202 within 75 miles returned {proof.run.inventoryListingsReturned} vehicle listings in total.</li>
             <li>SERV made {proof.run.servCalls} calls and {proof.run.toolCalls} tool calls across {proof.run.toolRounds} tool rounds.</li>
             <li>VIN decode, safety, recall/complaint, fuel-economy and local asking-price evidence were requested for the selected vehicle.</li>
             <li>The run completed in {duration} seconds with a {proof.run.confidence}-confidence, needs-inspection verdict.</li>
