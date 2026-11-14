@@ -19,6 +19,10 @@ export function AccountPanel() {
   const account = useAccountLoad();
   const body: AccountSnapshot | null = account.phase === "loaded" ? account.body : null;
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminSessions, setAdminSessions] = useState("1");
+  const [adminGrantMsg, setAdminGrantMsg] = useState<string | null>(null);
+  const [adminGrantPending, setAdminGrantPending] = useState(false);
   const [pending, setPending] = useState(false);
   const [signingOut, startSignOut] = useTransition();
 
@@ -48,6 +52,38 @@ export function AccountPanel() {
       setClaimMsg("Claim failed.");
     } finally {
       setPending(false);
+    }
+  }
+
+  async function grantSearchAccess(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (adminGrantPending) return;
+    setAdminGrantPending(true);
+    setAdminGrantMsg(null);
+    try {
+      const response = await fetch("/api/admin/search-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: adminEmail, additionalSessions: Number(adminSessions) }),
+      });
+      const json = (await response.json()) as {
+        message?: string;
+        email?: string;
+        additionalSessionsGranted?: number;
+        totalExtraSessions?: number;
+      };
+      if (!response.ok) {
+        setAdminGrantMsg(json.message || "Could not grant additional search access.");
+        return;
+      }
+      setAdminGrantMsg(
+        `Granted ${json.additionalSessionsGranted ?? 0} additional Find/Resale search session(s) to ${json.email}. Total extra allowance: ${json.totalExtraSessions ?? 0}.`,
+      );
+      setAdminEmail("");
+    } catch {
+      setAdminGrantMsg("Could not grant additional search access.");
+    } finally {
+      setAdminGrantPending(false);
     }
   }
 
@@ -102,6 +138,40 @@ export function AccountPanel() {
         </p>
       ) : null}
       {claimMsg ? <p className="hint">{claimMsg}</p> : null}
+      {body.isAdmin ? (
+        <section className="onboarding-note" aria-label="Admin search access">
+          <h2>Admin · Additional search access</h2>
+          <p className="hint">
+            Grant extra Find and Resale search sessions to a registered, verified account. The allowance is combined across both products.
+          </p>
+          <form onSubmit={grantSearchAccess}>
+            <label htmlFor="admin-search-email">Account email</label>
+            <input
+              id="admin-search-email"
+              type="email"
+              required
+              value={adminEmail}
+              onChange={(event) => setAdminEmail(event.target.value)}
+              placeholder="user@example.com"
+            />
+            <label htmlFor="admin-search-count">Additional searches</label>
+            <input
+              id="admin-search-count"
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              required
+              value={adminSessions}
+              onChange={(event) => setAdminSessions(event.target.value)}
+            />
+            <button className="action" type="submit" disabled={adminGrantPending || !adminEmail.trim()}>
+              {adminGrantPending ? "Granting…" : "Grant additional searches"}
+            </button>
+          </form>
+          {adminGrantMsg ? <p className="hint" role="status">{adminGrantMsg}</p> : null}
+        </section>
+      ) : null}
       <p className="btn-row">
         <Link className="quiet" href="/credits">
           Credits
