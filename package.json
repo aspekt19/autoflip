@@ -2,7 +2,7 @@
   "name": "lemonless",
   "version": "0.1.0",
   "private": true,
-  "description": "Evaluation preview: a clear verdict on a used-car listing, plus a paid agent API for the same verdict.",
+  "description": "OpenServ SERV-powered used-car decision agent with live inventory, vehicle evidence, structured recommendations, and an external agent API.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
