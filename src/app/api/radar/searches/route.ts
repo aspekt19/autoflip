@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
   }
   const searches = await listSearches(kv);
-  if (isRadarTestModeEnabled() && searches.some((item) => item.enabled)) {
+  if (isRadarTestModeEnabled() && searches.length > 0) {
     return Response.json({
       error: "radar_test_watch_limit",
       message: "The current test allows one active Deal Radar watch across the entire project. Pause or remove the existing watch before creating another.",
