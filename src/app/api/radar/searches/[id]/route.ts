@@ -2,7 +2,7 @@ import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/pr
 import { getKv } from "@/io/kv";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
-import { readRadarTestModeState } from "@/server/radar-test-mode";
+import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if (index < 0) {
     return Response.json({ error: "not_found", message: "That saved search was not found." }, { status: 404 });
   }
-  if (body.enabled && searches.some((item) => item.enabled && item.id !== id)) {
+  if (isRadarTestModeEnabled() && body.enabled && searches.some((item) => item.enabled && item.id !== id)) {
     return Response.json({
       error: "radar_test_watch_limit",
       message: "The current test allows one active Deal Radar watch across the entire project.",
