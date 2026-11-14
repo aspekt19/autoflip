@@ -1,6 +1,11 @@
 import type { Kv } from "@/io/kv";
 
 const STOP_KEY = "radar:test-mode:stopped";
+
+/** Set RADAR_TEST_MODE=0 to re-arm normal Radar after the controlled demo. */
+export function isRadarTestModeEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.RADAR_TEST_MODE !== "0";
+}
 const CYCLE_LOCK_KEY = "radar:test-mode:cycle-lock";
 const CYCLE_LOCK_TTL_MS = 8 * 60 * 1000;
 
@@ -17,7 +22,13 @@ export const RADAR_TEST_DIRECT_SCAN_MESSAGE =
 const STOPPED_MESSAGE =
   "Deal Radar was automatically paused after its first test notification. Existing alerts remain available, but no further monitoring checks will run.";
 
-export async function readRadarTestModeState(kv: Kv): Promise<RadarTestModeState> {
+export async function readRadarTestModeState(
+  kv: Kv,
+  env: Record<string, string | undefined> = process.env,
+): Promise<RadarTestModeState> {
+  if (!isRadarTestModeEnabled(env)) {
+    return { stopped: false, stoppedAt: null, alertId: null, message: null };
+  }
   try {
     const raw = await kv.get(STOP_KEY);
     if (!raw) return { stopped: false, stoppedAt: null, alertId: null, message: null };
@@ -99,6 +110,7 @@ export async function stopRadarAfterFirstTestAlert(
   alertId: string,
   stoppedAt: string,
 ): Promise<RadarTestModeState> {
+  if (!isRadarTestModeEnabled()) return readRadarTestModeState(kv);
   await kv.setNx(
     STOP_KEY,
     JSON.stringify({ stoppedAt, alertId, message: STOPPED_MESSAGE }),
