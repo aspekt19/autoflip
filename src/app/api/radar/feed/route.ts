@@ -12,10 +12,9 @@ import {
   pauseWatchesRequiringPlan,
   plansFor,
 } from "@/server/plan-book";
-import { listAlerts, listRuns, listSearches, saveAlerts, saveSearches, seenVins } from "@/server/radar-store";
+import { getRadarTestMode, listAlerts, listRuns, listSearches, saveAlerts, saveSearches, seenVins } from "@/server/radar-store";
 import { seenStorageKey } from "@/domain/radar-watch";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
-import { readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +23,12 @@ export async function GET() {
   if (!access.ok) return access.response;
   const id = access.id;
   const kv = getKv();
-  const testMode = await readRadarTestModeState(kv);
-  const [rawSearches, rawAlerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
+  const [rawSearches, rawAlerts, runs, radarTestMode] = await Promise.all([
+    listSearches(kv),
+    listAlerts(kv),
+    listRuns(kv),
+    getRadarTestMode(kv),
+  ]);
   const plans = await plansFor(kv, id);
   const paused = pauseWatchesRequiringPlan(rawSearches, id, plans);
   if (paused.changed) {
@@ -53,7 +56,7 @@ export async function GET() {
   );
   const lastRun = myRuns[0] ?? null;
   const intervalHours = 24;
-  const nextRunAt = testMode.stopped ? null : nextDailyRadarRunIso();
+  const nextRunAt = nextDailyRadarRunIso();
 
   const listingCounts = await Promise.all(
     mine.map(async (search) => {
@@ -64,8 +67,8 @@ export async function GET() {
 
   return Response.json({
     demo: isDemoUser(id),
-    trialStopped: testMode.stopped,
-    trialStopMessage: testMode.message,
+    isAdmin: access.isAdmin,
+    radarTestMode,
     searches: mine,
     alerts: myAlerts,
     /** SERV radar_review skip — Reviewed — skipped (not buyer dismissals). */

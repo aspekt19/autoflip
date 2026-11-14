@@ -1,8 +1,7 @@
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 import { getKv } from "@/io/kv";
-import { listSearches, saveSearches } from "@/server/radar-store";
+import { getRadarTestMode, listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
-import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -32,30 +31,16 @@ export async function PATCH(request: Request, ctx: Ctx) {
   }
   const { kv, searches, index } = await loadOwned(id, access.id);
   if (body.enabled) {
-    const testMode = await readRadarTestModeState(kv);
-    if (testMode.stopped) {
-      return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
+    const radarTestMode = await getRadarTestMode(kv);
+    if (radarTestMode.status !== "armed") {
+      return Response.json(
+        { error: "radar_test_paused", message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first." },
+        { status: 423 },
+      );
     }
   }
   if (index < 0) {
     return Response.json({ error: "not_found", message: "That saved search was not found." }, { status: 404 });
-  }
-  if (isRadarTestModeEnabled() && body.enabled) {
-    const oldest = [...searches].sort(
-      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
-    )[0];
-    if (oldest && oldest.id !== id) {
-      return Response.json({
-        error: "radar_test_watch_limit",
-        message: "The controlled test uses only the oldest saved Deal Radar watch across the project.",
-      }, { status: 423 });
-    }
-    if (searches.some((item) => item.enabled && item.id !== id)) {
-      return Response.json({
-        error: "radar_test_watch_limit",
-        message: "The current test allows one active Deal Radar watch across the entire project.",
-      }, { status: 423 });
-    }
   }
   searches[index] = { ...searches[index]!, enabled: body.enabled };
   await saveSearches(kv, searches);

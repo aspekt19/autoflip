@@ -4,17 +4,21 @@ import { scoreRadar } from "@/domain/radar";
 import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
+import { getRadarTestMode } from "@/server/radar-store";
 import { parseMode, radarToolResult } from "@/server/mcp";
 import { requireVerifiedAccountForRadar } from "@/server/session";
-import { isRadarTestModeEnabled, RADAR_TEST_DIRECT_SCAN_MESSAGE } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForRadar();
   if (!access.ok) return access.response;
-  if (isRadarTestModeEnabled()) {
-    return Response.json({ error: "radar_test_mode_limited", message: RADAR_TEST_DIRECT_SCAN_MESSAGE }, { status: 423 });
+  const radarTestMode = await getRadarTestMode(getKv());
+  if (radarTestMode.status !== "armed") {
+    return Response.json(
+      { error: "radar_test_paused", message: "Deal Radar scans are globally paused after the one test notification. An admin must re-arm the next test notification first." },
+      { status: 423 },
+    );
   }
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });

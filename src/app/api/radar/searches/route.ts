@@ -5,9 +5,8 @@ import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
-import { listSearches, saveSearches } from "@/server/radar-store";
+import { getRadarTestMode, listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
-import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -71,17 +70,14 @@ export async function POST(request: Request) {
   }
 
   const kv = getKv();
-  const testMode = await readRadarTestModeState(kv);
-  if (testMode.stopped) {
-    return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
+  const radarTestMode = await getRadarTestMode(kv);
+  if (radarTestMode.status !== "armed") {
+    return Response.json(
+      { error: "radar_test_paused", message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first." },
+      { status: 423 },
+    );
   }
   const searches = await listSearches(kv);
-  if (isRadarTestModeEnabled() && searches.length > 0) {
-    return Response.json({
-      error: "radar_test_watch_limit",
-      message: "The current test allows one active Deal Radar watch across the entire project. Pause or remove the existing watch before creating another.",
-    }, { status: 423 });
-  }
   const mine = searches.filter((item) => item.ownerId === id);
   const totalEnabled = mine.filter((item) => item.enabled).length;
   const allowed = await allowance(kv, id, totalEnabled);
