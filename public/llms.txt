@@ -5,7 +5,8 @@ TypeScript owns the numbers; report credits settle only after successful deliver
 
 ## Auth
 - Create a key at /developers (signed-in browser).
-- Send `Authorization: Bearer af_YOUR_KEY` on every REST and MCP call.
+- Public MCP calls: `initialize`, `ping`, `tools/list`, and `get_payment_info` do not require a key.
+- Send `Authorization: Bearer af_YOUR_KEY` on protected REST endpoints and protected MCP `tools/call` operations. The header must accompany each protected call.
 - Scopes: `read` | `check` | `find` (default: all three). Resale uses `find`; Radar watches use `read`.
 - Optional: `Idempotency-Key` on paid calls to retry without a second charge.
 
@@ -64,7 +65,6 @@ Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, an
 
 ## Costs
 - Primary: site report credits + free monthly Check allotment.
-
 
 ## x402 payment receiver
 `0x250aC40Ab38E4f023c33C1c3DFD0Cd07357Fbf79` (Base USDC). Use only the address, never request or store private wallet credentials.
