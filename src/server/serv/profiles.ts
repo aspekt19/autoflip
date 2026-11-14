@@ -1,15 +1,10 @@
 /**
- * One profile per SERV use. A new service is a new entry here.
- * Suffixes and tool defaults follow the SERV Reasoning docs.
+ * One profile per SERV task. Add a focused entry here when a new reasoning
+ * step needs its own instructions, feature route, schema, timeout, or fallback.
  *
- * HACKATHON CONSTRAINT (owner t257/t258): OpenServ Graph is FORBIDDEN in contest
- * code, architecture, demos, and claims — directly or indirectly. This registry
- * must not enable, configure, or imply Graph. Kronos/Multipath model suffixes are
- * separate SERV Reasoning features, not the Graph product. Ordinary diagrams /
- * Open Graph meta tags are unrelated.
- *
- * The content filter stays on. serv_disable_content_filter is documented and unused,
- * because these prompts must not be quoted back to the shopper.
+ * Kronos and Multipath are selected through SERV Reasoning model-routing suffixes.
+ * Prompt Guard and Shadow Agent are represented as SERV feature markers.
+ * The content filter remains enabled for all production profiles.
  */
 
 /** Production default for all SERV steps. Override with env `SERV_MODEL` (or per-profile `SERV_PROFILE_MODEL_*`). */

@@ -198,10 +198,11 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
 }`}</pre>
           <h3>OpenServ auth note</h3>
           <p>
-            OpenServ (and similar hosts) must forward <code>Authorization: Bearer af_…</code> on{" "}
-            <strong>every</strong> JSON-RPC POST, including each <code>tools/call</code>. If the header is only sent on{" "}
-            <code>initialize</code>, later calls return <code>auth_required</code> with <code>credit_spent: false</code>.
-            Store the key as a platform secret and smoke-test with <code>tools/list</code> before a paid tool.
+            Public discovery calls (<code>initialize</code>, <code>ping</code>, <code>tools/list</code>) and{" "}
+            <code>get_payment_info</code> do not require a key. Protected <code>tools/call</code> operations must{" "}
+            include <code>Authorization: Bearer af_…</code> on every call; sending the header only during{" "}
+            <code>initialize</code> will not authenticate later protected calls. Store the key as a platform secret{" "}
+            and smoke-test public <code>tools/list</code> before testing a protected tool.
           </p>
         </section>
 

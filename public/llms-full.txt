@@ -9,9 +9,10 @@ same SERV plan/decide/second-check pipeline and the same report including the de
 ## Authentication
 1. Sign in on the site and open /developers.
 2. Create an API key (`af_…`). Copy it once. Optional body: `{ "label": "Cursor", "scopes": ["read","check","find"] }`.
-3. Send on every request:
+3. Protected REST endpoints and protected MCP `tools/call` operations require:
    `Authorization: Bearer af_YOUR_KEY`
-4. OpenServ / remote MCP hosts: put the Bearer header on **every** JSON-RPC POST (including tools/call). Do not rely on a one-time initialize header.
+4. Public MCP methods `initialize`, `ping`, `tools/list`, and `get_payment_info` do not require a key.
+5. OpenServ / remote MCP hosts: attach the Bearer header to every protected `tools/call`. Do not rely on a one-time initialize header to authenticate later protected calls.
 
 ## External autonomous agent payments (x402 v2)
 
@@ -146,7 +147,7 @@ Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), model
 ```
 
 ## OpenServ note
-OpenServ must forward `Authorization: Bearer af_…` on every tools/call POST. If headers are stripped, you get `auth_required` with `credit_spent: false`. Store the key as a secret; smoke with curl against /api/mcp tools/list first.
+OpenServ must forward `Authorization: Bearer af_…` on every protected tools/call POST. Public `initialize`, `ping`, `tools/list`, and `get_payment_info` calls do not require a key. If the header is missing on a protected call, the server returns `auth_required` with `credit_spent: false`. Store the key as a secret; smoke with curl against /api/mcp tools/list before testing a protected tool.
 
 ## Docs
 - Agent docs page: `/developers`
