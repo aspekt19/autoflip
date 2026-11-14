@@ -145,6 +145,7 @@ describe("verified admin account search allowance", () => {
     process.env.LEMONLESS_ADMIN_EMAILS = "GERASSYK@GMAIL.COM";
     try {
       const user = await KvAdapter(kv).createUser?.({
+        id: "admin-test-user",
         name: "Admin",
         email: "gerassyk@gmail.com",
         emailVerified: new Date(),
