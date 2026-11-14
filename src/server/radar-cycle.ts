@@ -775,7 +775,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const mergedSearches = await mergeChecked(deps.kv, searches);
     if (testModeEnabled && freshAlerts.length > 0) {
       const firstAlert = freshAlerts[0]!;
-      const stopped = await stopRadarAfterFirstTestAlert(deps.kv, firstAlert.id, deps.now.toISOString());
+      const stopped = await stopRadarAfterFirstTestAlert(deps.kv, firstAlert.id, deps.now.toISOString(), deps.env);
       await saveSearches(
         deps.kv,
         mergedSearches.map((item) => ({ ...item, enabled: false })),
