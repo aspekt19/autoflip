@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { signOutAction } from "@/auth/actions";
 import {
   ACCOUNT_LOAD_FAILED_LABEL,
@@ -55,7 +55,7 @@ export function AccountPanel() {
     }
   }
 
-  async function grantSearchAccess(event: React.FormEvent<HTMLFormElement>) {
+  async function grantSearchAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (adminGrantPending) return;
     setAdminGrantPending(true);
