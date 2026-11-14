@@ -14,6 +14,18 @@ The experiment must distinguish three things:
 
 A result for (1) or (2) must not be presented as proof of (3).
 
+## Canonical Proof scenario
+
+All arms in the initial public-facing experiment use this exact request verbatim (including punctuation):
+
+> I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?
+
+Do not paraphrase, shorten, translate, or silently normalize this prompt between arms. Store the UTF-8 prompt bytes and SHA-256 in the experiment manifest. The same confirmed structured brief derived from this request must be supplied to every arm; record it separately so any parser differences are visible rather than hidden.
+
+The initial Denver scenario should use one timestamped, frozen inventory/comps cassette. The earlier Proof Find run (2026-11-13, run ID `run_2e88e0fb64f74f818f31`) is historical context only; do not treat it as the paired cassette unless its complete raw tool responses, source timestamps, and hashes are available and verified. Do not launch separate live inventory searches for the A/B arms.
+
+For this first experiment, keep the canonical prompt as the primary case. Additional stress scenarios may be added later, but report them separately and never blend them into the Denver result.
+
 ## Existing infrastructure reviewed
 
 - `npm run eval:serv-vs-baseline` → `scripts/eval-serv-vs-baseline.ts`
