@@ -273,6 +273,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     if (!deps.autodevKey) notes.push("AUTODEV_API_KEY is not set. No listings were requested and no alerts were invented.");
 
     const due: { key: string; group: SavedSearch[]; urls: string[] }[] = [];
+    let testModeProviderCalls = 0;
     for (const [key, group] of groups) {
       // Paid-only: skip watches whose owner has no active radar plan.
       const paidGroup: SavedSearch[] = [];
@@ -314,6 +315,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           urls.push(url);
           continue;
         }
+        if (testModeEnabled && testModeProviderCalls >= 1) {
+          notes.push("Test mode permits one uncached Auto.dev inventory request per cycle. Additional model queries were skipped.");
+          halted = true;
+          break;
+        }
         if (remain() < 1_500) {
           notes.push("Stopped before another listings call so this run can be saved.");
           steps.push({ id: "listings", status: "partial", detail: "deadline" });
@@ -328,6 +334,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           break;
         }
         autodevCalls += 1;
+        if (testModeEnabled) testModeProviderCalls += 1;
         urls.push(url);
       }
       if (urls.length) due.push({ key, group: paidGroup, urls });
@@ -412,7 +419,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
           let judged: Awaited<ReturnType<typeof decideRadarFlip>> | null = null;
-          if (fresh.length > 0 && deps.servKey) {
+          const reviewFresh = testModeEnabled ? fresh.slice(0, 1) : fresh;
+          if (reviewFresh.length > 0 && deps.servKey) {
             const ownerPlans = await plansOf(search.ownerId);
             const servSlot = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
             if (!servSlot.ok) {
@@ -420,7 +428,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             } else {
               // Thin decide façade — PR B plugs into decideRadarFlip / ports.decideRadarFlip.
               judged = await decideRadarFlip({
-                fresh,
+                fresh: reviewFresh,
                 searchId: search.id,
                 remainMs: remain(),
                 ceilingMs: limits.serv,
@@ -436,7 +444,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 await incrementServUsage(deps.kv, search.ownerId, 1);
               }
             }
-          } else if (fresh.length > 0) {
+          } else if (reviewFresh.length > 0) {
             judged = await decideRadarFlip({
               fresh,
               searchId: search.id,
@@ -461,7 +469,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 : "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
             );
           }
-          for (const item of fresh) {
+          for (const item of reviewFresh) {
             if (testModeEnabled && freshAlerts.length > 0) break;
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
@@ -608,7 +616,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         );
-        const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
+        const winners = ranked.slice(0, testModeEnabled ? 1 : ASSUMPTIONS.radarMaxServPerSearch);
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
@@ -619,6 +627,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           if (hardReject(item.listing, search.criteria, deps.now.getUTCFullYear())) continue;
           if (item.listing.priceUsd == null) continue;
           if (winnerVins.has(item.listing.vin)) continue;
+          if (testModeEnabled) continue; // Keep later candidates eligible for the next bounded test cycle.
           book.set(item.listing.vin, item.listing.priceUsd);
         }
         touchedOwnerIds.add(search.ownerId);
