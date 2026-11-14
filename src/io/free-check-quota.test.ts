@@ -5,6 +5,7 @@ import {
   readFreeCheckQuota,
   releaseFreeCheck,
   reserveFreeCheck,
+  rollbackFreeCheck,
 } from "./free-check-quota";
 import { FREE_VEHICLE_CHECKS_PER_MONTH } from "@/domain/free-check-quota";
 
@@ -57,6 +58,30 @@ describe("free vehicle-check monthly quota", () => {
     expect(reFree.ok).toBe(false);
     if (!reFree.ok) expect(reFree.reason).toBe("already_completed");
     expect((await readFreeCheckQuota(kv, USER, now)).used).toBe(1);
+  });
+
+  it("reclaims stale reservations and rolls back a committed slot after failed delivery", async () => {
+    const kv = new MemoryKv();
+    const started = new Date("2026-11-09T12:00:00.000Z");
+    const stale = await reserveFreeCheck(kv, USER, "stale-run", started);
+    expect(stale.ok).toBe(true);
+
+    const later = new Date(started.getTime() + 7 * 60_000);
+    const fresh = await reserveFreeCheck(kv, USER, "fresh-run", later);
+    expect(fresh.ok).toBe(true);
+    expect((await readFreeCheckQuota(kv, USER, later)).used).toBe(0);
+
+    if (fresh.ok) expect((await commitFreeCheck(kv, USER, "fresh-run", later)).ok).toBe(true);
+    expect((await readFreeCheckQuota(kv, USER, later)).used).toBe(1);
+
+    const rolledBack = await rollbackFreeCheck(kv, USER, "fresh-run", later);
+    expect(rolledBack.ok).toBe(true);
+    expect(rolledBack.rolledBack).toBe(true);
+    expect((await readFreeCheckQuota(kv, USER, later)).used).toBe(0);
+
+    // A retry after failed delivery can reserve the same idempotency key again.
+    const retry = await reserveFreeCheck(kv, USER, "fresh-run", later);
+    expect(retry.ok).toBe(true);
   });
 
   it("does not allow concurrent reserves to exceed the monthly cap", async () => {

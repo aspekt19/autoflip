@@ -4,7 +4,7 @@
  */
 import { freeCheckMonthKey } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
-import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
+import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck, rollbackFreeCheck } from "@/io/free-check-quota";
 import type { Kv } from "@/io/kv";
 import { creditBalance, creditCompensateSpend } from "@/io/credit-book";
 import {
@@ -122,10 +122,11 @@ export async function runAgentCheck(
   const suppliedKey = input.idempotencyKey?.trim().slice(0, 80) || null;
   const clientKey = suppliedKey || crypto.randomUUID();
   const lockToken = crypto.randomUUID();
+  const idempotencyLockTtlMs = 6 * 60_000;
   if (suppliedKey) {
     const cached = await readCachedCheck(deps.kv, caller.userId, clientKey);
     if (cached) return { ok: true, body: cached };
-    const locked = await deps.kv.setNx(checkLockKey(caller.userId, clientKey), lockToken, { ttlMs: 60_000 });
+    const locked = await deps.kv.setNx(checkLockKey(caller.userId, clientKey), lockToken, { ttlMs: idempotencyLockTtlMs });
     if (!locked) {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -254,7 +255,10 @@ export async function runAgentCheck(
         creditSpent = true;
         credits = 1;
       }
-      if (usedFreeCheck && freeCheckKey) await commitFreeCheck(deps.kv, caller.userId, freeCheckKey);
+      if (usedFreeCheck && freeCheckKey) {
+        const committed = await commitFreeCheck(deps.kv, caller.userId, freeCheckKey);
+        if (!committed.ok) throw new Error("free_check_commit_failed");
+      }
     }
 
     const verdict = agentVerdictFromCheck(result.result);
@@ -314,7 +318,7 @@ export async function runAgentCheck(
       chargeReversed = compensation?.ok === true;
     }
     if (usedFreeCheck && freeCheckKey) {
-      await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey).catch(() => undefined);
+      await rollbackFreeCheck(deps.kv, caller.userId, freeCheckKey).catch(() => undefined);
     }
     return {
       ok: false,
