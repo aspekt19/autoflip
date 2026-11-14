@@ -64,7 +64,7 @@ export function GET() {
       find_cars: "1 credit after a successful search",
       resale_search: "1 credit when final Resale verdict is delivered",
       full_report: "1 credit with an af_ key, or $3 USDC direct x402 payment on /api/v1/report",
-      deal_radar: "free (scan)",
+      deal_radar: "temporarily disabled during the one-notification test",
       radar_watches: "plan-gated saved searches (Radar / Radar Pro)",
       credits: "/credits",
       agentPayments: "/api/agents/payment-info",
