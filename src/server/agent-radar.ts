@@ -201,7 +201,7 @@ export async function agentSaveRadarWatch(
       status: 423,
       body: agentError({
         error_code: "radar_test_watch_limit",
-        message: "The current test allows one active Deal Radar watch across the entire project.",
+        message: "The controlled test allows only one saved Deal Radar watch across the entire project. Remove the existing watch before adding another.",
         next_steps: {
           action: "read_existing_watches",
           summary: "Pause or remove the existing watch before creating another.",
