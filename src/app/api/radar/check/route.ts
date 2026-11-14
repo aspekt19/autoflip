@@ -9,7 +9,7 @@ import { lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/r
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
-import { readRadarTestModeState } from "@/server/radar-test-mode";
+import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     kv,
     now: new Date(),
     trigger: "check_now",
-    maxEnabledWatches: 1,
+    ...(isRadarTestModeEnabled(process.env) ? { maxEnabledWatches: 1 } : {}),
     fetchImpl: fetch,
     autodevKey: process.env.AUTODEV_API_KEY?.trim(),
     servKey: process.env.SERV_API_KEY?.trim(),
