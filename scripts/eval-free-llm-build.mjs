@@ -7,7 +7,7 @@ const RESULT_PATH = "eval/results/nemotron-free-baseline.json";
 const PROMPT =
   "I'm in Denver 80202, budget $25k all-in, need an AWD SUV for mountain winters and a 40-mile daily commute. Two kids, so safety matters most. Under 100k miles, no accident or salvage history, low fuel cost. Within 75 miles. Which one should I buy and what should I offer?";
 
-function emit(payload: Record<string, unknown>) {
+function emit(payload) {
   console.log("FREE_LLM_EVAL_RESULT " + JSON.stringify(payload));
 }
 
@@ -59,7 +59,7 @@ async function main() {
     });
 
     const responseText = await response.text();
-    let payload: Record<string, any>;
+    let payload;
     try {
       payload = JSON.parse(responseText);
     } catch {
