@@ -246,6 +246,8 @@ export type FindAgentLoopDeps = {
   servKey: string;
   autodevKey: string;
   fetch?: typeof fetch;
+  /** Eval-only upstream tool transport; SERV model calls keep using fetch. */
+  toolFetch?: typeof fetch;
   servBaseUrl?: string;
   /** Autodev cache/counter/reserve — tests inject MemoryCounter. */
   autodev?: FindAgentToolDeps["autodev"];
@@ -2371,7 +2373,7 @@ export async function runFindAgentLoop(input: {
       ? makeAgentLoopDeadline(input.budgetMs)
       : input.deadline;
   const toolDeps: FindAgentToolDeps = {
-    fetch: fetchImpl,
+    fetch: input.deps.toolFetch ?? fetchImpl,
     autodevKey: input.deps.autodevKey,
     autodev: input.deps.autodev ?? {
       cache: new TtlCache<unknown>(),
