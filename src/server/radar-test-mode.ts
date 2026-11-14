@@ -1,4 +1,5 @@
 import type { Kv } from "@/io/kv";
+import { claimRadarTestNotification } from "@/server/radar-store";
 
 const STOP_KEY = "radar:test-mode:stopped";
 
@@ -140,10 +141,8 @@ export async function stopRadarAfterFirstTestAlert(
   env: Record<string, string | undefined> = process.env,
 ): Promise<RadarTestModeState> {
   if (!isRadarTestModeEnabled(env)) return readRadarTestModeState(kv, env);
-  await kv.setNx(
-    STOP_KEY,
-    JSON.stringify({ stoppedAt, alertId, message: STOPPED_MESSAGE }),
-  );
+  // The REST/MCP/admin gates and Cron must share the same atomic stop claim.
+  await claimRadarTestNotification(kv, alertId, new Date(stoppedAt));
   return readRadarTestModeState(kv, env);
 }
 
