@@ -362,8 +362,10 @@ export async function armRadarTestMode(kv: Kv, now = new Date()): Promise<RadarT
   };
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raw = await kv.get(RADAR_TEST_MODE_KEY);
-    if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, JSON.stringify(next))) {
-      // A new explicit test arm starts a fresh bounded test-cycle budget.
+    if (raw === null) return next;
+    // The Cron safety reader treats any non-empty stop key as stopped.
+    // Re-arming therefore deletes the shared stop marker atomically.
+    if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, null)) {
       await kv.delete("radar:test-mode:cycle-count");
       const searches = await listSearches(kv);
       await saveSearches(
