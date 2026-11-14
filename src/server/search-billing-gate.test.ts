@@ -3,6 +3,7 @@ import { MemoryKv } from "@/io/kv";
 import { creditBalance, creditGrant } from "@/io/credit-book";
 import {
   commitSearchCreditOnDelivery,
+  grantAdditionalTrialSearchSessions,
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
@@ -132,6 +133,22 @@ describe("search billing gate (shared Find/Resale/MCP)", () => {
     expect(second.ok).toBe(true);
     expect(third.ok).toBe(false);
     if (!third.ok) expect(third.reason).toBe("limit");
+  });
+
+  it("lets an admin grant extra combined Find and Resale sessions to an account", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 5, "grant-test-init");
+    expect((await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-first")).ok).toBe(true);
+    expect((await reserveSearchCreditBeforeServ(kv, "resale", USER, "grant-second")).ok).toBe(true);
+    const denied = await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-third-before");
+    expect(denied.ok).toBe(false);
+    expect(await grantAdditionalTrialSearchSessions(kv, USER, 2)).toBe(2);
+    expect((await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-third-after")).ok).toBe(true);
+    expect((await reserveSearchCreditBeforeServ(kv, "resale", USER, "grant-fourth-after")).ok).toBe(true);
+    const exhausted = await reserveSearchCreditBeforeServ(kv, "find", USER, "grant-fifth");
+    expect(exhausted.ok).toBe(false);
+    if (!exhausted.ok) expect(exhausted.reason).toBe("trial_limit");
+    expect(await creditBalance(kv, USER)).toBe(1);
   });
 
 });
