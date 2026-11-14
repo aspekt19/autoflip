@@ -142,7 +142,7 @@ export function AccountPanel() {
         <section className="onboarding-note" aria-label="Admin search access">
           <h2>Admin · Additional search access</h2>
           <p className="hint">
-            Grant extra Find and Resale search sessions to a registered, verified account. The allowance is combined across both products.
+            Grant extra Find and Resale search sessions to a registered, verified account. The allowance is combined across both products; normal report-credit requirements still apply.
           </p>
           <form onSubmit={grantSearchAccess}>
             <label htmlFor="admin-search-email">Account email</label>
