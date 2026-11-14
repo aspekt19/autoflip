@@ -70,7 +70,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "Deal Radar make/model listing scan (same price rating as the site). Scope: read. Does not create or unlock a saved watch — saved Deal Radar watches require a paid Radar or Radar Pro plan on the signed-in /radar page (cron). This MCP call does not debit report credits. Always returns exactly one radar_guard row in proofRecords (ok, skipped_no_key when SERV_API_KEY is missing, or failed with the real reason). Recalls and fuel are not included; use full_report or check_car for those.",
+        "Temporarily disabled during the one-notification test to prevent ad-hoc provider spend. Use radar_save_watch and radar_check_now for the single controlled saved-watch test. This scan does not debit report credits when enabled.",
       inputSchema: {
         type: "object",
         properties: {
