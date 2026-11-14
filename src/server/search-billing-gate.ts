@@ -15,6 +15,16 @@ export type SearchBillingSurface = "find" | "resale";
 
 export const TRIAL_SEARCH_LIMIT_PER_ACCOUNT = 2;
 export const TRIAL_SEARCH_CONTACT_EMAIL = "gerassyk@gmail.com";
+export const TRIAL_SEARCH_EXTRA_KEY_PREFIX = "trial:search-extra:v1:";
+
+export async function grantAdditionalTrialSearchSessions(kv: Kv, userId: string, count: number): Promise<number> {
+  if (!userId.trim() || !Number.isInteger(count) || count < 1 || count > 100) {
+    throw new Error("invalid_search_access_grant");
+  }
+  let total = 0;
+  for (let i = 0; i < count; i += 1) total = await kv.incr(`${TRIAL_SEARCH_EXTRA_KEY_PREFIX}${userId}`);
+  return total;
+}
 export const TRIAL_SEARCH_LIMIT_MESSAGE =
   "You've reached the temporary limit of 2 Find or Resale search sessions per account (combined) while Lemonless is in test mode. For additional access or to share feedback, email gerassyk@gmail.com.";
 
@@ -44,6 +54,12 @@ export async function reserveTrialSearchQuota(
   if (await isAdminUser(kv, userId)) {
     return { ok: true, used: 0, remaining: Number.MAX_SAFE_INTEGER, alreadyReserved: false };
   }
+  const extraRaw = await kv.get(`${TRIAL_SEARCH_EXTRA_KEY_PREFIX}${userId}`);
+  const extra = extraRaw === null ? 0 : Number(extraRaw);
+  if (!Number.isSafeInteger(extra) || extra < 0) {
+    return { ok: false, used: 0, remaining: 0, reason: "unavailable" };
+  }
+  const limit = TRIAL_SEARCH_LIMIT_PER_ACCOUNT + extra;
   const key = trialSearchQuotaKey(userId);
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const raw = await kv.get(key);
@@ -71,11 +87,11 @@ export async function reserveTrialSearchQuota(
       return {
         ok: true,
         used: current.attempts.length,
-        remaining: Math.max(0, TRIAL_SEARCH_LIMIT_PER_ACCOUNT - current.attempts.length),
+        remaining: Math.max(0, limit - current.attempts.length),
         alreadyReserved: true,
       };
     }
-    if (current.attempts.length >= TRIAL_SEARCH_LIMIT_PER_ACCOUNT) {
+    if (current.attempts.length >= limit) {
       return { ok: false, used: current.attempts.length, remaining: 0, reason: "limit" };
     }
 
@@ -84,7 +100,7 @@ export async function reserveTrialSearchQuota(
       return {
         ok: true,
         used: next.attempts.length,
-        remaining: Math.max(0, TRIAL_SEARCH_LIMIT_PER_ACCOUNT - next.attempts.length),
+        remaining: Math.max(0, limit - next.attempts.length),
         alreadyReserved: false,
       };
     }
