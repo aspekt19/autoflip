@@ -2,6 +2,7 @@ import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/pr
 import { getKv } from "@/io/kv";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
+import { readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return Response.json({ error: "invalid", message: "Send { enabled: true|false }." }, { status: 400 });
   }
   const { kv, searches, index } = await loadOwned(id, access.id);
+  if (body.enabled) {
+    const testMode = await readRadarTestModeState(kv);
+    if (testMode.stopped) {
+      return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
+    }
+  }
   if (index < 0) {
     return Response.json({ error: "not_found", message: "That saved search was not found." }, { status: 404 });
   }
