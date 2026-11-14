@@ -44,7 +44,7 @@ export async function agentListRadarWatches(caller: AgentCaller, deps: AgentRada
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
   }
-  const testMode = await readRadarTestModeState(deps.kv);
+  const testMode = await readRadarTestModeState(deps.kv, deps.env ?? process.env);
   const searches = (await listSearches(deps.kv)).filter((row) => row.ownerId === caller.userId);
   const alerts = (await listAlerts(deps.kv)).filter((row) =>
     searches.some((search) => search.id === row.searchId),
@@ -81,7 +81,7 @@ export async function agentSaveRadarWatch(
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
   }
-  const testMode = await readRadarTestModeState(deps.kv);
+  const testMode = await readRadarTestModeState(deps.kv, deps.env ?? process.env);
   if (testMode.stopped) {
     return { ok: false as const, status: 423, body: agentError({
       error_code: "radar_test_complete",
@@ -195,7 +195,7 @@ export async function agentSaveRadarWatch(
   }
 
   const searches = await listSearches(deps.kv);
-  if (isRadarTestModeEnabled() && searches.length > 0) {
+  if (isRadarTestModeEnabled(deps.env ?? process.env) && searches.length > 0) {
     return {
       ok: false as const,
       status: 423,
@@ -269,7 +269,9 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
   if (!resolveProductFlags().dealRadar) {
     return { ok: false as const, status: 404, body: radarUnavailable(deps.origin) };
   }
-  const testMode = await readRadarTestModeState(deps.kv);
+  const env = deps.env ?? process.env;
+  const testModeEnabled = isRadarTestModeEnabled(env);
+  const testMode = await readRadarTestModeState(deps.kv, env);
   if (testMode.stopped) {
     return { ok: true as const, body: {
       runId: null, notes: [testMode.message ?? "Deal Radar is paused after its first test notification."],
@@ -277,19 +279,6 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
       summary: "Deal Radar monitoring is stopped for the one-notification test.",
       trialStopped: true,
     } };
-  }
-  const lastCheck = await lastCheckNow(deps.kv);
-  const nowMs = (deps.now ?? new Date()).getTime();
-  if (!checkNowAllowed(lastCheck, nowMs)) {
-    return { ok: false as const, status: 429, body: agentError({
-      error_code: "radar_check_rate_limited",
-      message: "A shared Deal Radar check ran in the last 30 minutes. No new provider requests were started.",
-      next_steps: {
-        action: "retry_after_cooldown",
-        summary: "Wait until the shared 30-minute check window has elapsed, then retry.",
-        request: { method: "POST", url: `${deps.origin}/api/v1/radar/check` },
-      },
-    }) };
   }
   const mine = (await listSearches(deps.kv)).filter(
     (item) => item.ownerId === caller.userId && item.enabled,
@@ -308,20 +297,35 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
       },
     };
   }
-  await markCheckNow(deps.kv, nowMs);
+  if (testModeEnabled) {
+    const lastCheck = await lastCheckNow(deps.kv);
+    const nowMs = (deps.now ?? new Date()).getTime();
+    if (!checkNowAllowed(lastCheck, nowMs)) {
+      return { ok: false as const, status: 429, body: agentError({
+        error_code: "radar_check_rate_limited",
+        message: "A shared Deal Radar check ran in the last 30 minutes. No new provider requests were started.",
+        next_steps: {
+          action: "retry_after_cooldown",
+          summary: "Wait until the shared 30-minute check window has elapsed, then retry.",
+          request: { method: "POST", url: `${deps.origin}/api/v1/radar/check` },
+        },
+      }) };
+    }
+    await markCheckNow(deps.kv, nowMs);
+  }
   const run = await runRadarCycle({
     kv: deps.kv,
     now: deps.now ?? new Date(),
     trigger: "check_now",
-    ...(isRadarTestModeEnabled(deps.env ?? process.env) ? { maxEnabledWatches: 1 } : {}),
+    ...(testModeEnabled ? { maxEnabledWatches: 1 } : {}),
     forceAll: true,
     fetchImpl: deps.fetchImpl ?? fetch,
-    autodevKey: (deps.env ?? process.env).AUTODEV_API_KEY?.trim(),
-    servKey: deps.servKey ?? (deps.env ?? process.env).SERV_API_KEY?.trim(),
-    servModel: deps.servModel ?? (deps.env ?? process.env).SERV_MODEL,
-    servBaseUrl: deps.servBaseUrl ?? (deps.env ?? process.env).SERV_BASE_URL,
+    autodevKey: env.AUTODEV_API_KEY?.trim(),
+    servKey: deps.servKey ?? env.SERV_API_KEY?.trim(),
+    servModel: deps.servModel ?? env.SERV_MODEL,
+    servBaseUrl: deps.servBaseUrl ?? env.SERV_BASE_URL,
     origin: deps.origin,
-    env: deps.env ?? process.env,
+    env,
   });
   const mySearchIds = new Set(mine.map((item) => item.id));
   const ownerServActivity = (run.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId));
