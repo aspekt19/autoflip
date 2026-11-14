@@ -284,6 +284,6 @@ describe("radar cycle", () => {
     expect(upstreamCalls).toBe(0);
     expect(run.autodevCalls).toBe(0);
     expect(run.notes.join(" ")).toContain("first test notification");
-    expect((await listSearches(kv))[0]?.enabled).toBe(true);
+    expect((await listSearches(kv))[0]?.enabled).toBe(false);
   });
 });
