@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
+import { armRadarTestMode, getRadarTestMode, stopRadarTestMode } from "@/server/radar-store";
 import {
   acquireRadarTestCycle,
   readRadarTestModeState,
@@ -78,4 +79,19 @@ describe("Radar one-notification test mode", () => {
     }
     expect((await readRadarTestModeState(kv, { RADAR_TEST_MODE: "1" })).stopped).toBe(true);
   });
+  it("uses one shared stop flag for the first alert, admin stop, API gates, and re-arm", async () => {
+    const kv = new MemoryKv();
+    await stopRadarAfterFirstTestAlert(kv, "alert-shared", "2026-11-14T12:00:00.000Z", { RADAR_TEST_MODE: "1" });
+    expect((await getRadarTestMode(kv)).status).toBe("stopped");
+    expect((await readRadarTestModeState(kv, { RADAR_TEST_MODE: "1" })).stopped).toBe(true);
+
+    await armRadarTestMode(kv);
+    expect((await getRadarTestMode(kv)).status).toBe("armed");
+    expect((await readRadarTestModeState(kv, { RADAR_TEST_MODE: "1" })).stopped).toBe(false);
+
+    await stopRadarTestMode(kv);
+    expect((await getRadarTestMode(kv)).status).toBe("stopped");
+    expect((await readRadarTestModeState(kv, { RADAR_TEST_MODE: "1" })).stopped).toBe(true);
+  });
+
 });
