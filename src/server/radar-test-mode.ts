@@ -65,7 +65,7 @@ export async function acquireRadarTestCycle(
   runId: string,
   env: Record<string, string | undefined>,
 ): Promise<{ ok: true } | { ok: false; stopped: boolean; message: string }> {
-  const state = await readRadarTestModeState(kv);
+  const state = await readRadarTestModeState(kv, env);
   if (state.stopped) {
     return { ok: false, stopped: true, message: state.message ?? STOPPED_MESSAGE };
   }
@@ -86,7 +86,7 @@ export async function acquireRadarTestCycle(
       };
     }
     // Re-read after acquiring the lock to close the race with a concurrent stop.
-    const current = await readRadarTestModeState(kv);
+    const current = await readRadarTestModeState(kv, env);
     if (current.stopped) {
       await kv.compareAndSwap(CYCLE_LOCK_KEY, runId, null);
       return { ok: false, stopped: true, message: current.message ?? STOPPED_MESSAGE };
@@ -109,13 +109,14 @@ export async function stopRadarAfterFirstTestAlert(
   kv: Kv,
   alertId: string,
   stoppedAt: string,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<RadarTestModeState> {
-  if (!isRadarTestModeEnabled()) return readRadarTestModeState(kv);
+  if (!isRadarTestModeEnabled(env)) return readRadarTestModeState(kv, env);
   await kv.setNx(
     STOP_KEY,
     JSON.stringify({ stoppedAt, alertId, message: STOPPED_MESSAGE }),
   );
-  return readRadarTestModeState(kv);
+  return readRadarTestModeState(kv, env);
 }
 
 export async function radarTestModeIsBusy(kv: Kv): Promise<boolean> {
