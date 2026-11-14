@@ -1,4 +1,5 @@
 import { getKv } from "@/io/kv";
+import { requireMoneyAuthStore } from "@/io/kv-guard";
 import { createApiKey, listApiKeyBindings, listApiKeys, revokeApiKey } from "@/server/api-keys";
 import { ledgerOwnerId } from "@/server/session";
 
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 const ACTIVE_LIMIT = 5;
 
 export async function GET() {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
   const id = await ledgerOwnerId();
   const kv = getKv();
   const keys = await listApiKeys(kv, id);
@@ -23,6 +26,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
   const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { label?: unknown; scopes?: unknown } | null;
   const label = typeof body?.label === "string" ? body.label : "Agent key";
@@ -43,6 +48,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
   const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
   const keyId = typeof body?.id === "string" ? body.id : "";

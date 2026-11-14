@@ -8,6 +8,7 @@ import { createApiKey } from "@/server/api-keys";
 import { authenticateAgentRequest, authFailureResponse } from "@/server/agent-auth";
 import { agentError, insufficientCreditsEnvelope } from "@/server/agent-envelope";
 import { runAgentCheck } from "@/server/agent-check";
+import { commitFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { advanceAgentFindRun, createAgentFindRun } from "@/server/agent-find";
 import { consumeAgentRateLimit } from "@/server/agent-rate-limit";
 import { listAgentReceiptIds, publicAgentReceipt, readAgentReceipt, writeAgentReceipt } from "@/server/agent-receipts";
@@ -285,5 +286,31 @@ describe("agentError helper", () => {
     });
     expect(body.error).toBe("missing_subject");
     expect(body.next_action).toContain("Include vin");
+  });
+});
+
+
+describe("agent check billing edge cases", () => {
+  it("releases the idempotency lock when the initial credit gate denies the request", async () => {
+    const kv = new MemoryKv();
+    const userId = "exhausted-check-user";
+    for (let index = 0; index < 3; index += 1) {
+      const key = `seed-free-${index}`;
+      const reserved = await reserveFreeCheck(kv, userId, key);
+      expect(reserved.ok).toBe(true);
+      expect((await commitFreeCheck(kv, userId, key)).ok).toBe(true);
+    }
+
+    const caller = { userId, keyId: "key-1", keyPrefix: "af_test" } as Parameters<typeof runAgentCheck>[0];
+    const result = await runAgentCheck(
+      caller,
+      { vin: "1HGCM82633A004352", idempotencyKey: "no-credit-lock-release" },
+      { kv, origin: "http://localhost" },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(402);
+    expect(await kv.get(`agent:check:lock:${userId}:no-credit-lock-release`)).toBeNull();
   });
 });

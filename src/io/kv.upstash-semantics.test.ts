@@ -8,7 +8,7 @@ import { monthKey } from "./quota";
  * they do NOT claim MemoryKv proves multi-instance durability.
  */
 describe("Upstash Kv command semantics (offline stub)", () => {
-  it("durable setNx omits PX; credit-lock setNx includes PX 4000", async () => {
+  it("durable setNx omits PX; credit-lock lease is uniquely owned and bounded", async () => {
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const args = JSON.parse(String(init?.body)) as string[];
       if (args[0] === "SET" && args.includes("NX") && !args.includes("PX")) {
@@ -22,13 +22,16 @@ describe("Upstash Kv command semantics (offline stub)", () => {
     const kv = new UpstashKv("https://upstash.test", "token", fetchImpl as typeof fetch);
 
     await kv.setNx("quota:total:count:2026-11", "50"); // durable seed
-    await kv.setNx("credits:lock", "1", { ttlMs: 4000 }); // credit lock
+    await kv.setNx("credits:lock", "lock-owner-1", { ttlMs: 30_000 }); // unique credit-lock lease
+    await kv.setNx("free-check:lock:user:2026-11", "quota-owner-1", { ttlMs: 30_000 }); // unique quota-lock lease
 
     const durable = kv.commands.find((c) => c[1] === "quota:total:count:2026-11");
     const lock = kv.commands.find((c) => c[1] === "credits:lock");
     expect(durable).toEqual(["SET", "quota:total:count:2026-11", "50", "NX"]);
     expect(durable).not.toContain("PX");
-    expect(lock).toEqual(["SET", "credits:lock", "1", "NX", "PX", "4000"]);
+    expect(lock).toEqual(["SET", "credits:lock", "lock-owner-1", "NX", "PX", "30000"]);
+    const quotaLock = kv.commands.find((c) => c[1] === "free-check:lock:user:2026-11");
+    expect(quotaLock).toEqual(["SET", "free-check:lock:user:2026-11", "quota-owner-1", "NX", "PX", "30000"]);
   });
 
   it("expired PX seed must not be how monthly counters are initialized (regression)", async () => {

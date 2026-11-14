@@ -6,6 +6,7 @@ import {
   X402_USDC,
   agentPaymentInfo,
   isX402Configured,
+  withX402Payment,
 } from "./x402-payments";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -31,5 +32,26 @@ describe("Lemonless x402 agent payment catalog", () => {
     vi.stubEnv("CDP_API_KEY_SECRET", "");
     expect(isX402Configured()).toBe(false);
     expect(agentPaymentInfo("https://example.test").available).toBe(false);
+  });
+
+  it("refuses paid requests and advertises unavailable when hosted storage is ephemeral", async () => {
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    vi.stubEnv("CDP_API_KEY_ID", "configured-id");
+    vi.stubEnv("CDP_API_KEY_SECRET", "configured-secret");
+    expect(isX402Configured()).toBe(true);
+    expect(agentPaymentInfo("https://example.test").available).toBe(false);
+    expect(agentPaymentInfo("https://example.test").storage_ready).toBe(false);
+
+    const operation = vi.fn(async () => ({ response: Response.json({ ok: true }) }));
+    const response = await withX402Payment(
+      new Request("https://example.test/api/agents/register", { method: "POST" }),
+      operation,
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json()).charged).toBe(false);
+    expect(operation).not.toHaveBeenCalled();
   });
 });

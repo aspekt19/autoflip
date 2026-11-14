@@ -81,7 +81,6 @@
     ],
     "creditsCharged": false,
     "productionDataChanged": false,
-    "githubRunUrl": "https://github.com/aspekt19/autoflip/actions/runs/43502039509",
     "servResponseIds": [
       "resp_0d1845524b5c558c016af77341a79487d2a369b17ed554771a",
       "resp_0d1845524b5c558c016af77343e98887d2bfae634f81feb4d6",
@@ -98,8 +97,7 @@
     "listing": "https://www.lovelandlincoln.com/used-Loveland-2021-Subaru-Forester-Premium-JF2SKAJC5MH423912",
     "vinDecode": "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/JF2SKAJC5MH423912?format=json",
     "safety": "https://api.nhtsa.gov/SafetyRatings/VehicleId/15635",
-    "fuel": "https://www.fueleconomy.gov/",
-    "githubRun": "https://github.com/aspekt19/autoflip/actions/runs/43502039509"
+    "fuel": "https://www.fueleconomy.gov/"
   },
   "disclosures": [
     "Gemini Chat answer was captured from the user-shared conversation. The selected mode was Auto; the page does not claim a specific underlying Gemini model version.",

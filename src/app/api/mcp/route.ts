@@ -394,11 +394,12 @@ export async function POST(request: Request) {
         }),
       );
     }
+    // Persist first: a storage failure must never consume an agent report credit.
+    await persistReport(assembled.report);
     const settledCredit = await settleReportCredit(kv, auth.caller.userId, idempotencyKey, origin);
     if (!settledCredit.ok) {
       return Response.json(toolError(id, { ...settledCredit.body, error_code: settledCredit.body.error, credit_spent: false }), { status: 402 });
     }
-    await persistReport(assembled.report);
     const payload = { ...agentReport(assembled.report), credit_spent: true, credits: 1 };
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
   }

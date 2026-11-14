@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { agentAccount, invalidKeyBody, reportCreditReady, settleReportCredit } from "@/server/agent-access";
+import { reportCreditReady, settleReportCredit } from "@/server/agent-access";
+import { authenticateAgentRequest, authFailureResponse } from "@/server/agent-auth";
 import { agentReport } from "@/server/agent-report";
 import { agentProof, plannedProof } from "@/server/serv";
 import { assembleReport } from "@/server/assemble";
@@ -14,9 +15,12 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const origin = originOf(request);
-  const account = await agentAccount(getKv(), bearer(request));
-  if (account === "invalid") return Response.json(invalidKeyBody(), { status: 401 });
-  if (account) return reportWithCredit(request, account, origin);
+  const token = bearer(request);
+  if (token.startsWith("af_")) {
+    const auth = await authenticateAgentRequest(getKv(), request, origin, "check");
+    if (!auth.ok) return authFailureResponse(auth);
+    return reportWithCredit(request, auth.caller.userId, origin, auth.headers);
+  }
 
   return withX402Payment(request, async ({ payer, paymentId }) => {
     const body = (await request.clone().json().catch(() => null)) as Record<string, unknown> | null;
@@ -61,15 +65,21 @@ export async function POST(request: Request) {
   });
 }
 
-async function reportWithCredit(request: Request, userId: string, origin: string) {
+async function reportWithCredit(
+  request: Request,
+  userId: string,
+  origin: string,
+  rateLimitHeaders: Record<string, string>,
+) {
+  const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: rateLimitHeaders });
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
+  if (!body) return reply({ error: "invalid_json", message: "Send JSON." }, 400);
   const vin = typeof body.vin === "string" ? body.vin : "";
   const url = typeof body.url === "string" ? body.url : "";
   const requestId = request.headers.get("idempotency-key")?.trim() || randomUUID();
   const idempotencyKey = `v1:${userId}:${requestId}:${vin || url}`.slice(0, 180);
   const ready = await reportCreditReady(getKv(), userId, idempotencyKey, origin);
-  if (!ready.ok) return Response.json(ready.body, { status: 402 });
+  if (!ready.ok) return reply(ready.body, 402);
   const assembled = await assembleReport(
     {
       mode: parseMode(body.mode),
@@ -81,13 +91,14 @@ async function reportWithCredit(request: Request, userId: string, origin: string
     { ...runtimeDeps(), servSurface: "agent" as const },
   );
   if (!assembled.ok) {
-    return Response.json(
+    return reply(
       { error: assembled.error, message: assembled.message, proof: agentProof([plannedProof("agent_guard")], ["vin", "fairValueUsd", "priceGap"]) },
-      { status: assembled.status },
+      assembled.status,
     );
   }
-  const settled = await settleReportCredit(getKv(), userId, idempotencyKey, origin);
-  if (!settled.ok) return Response.json(settled.body, { status: 402 });
+  // Persist first: a storage failure must never consume a report credit.
   await persistReport(assembled.report);
-  return Response.json(agentReport(assembled.report));
+  const settled = await settleReportCredit(getKv(), userId, idempotencyKey, origin);
+  if (!settled.ok) return reply(settled.body, 402);
+  return reply(agentReport(assembled.report));
 }

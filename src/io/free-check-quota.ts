@@ -10,6 +10,7 @@
  * Concurrent reserves never exceed the monthly limit.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   FREE_VEHICLE_CHECKS_PER_MONTH,
   freeCheckMonthKey,
@@ -22,6 +23,26 @@ type Reservation = {
   status: "reserved" | "committed";
   at: string;
 };
+
+/** Agent Check has a 5-minute execution ceiling; stale holds are safe to reclaim after 6 minutes. */
+const RESERVATION_TTL_MS = 6 * 60_000;
+
+function isLiveReservation(event: Reservation, now: Date): boolean {
+  if (event.status !== "reserved") return true;
+  const createdAt = Date.parse(event.at);
+  return Number.isFinite(createdAt) && now.getTime() - createdAt <= RESERVATION_TTL_MS;
+}
+
+function pruneExpiredReservations(record: MonthRecord, now: Date): boolean {
+  let changed = false;
+  for (const [key, event] of Object.entries(record.events)) {
+    if (event.status === "reserved" && !isLiveReservation(event, now)) {
+      delete record.events[key];
+      changed = true;
+    }
+  }
+  return changed;
+}
 
 type MonthRecord = {
   month: string;
@@ -69,24 +90,25 @@ async function withUserMonthLock<T>(
   run: () => Promise<T>,
 ): Promise<T | null> {
   const lock = lockKey(userId, month);
+  const lockToken = randomUUID();
   let held = false;
   for (let attempt = 0; attempt < 12 && !held; attempt += 1) {
-    // Short lock only — never TTL the durable quota record itself.
-    held = await kv.setNx(lock, "1", { ttlMs: 4000 });
+    // The lease exceeds the bounded Upstash calls; compare-and-swap prevents stale release.
+    held = await kv.setNx(lock, lockToken, { ttlMs: 30_000 });
     if (!held) await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
   }
   if (!held) return null;
   try {
     return await run();
   } finally {
-    await kv.delete(lock);
+    await kv.compareAndSwap(lock, lockToken, null).catch(() => false);
   }
 }
 
-function reservedOrCommittedCount(record: MonthRecord): number {
+function reservedOrCommittedCount(record: MonthRecord, now: Date): number {
   let reserved = 0;
   for (const event of Object.values(record.events)) {
-    if (event.status === "reserved") reserved += 1;
+    if (event.status === "reserved" && isLiveReservation(event, now)) reserved += 1;
   }
   return record.used + reserved;
 }
@@ -116,6 +138,7 @@ export async function reserveFreeCheck(
   const month = freeCheckMonthKey(now);
   const result = await withUserMonthLock(kv, userId, month, async () => {
     const record = await read(kv, userId, month);
+    if (pruneExpiredReservations(record, now)) await write(kv, userId, record);
     const existing = record.events[idempotencyKey];
     if (existing?.status === "committed") {
       return {
@@ -132,7 +155,7 @@ export async function reserveFreeCheck(
         view: freeCheckQuotaView(record.used, now),
       };
     }
-    if (reservedOrCommittedCount(record) >= FREE_VEHICLE_CHECKS_PER_MONTH) {
+    if (reservedOrCommittedCount(record, now) >= FREE_VEHICLE_CHECKS_PER_MONTH) {
       return {
         ok: false as const,
         reason: "exhausted" as const,
@@ -166,6 +189,11 @@ export async function commitFreeCheck(
     const record = await read(kv, userId, month);
     const existing = record.events[idempotencyKey];
     if (!existing) {
+      return { ok: false, view: freeCheckQuotaView(record.used, now) };
+    }
+    if (existing.status === "reserved" && !isLiveReservation(existing, now)) {
+      delete record.events[idempotencyKey];
+      await write(kv, userId, record);
       return { ok: false, view: freeCheckQuotaView(record.used, now) };
     }
     if (existing.status === "committed") {
@@ -214,6 +242,36 @@ export async function releaseFreeCheck(
   return result;
 }
 
+/**
+ * Roll back a check that failed before its result was returned.
+ * Unlike releaseFreeCheck, this may undo a committed event because the caller
+ * invokes it only from the failed-delivery path while holding its idempotency lock.
+ */
+export async function rollbackFreeCheck(
+  kv: Kv,
+  userId: string,
+  idempotencyKey: string,
+  now = new Date(),
+): Promise<{ ok: boolean; rolledBack: boolean; view: FreeCheckQuotaView }> {
+  const month = freeCheckMonthKey(now);
+  const result = await withUserMonthLock(kv, userId, month, async () => {
+    const record = await read(kv, userId, month);
+    const existing = record.events[idempotencyKey];
+    if (!existing) {
+      return { ok: true, rolledBack: false, view: freeCheckQuotaView(record.used, now) };
+    }
+    if (existing.status === "committed") record.used = Math.max(0, record.used - 1);
+    delete record.events[idempotencyKey];
+    await write(kv, userId, record);
+    return { ok: true, rolledBack: true, view: freeCheckQuotaView(record.used, now) };
+  });
+  if (!result) {
+    const record = await read(kv, userId, month);
+    return { ok: false, rolledBack: false, view: freeCheckQuotaView(record.used, now) };
+  }
+  return result;
+}
+
 export async function readFreeCheckQuota(
   kv: Kv,
   userId: string,
@@ -232,7 +290,7 @@ export async function freeCheckSlotsRemaining(
 ): Promise<{ remaining: number; view: FreeCheckQuotaView }> {
   const month = freeCheckMonthKey(now);
   const record = await read(kv, userId, month);
-  const held = reservedOrCommittedCount(record);
+  const held = reservedOrCommittedCount(record, now);
   // One source of truth: view.remaining matches gate remaining (held = used + reserved).
   const remaining = Math.max(0, FREE_VEHICLE_CHECKS_PER_MONTH - held);
   const view = freeCheckQuotaView(held, now);
