@@ -7,6 +7,7 @@ import { allowance } from "@/server/plan-book";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
+import { readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
   }
 
   const kv = getKv();
+  const testMode = await readRadarTestModeState(kv);
+  if (testMode.stopped) {
+    return Response.json({ error: "radar_test_complete", message: testMode.message }, { status: 423 });
+  }
   const searches = await listSearches(kv);
   const mine = searches.filter((item) => item.ownerId === id);
   const totalEnabled = mine.filter((item) => item.enabled).length;
