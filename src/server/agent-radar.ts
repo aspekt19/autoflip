@@ -290,6 +290,7 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
     kv: deps.kv,
     now: deps.now ?? new Date(),
     trigger: "check_now",
+    maxEnabledWatches: 1,
     forceAll: true,
     fetchImpl: deps.fetchImpl ?? fetch,
     autodevKey: (deps.env ?? process.env).AUTODEV_API_KEY?.trim(),
