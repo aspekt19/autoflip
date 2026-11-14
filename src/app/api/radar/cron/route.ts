@@ -1,7 +1,7 @@
 import { getKv, storageMode } from "@/io/kv";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { bearer, originOf, secretMatch } from "@/server/secrets";
-import { readRadarTestModeState } from "@/server/radar-test-mode";
+import { isRadarTestModeEnabled, readRadarTestModeState } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 /** Hobby Fluid allows 300s. The cycle stops earlier so the run log is written first. */
@@ -38,7 +38,7 @@ async function handle(request: Request) {
     kv: getKv(),
     now: new Date(),
     trigger: "cron",
-    maxEnabledWatches: 1,
+    ...(isRadarTestModeEnabled(process.env) ? { maxEnabledWatches: 1 } : {}),
     fetchImpl: fetch,
     autodevKey: process.env.AUTODEV_API_KEY?.trim(),
     servKey: process.env.SERV_API_KEY?.trim(),
