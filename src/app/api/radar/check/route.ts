@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     kv,
     now: new Date(),
     trigger: "check_now",
+    maxEnabledWatches: 1,
     fetchImpl: fetch,
     autodevKey: process.env.AUTODEV_API_KEY?.trim(),
     servKey: process.env.SERV_API_KEY?.trim(),
