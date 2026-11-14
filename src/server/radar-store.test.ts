@@ -50,7 +50,7 @@ describe("global Radar test mode", () => {
 
   it("fails closed when the persisted switch is corrupt", async () => {
     const kv = new MemoryKv();
-    await kv.set("radar:global-test-mode:v1", "{");
+    await kv.set("radar:test-mode:stopped", "{");
     expect((await getRadarTestMode(kv)).status).toBe("stopped");
     expect(await claimRadarTestNotification(kv, "alert-1")).toBe(false);
   });
