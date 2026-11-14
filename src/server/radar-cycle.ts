@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { priceBadge } from "@/domain/price-badge";
 import {
@@ -59,6 +59,11 @@ import {
   type StoredRun,
   listAlerts,
 } from "./radar-store";
+import {
+  acquireRadarTestCycle,
+  releaseRadarTestCycle,
+  stopRadarAfterFirstTestAlert,
+} from "./radar-test-mode";
 
 /** Stay under the 300s route cap so the log write still happens. */
 export const CYCLE_BUDGET_MS = 270_000;
@@ -129,6 +134,15 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     network: null,
   };
 
+  const gate = await acquireRadarTestCycle(deps.kv, runId, deps.env);
+  if (!gate.ok) {
+    notes.push(gate.message);
+    steps.push({ id: "trial_safety", status: gate.stopped ? "stopped" : "skipped" });
+    const run = snapshot();
+    await upsertRun(deps.kv, run).catch(() => undefined);
+    return run;
+  }
+
   const snapshot = () =>
     finish(
       deps,
@@ -184,13 +198,32 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
-    const guardResult = await runGuard(
-      searches,
-      deps,
-      decisionStepBudget("radar_guard", remain(), limits.serv) ?? 0,
-      servChecks,
-    );
-    promptGuard = guardResult.status;
+    const guardText = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
+    const guardCacheKey = `radar:guard:allow:v1:${createHash("sha256").update(guardText).digest("hex")}`;
+    const guardAlreadyAllowed = (await deps.kv.get(guardCacheKey)) === "allow";
+    const guardResult = guardAlreadyAllowed
+      ? {
+          status: "allow" as const,
+          activity: null,
+          proofRecord: buildDecisionProofRecord({
+            purpose: "radar_guard",
+            rubricId: RADAR_VERDICT_RUBRIC_ID,
+            status: "ok",
+            recordedAt: deps.now.toISOString(),
+            inputs: { searchCount: searches.length, zips: searches.map((item) => item.criteria.zip) },
+            detail: "Identical saved criteria were already allowed by SERV. Reused the durable guard result; no new SERV request was sent.",
+          }),
+        }
+      : await runGuard(
+          searches,
+          deps,
+          decisionStepBudget("radar_guard", remain(), limits.serv) ?? 0,
+          servChecks,
+        );
+    if (!guardAlreadyAllowed && guardResult.status === "allow") {
+      await deps.kv.set(guardCacheKey, "allow").catch(() => undefined);
+    }
+    promptGuard = guardAlreadyAllowed ? "allow_cached" : guardResult.status;
     if (guardResult.activity) servActivity.push(guardResult.activity);
     // Stamp one guard proof per watch so Check/feed can filter by owner/search.
     if (guardResult.proofRecord && searches.length > 0) {
@@ -307,6 +340,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const reasons = new Map<string, number>();
     let listingTimeouts = 0;
     for (const job of fetched) {
+      if (freshAlerts.length > 0) break;
       if (!job.listings) {
         notes.push(job.error ?? "Listings call failed.");
         if (job.error === "timeout") listingTimeouts += 1;
@@ -315,6 +349,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       }
       listings += job.listings.length;
       for (const search of job.group) {
+        if (freshAlerts.length > 0) break;
         if (isBroadFlip(search)) {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
             repairAbility: search.criteria.repairAbility,
@@ -404,6 +439,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             );
           }
           for (const item of fresh) {
+            if (freshAlerts.length > 0) break;
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -567,6 +603,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         bumpSearch(search.id, { listings: scoped.length });
         let servSlot = 0;
         for (const winner of winners) {
+          if (freshAlerts.length > 0) break;
           // Observational badge facts only — do not drop before SERV on tone.
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
           const personalCoverage = {
@@ -711,8 +748,20 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       detail: `${listings} rows, ${autodevCalls} calls`,
     });
 
-    await saveSearches(deps.kv, await mergeChecked(deps.kv, searches));
     await saveAlerts(deps.kv, alerts);
+    const mergedSearches = await mergeChecked(deps.kv, searches);
+    if (freshAlerts.length > 0) {
+      const firstAlert = freshAlerts[0]!;
+      const stopped = await stopRadarAfterFirstTestAlert(deps.kv, firstAlert.id, deps.now.toISOString());
+      await saveSearches(
+        deps.kv,
+        mergedSearches.map((item) => ({ ...item, enabled: false })),
+      );
+      notes.push(stopped.message ?? "Deal Radar was paused after its first test notification.");
+      steps.push({ id: "trial_safety", status: "stopped", detail: `first alert ${firstAlert.id}; all watches disabled` });
+    } else {
+      await saveSearches(deps.kv, mergedSearches);
+    }
     shadow = deps.servKey ? "pending" : "not_configured";
     await upsertRun(deps.kv, snapshot());
 
@@ -821,6 +870,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const run = snapshot();
     await upsertRun(deps.kv, run).catch(() => undefined);
     return run;
+  } finally {
+    await releaseRadarTestCycle(deps.kv, runId);
   }
 }
 
