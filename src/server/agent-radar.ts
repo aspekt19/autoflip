@@ -13,7 +13,7 @@ import { runRadarCycle } from "@/server/radar-cycle";
 import { listAlerts, listSearches, saveSearches } from "@/server/radar-store";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, type AgentErrorEnvelope } from "./agent-envelope";
-import { readRadarTestModeState } from "./radar-test-mode";
+import { isRadarTestModeEnabled, readRadarTestModeState } from "./radar-test-mode";
 
 export type AgentRadarDeps = {
   kv: Kv;
@@ -194,7 +194,7 @@ export async function agentSaveRadarWatch(
   }
 
   const searches = await listSearches(deps.kv);
-  if (searches.some((item) => item.enabled)) {
+  if (isRadarTestModeEnabled() && searches.some((item) => item.enabled)) {
     return {
       ok: false as const,
       status: 423,
@@ -298,7 +298,7 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
     kv: deps.kv,
     now: deps.now ?? new Date(),
     trigger: "check_now",
-    maxEnabledWatches: 1,
+    ...(isRadarTestModeEnabled(deps.env ?? process.env) ? { maxEnabledWatches: 1 } : {}),
     forceAll: true,
     fetchImpl: deps.fetchImpl ?? fetch,
     autodevKey: (deps.env ?? process.env).AUTODEV_API_KEY?.trim(),
