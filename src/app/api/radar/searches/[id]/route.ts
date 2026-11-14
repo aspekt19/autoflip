@@ -40,6 +40,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if (index < 0) {
     return Response.json({ error: "not_found", message: "That saved search was not found." }, { status: 404 });
   }
+  if (body.enabled && searches.some((item) => item.enabled && item.id !== id)) {
+    return Response.json({
+      error: "radar_test_watch_limit",
+      message: "The current test allows one active Deal Radar watch across the entire project.",
+    }, { status: 423 });
+  }
   searches[index] = { ...searches[index]!, enabled: body.enabled };
   await saveSearches(kv, searches);
   return Response.json({ ok: true, search: searches[index] });
