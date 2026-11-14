@@ -6,6 +6,8 @@ import {
   releaseRadarTestCycle,
   stopRadarAfterFirstTestAlert,
   __radarTestModeKeys,
+  RADAR_TEST_CYCLE_LIMIT,
+  reserveRadarTestAttempt,
 } from "./radar-test-mode";
 
 describe("Radar one-notification test mode", () => {
@@ -60,5 +62,20 @@ describe("Radar one-notification test mode", () => {
     expect(normal.alertId).toBeNull();
     expect(await acquireRadarTestCycle(kv, "normal-run", { RADAR_TEST_MODE: "0" })).toEqual({ ok: true });
     await releaseRadarTestCycle(kv, "normal-run");
+  });
+
+  it("fails closed after the bounded number of test cycles", async () => {
+    const kv = new MemoryKv();
+    for (let i = 1; i <= RADAR_TEST_CYCLE_LIMIT; i += 1) {
+      const attempt = await reserveRadarTestAttempt(kv, {}, `2026-11-14T0${i}:00:00.000Z`);
+      expect(attempt).toEqual({ ok: true, count: i });
+    }
+    const exhausted = await reserveRadarTestAttempt(kv, {}, "2026-11-14T04:00:00.000Z");
+    expect(exhausted.ok).toBe(false);
+    if (!exhausted.ok) {
+      expect(exhausted.stopped).toBe(true);
+      expect(exhausted.message).toContain("3-cycle safety limit");
+    }
+    expect((await readRadarTestModeState(kv)).stopped).toBe(true);
   });
 });
