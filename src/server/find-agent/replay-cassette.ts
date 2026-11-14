@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type FindReplayRequest = { method: string; url: string; body: string };
+export type FindReplayRequest = { method: string; url: string; headers: Array<[string, string]>; body: string };
 export type FindReplayResponse =
   | { kind: "response"; status: number; statusText: string; headers: Array<[string, string]>; body: string }
   | { kind: "error"; message: string };
@@ -12,10 +12,23 @@ function requestKey(request: FindReplayRequest): string {
   return createHash("sha256").update(request.method).update("\n").update(request.url).update("\n").update(request.body).digest("hex");
 }
 
+function cassetteSafeUrl(raw: string): string {
+  const url = new URL(raw);
+  for (const key of [...url.searchParams.keys()]) {
+    if (/(?:api.?key|access.?token|auth|secret|signature|credential|password)/i.test(key)) {
+      url.searchParams.set(key, "[REDACTED]");
+    }
+  }
+  return url.toString();
+}
+
 async function describeRequest(input: RequestInfo | URL, init?: RequestInit) {
   const request = new Request(input, init);
   const body = request.method === "GET" || request.method === "HEAD" ? "" : await request.clone().text();
-  const descriptor = { method: request.method.toUpperCase(), url: request.url, body };
+  const safeHeaders = [...request.headers.entries()]
+    .filter(([name]) => ["accept", "content-type", "x-api-version"].includes(name.toLowerCase()))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const descriptor = { method: request.method.toUpperCase(), url: cassetteSafeUrl(request.url), headers: safeHeaders, body };
   return { request, descriptor, key: requestKey(descriptor) };
 }
 
@@ -65,7 +78,7 @@ export function createFindReplayFetch(cassette: FindReplayCassette): {
   const queues = new Map<string, FindReplayCassetteEntry[]>();
   for (const entry of cassette.entries) {
     if (!entry || typeof entry.key !== "string" || !entry.request || !entry.response) throw new Error("Invalid Find replay cassette entry.");
-    if (entry.key !== requestKey(entry.request)) throw new Error("Find replay cassette request hash mismatch.");
+    if (!Array.isArray(entry.request.headers) || entry.key !== requestKey(entry.request)) throw new Error("Find replay cassette request hash mismatch.");
     const queue = queues.get(entry.key) ?? [];
     queue.push(entry);
     queues.set(entry.key, queue);
