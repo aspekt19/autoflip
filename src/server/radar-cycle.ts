@@ -63,6 +63,7 @@ import {
   acquireRadarTestCycle,
   releaseRadarTestCycle,
   stopRadarAfterFirstTestAlert,
+  reserveRadarTestAttempt,
   isRadarTestModeEnabled,
 } from "./radar-test-mode";
 
@@ -220,6 +221,44 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     hours = Number.isFinite(minInterval) ? minInterval : 6;
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
+
+    // In the controlled production test, don't spend either provider without
+    // one paid/eligible watch and both live credentials.
+    if (testModeEnabled && searches.length > 0) {
+      if (!Number.isFinite(minInterval)) {
+        notes.push("Deal Radar test check skipped: the saved watch has no active paid Radar plan.");
+        steps.push({ id: "trial_safety", status: "skipped" });
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      if (!deps.autodevKey || !deps.servKey) {
+        notes.push("Deal Radar test check skipped: both Auto.dev and SERV credentials are required. No provider requests were started.");
+        steps.push({ id: "trial_safety", status: "skipped" });
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      const attempt = await reserveRadarTestAttempt(deps.kv, deps.env, deps.now.toISOString());
+      if (!attempt.ok) {
+        notes.push(attempt.message);
+        steps.push({ id: "trial_safety", status: attempt.stopped ? "stopped" : "skipped" });
+        if (attempt.stopped) {
+          await saveSearches(
+            deps.kv,
+            allSavedSearches.map((item) => ({ ...item, enabled: false })),
+          );
+        }
+        const run = snapshot();
+        await upsertRun(deps.kv, run);
+        return run;
+      }
+      steps.push({
+        id: "trial_safety",
+        status: "armed",
+        detail: `Test cycle ${attempt.count}/3. One uncached Auto.dev lookup and one candidate review are allowed in this cycle.`,
+      });
+    }
 
     const guardText = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
     const guardCacheKey = `radar:guard:allow:v1:${createHash("sha256").update(guardText).digest("hex")}`;
