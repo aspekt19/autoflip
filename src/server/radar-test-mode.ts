@@ -11,6 +11,9 @@ export type RadarTestModeState = {
   message: string | null;
 };
 
+export const RADAR_TEST_DIRECT_SCAN_MESSAGE =
+  "Ad-hoc Deal Radar scans are disabled during the one-notification test. Only the single saved watch can run.";
+
 const STOPPED_MESSAGE =
   "Deal Radar was automatically paused after its first test notification. Existing alerts remain available, but no further monitoring checks will run.";
 
