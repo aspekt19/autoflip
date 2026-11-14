@@ -62,4 +62,12 @@ describe("global Radar test mode", () => {
     expect((await getRadarTestMode(kv)).reason).toBe("admin");
     expect(await listSearches(kv)).toMatchObject([{ enabled: false, pauseReason: "global_test_complete" }]);
   });
+  it("normal Radar mode ignores the one-notification test stop but honors an admin stop", async () => {
+    const kv = new MemoryKv();
+    await claimRadarTestNotification(kv, "alert-normal-mode");
+    expect((await getRadarTestMode(kv, { RADAR_TEST_MODE: "0" })).status).toBe("armed");
+    await stopRadarTestMode(kv);
+    expect((await getRadarTestMode(kv, { RADAR_TEST_MODE: "0" })).status).toBe("stopped");
+  });
+
 });
