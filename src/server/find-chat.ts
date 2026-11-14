@@ -129,6 +129,8 @@ export async function runFindChatTurn(input: {
   autodevKey: string;
   servBaseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** Eval-only upstream tool transport; never accepted by the public route body. */
+  toolFetchImpl?: typeof fetch;
 }): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const fetchImpl = input.fetchImpl ?? fetch;
   let session: FindChatSession | null =
@@ -312,6 +314,7 @@ export async function runFindChatTurn(input: {
       servKey: input.servKey,
       autodevKey: input.autodevKey,
       fetch: fetchImpl,
+      toolFetch: input.toolFetchImpl,
       servBaseUrl: input.servBaseUrl,
       autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
       budgetUsd: null,
