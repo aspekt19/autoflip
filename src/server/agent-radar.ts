@@ -84,7 +84,7 @@ export async function agentSaveRadarWatch(
       body: agentError({
         error_code: "radar_test_paused",
         message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first.",
-        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification." },
+        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification.", request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` } },
       }),
     };
   }
@@ -257,7 +257,7 @@ export async function agentRadarCheckNow(caller: AgentCaller, deps: AgentRadarDe
       body: agentError({
         error_code: "radar_test_paused",
         message: "Deal Radar is globally paused after the one test notification. An admin must re-arm the next test notification first.",
-        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification." },
+        next_steps: { action: "wait_for_admin_rearm", summary: "No new paid Radar checks can run until an admin re-arms the test notification.", request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` } },
       }),
     };
   }
