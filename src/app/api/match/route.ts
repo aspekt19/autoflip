@@ -33,6 +33,8 @@ import {
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import { requireVerifiedAccountForFind } from "@/server/session";
 
@@ -109,9 +111,10 @@ export async function POST(request: Request) {
   if (!continuation && idemKey && !alreadyPaid) {
     const reserved = await reserveSearchCreditBeforeServ(kv, "find", id, idemKey);
     if (!reserved.ok) {
-      return Response.json(creditsRequiredBody({ balance: reserved.balance, surface: "find" }), {
-        status: 403,
-      });
+      return Response.json(
+        searchReservationFailureBody({ balance: reserved.balance, surface: "find", reason: reserved.reason }),
+        { status: searchReservationFailureStatus(reserved.reason) },
+      );
     }
     reservedSpendKey = reserved.spendKey;
     balanceAfter = reserved.balance;

@@ -20,6 +20,8 @@ import {
   commitSearchCreditOnDelivery,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
@@ -189,7 +191,37 @@ export async function createAgentFindRun(
     );
     if (!reserved.ok) {
       await deps.kv.delete(idem);
-      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, reserved.balance) };
+      if (reserved.reason === "insufficient") {
+        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, reserved.balance) };
+      }
+      const failure = searchReservationFailureBody({
+        balance: reserved.balance,
+        surface: "find",
+        reason: reserved.reason,
+      });
+      const limitReached = reserved.reason === "trial_limit";
+      return {
+        ok: false,
+        status: searchReservationFailureStatus(reserved.reason),
+        body: agentError({
+          error_code: limitReached
+            ? "trial_search_limit"
+            : reserved.reason === "quota_unavailable"
+              ? "search_limit_unavailable"
+              : "search_reservation_busy",
+          message: String(failure.message ?? "Search access could not be reserved."),
+          credit_spent: false,
+          retry_safe: !limitReached,
+          next_steps: {
+            action: limitReached ? "request_more_search_access" : "retry_search",
+            summary: limitReached
+              ? "For additional access or to share feedback, email gerassyk@gmail.com."
+              : "Retry shortly; for help or additional access, email gerassyk@gmail.com.",
+            request: { method: "GET", url: `${deps.origin}/developers` },
+            docs: `${deps.origin}/developers`,
+          },
+        }),
+      };
     }
   }
 

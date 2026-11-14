@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ResaleChatFlow } from "@/components/ResaleChatFlow";
+import { TrialSearchNotice } from "@/components/TrialSearchNotice";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 
 export const metadata: Metadata = { title: "Resale" };
@@ -53,6 +54,7 @@ export default function ResalePage() {
           </ol>
           <p>Not a profit guarantee. No invented listings.</p>
         </div>
+        <TrialSearchNotice />
         <ResaleChatFlow />
       </div>
     </div>

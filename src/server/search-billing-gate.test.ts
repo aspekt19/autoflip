@@ -6,6 +6,7 @@ import {
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  reserveTrialSearchQuota,
   searchBillingSpendKey,
   searchOutcomeCommitsCredit,
 } from "./search-billing-gate";
@@ -59,4 +60,78 @@ describe("search billing gate (shared Find/Resale/MCP)", () => {
     expect(searchOutcomeCommitsCredit(null)).toBe(false);
     expect(searchOutcomeCommitsCredit("nothing_fits")).toBe(false);
   });
+
+  it("caps Find and Resale at two combined starts per account", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 5, "trial-cap-init");
+    const first = await reserveSearchCreditBeforeServ(kv, "find", USER, "first");
+    const second = await reserveSearchCreditBeforeServ(kv, "resale", USER, "second");
+    const third = await reserveSearchCreditBeforeServ(kv, "find", USER, "third");
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(third.ok).toBe(false);
+    if (!third.ok) expect(third.reason).toBe("trial_limit");
+    expect(await creditBalance(kv, USER)).toBe(3);
+  });
+
+  it("does not spend another trial slot on an idempotent retry", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 5, "trial-retry-init");
+    const first = await reserveSearchCreditBeforeServ(kv, "find", USER, "retry-key");
+    const retry = await reserveSearchCreditBeforeServ(kv, "find", USER, "retry-key");
+    const second = await reserveSearchCreditBeforeServ(kv, "resale", USER, "different-key");
+
+    expect(first.ok).toBe(true);
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.alreadyReserved).toBe(true);
+    expect(second.ok).toBe(true);
+    const capped = await reserveTrialSearchQuota(kv, USER, "find:third-key");
+    expect(capped.ok).toBe(false);
+    if (!capped.ok) expect(capped.reason).toBe("limit");
+    expect(await creditBalance(kv, USER)).toBe(3);
+  });
+
+  it("allows only two concurrent new searches for the same account", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 5, "trial-concurrent-init");
+    const results = await Promise.all([
+      reserveSearchCreditBeforeServ(kv, "find", USER, "parallel-1"),
+      reserveSearchCreditBeforeServ(kv, "resale", USER, "parallel-2"),
+      reserveSearchCreditBeforeServ(kv, "find", USER, "parallel-3"),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(2);
+    expect(results.filter((result) => !result.ok)).toHaveLength(1);
+    const denied = results.find((result) => !result.ok);
+    if (denied && !denied.ok) expect(denied.reason).toBe("trial_limit");
+    expect(await creditBalance(kv, USER)).toBe(3);
+  });
+
+  it("does not reserve a trial slot when the account has no report credit", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, USER, 0, "trial-no-credit-init");
+    const denied = await reserveSearchCreditBeforeServ(kv, "find", USER, "no-credit");
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.reason).toBe("insufficient");
+
+    await creditGrant(kv, USER, 1, "trial-no-credit-top-up");
+    const admitted = await reserveSearchCreditBeforeServ(kv, "find", USER, "after-top-up");
+    expect(admitted.ok).toBe(true);
+  });
+
+  it("reserves a chat session once and denies a third new session", async () => {
+    const kv = new MemoryKv();
+    const first = await reserveTrialSearchQuota(kv, USER, "find:chat-session-1");
+    const retry = await reserveTrialSearchQuota(kv, USER, "find:chat-session-1");
+    const second = await reserveTrialSearchQuota(kv, USER, "resale:chat-session-2");
+    const third = await reserveTrialSearchQuota(kv, USER, "find:chat-session-3");
+    expect(first.ok).toBe(true);
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.alreadyReserved).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(third.ok).toBe(false);
+    if (!third.ok) expect(third.reason).toBe("limit");
+  });
+
 });

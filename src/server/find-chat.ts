@@ -31,6 +31,9 @@ import {
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  reserveTrialSearchQuota,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
@@ -192,6 +195,15 @@ export async function runFindChatTurn(input: {
           body: creditsRequiredBody({ balance: bal, surface: "find" }),
         };
       }
+      const quota = await reserveTrialSearchQuota(input.kv, input.userId, `find:${idem}`);
+      if (!quota.ok) {
+        const reason = quota.reason === "limit" ? "trial_limit" : "quota_unavailable";
+        return {
+          ok: false,
+          status: searchReservationFailureStatus(reason),
+          body: searchReservationFailureBody({ balance: bal, surface: "find", reason }),
+        };
+      }
     }
     session = {
       sessionId,
@@ -257,9 +269,13 @@ export async function runFindChatTurn(input: {
       if (!reserved.ok) {
         return {
           ok: false,
-          status: 403,
+          status: searchReservationFailureStatus(reserved.reason),
           body: {
-            ...creditsRequiredBody({ balance: reserved.balance, surface: "find" }),
+            ...searchReservationFailureBody({
+              balance: reserved.balance,
+              surface: "find",
+              reason: reserved.reason,
+            }),
             sessionId: session.sessionId,
             messages: session.messages,
           },

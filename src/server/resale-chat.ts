@@ -28,6 +28,9 @@ import {
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  reserveTrialSearchQuota,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import { syncResaleRun } from "@/server/run-sync";
 import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
@@ -107,6 +110,21 @@ export async function runResaleChatTurn(input: {
       }
     }
     const idem = findSearchIdempotencyKey({ clientKey: null });
+    if (!input.skipCredit) {
+      const quota = await reserveTrialSearchQuota(input.kv, input.userId, `resale:${idem}`);
+      if (!quota.ok) {
+        const reason = quota.reason === "limit" ? "trial_limit" : "quota_unavailable";
+        return {
+          ok: false,
+          status: searchReservationFailureStatus(reason),
+          body: searchReservationFailureBody({
+            balance: await creditBalance(input.kv, input.userId),
+            surface: "resale",
+            reason,
+          }),
+        };
+      }
+    }
     session = {
       sessionId: crypto.randomUUID(),
       userId: input.userId,
@@ -161,9 +179,13 @@ export async function runResaleChatTurn(input: {
       if (!reserved.ok) {
         return {
           ok: false,
-          status: 403,
+          status: searchReservationFailureStatus(reserved.reason),
           body: {
-            ...creditsRequiredBody({ balance: reserved.balance, surface: "resale" }),
+            ...searchReservationFailureBody({
+              balance: reserved.balance,
+              surface: "resale",
+              reason: reserved.reason,
+            }),
             sessionId: session.sessionId,
             messages: session.messages,
           },

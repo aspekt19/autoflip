@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { FindChatFlow } from "@/components/FindChatFlow";
 import { SignInGate } from "@/components/SignInGate";
+import { TrialSearchNotice } from "@/components/TrialSearchNotice";
 import { FIND_PAGE_BILLING_STEP } from "@/domain/find-buyer-copy";
 import { parseFindEntryParams } from "@/domain/need";
 import { resolveProductFlags } from "@/domain/product-flags";
@@ -33,6 +34,7 @@ export default async function FindPage({
             </p>
           ) : null}
         </div>
+        <TrialSearchNotice />
         <SignInGate callbackPath="/find">
           <FindChatFlow initialNote={entry.note} />
         </SignInGate>
