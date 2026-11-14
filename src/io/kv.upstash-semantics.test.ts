@@ -23,12 +23,15 @@ describe("Upstash Kv command semantics (offline stub)", () => {
 
     await kv.setNx("quota:total:count:2026-11", "50"); // durable seed
     await kv.setNx("credits:lock", "lock-owner-1", { ttlMs: 30_000 }); // unique credit-lock lease
+    await kv.setNx("free-check:lock:user:2026-11", "quota-owner-1", { ttlMs: 30_000 }); // unique quota-lock lease
 
     const durable = kv.commands.find((c) => c[1] === "quota:total:count:2026-11");
     const lock = kv.commands.find((c) => c[1] === "credits:lock");
     expect(durable).toEqual(["SET", "quota:total:count:2026-11", "50", "NX"]);
     expect(durable).not.toContain("PX");
     expect(lock).toEqual(["SET", "credits:lock", "lock-owner-1", "NX", "PX", "30000"]);
+    const quotaLock = kv.commands.find((c) => c[1] === "free-check:lock:user:2026-11");
+    expect(quotaLock).toEqual(["SET", "free-check:lock:user:2026-11", "quota-owner-1", "NX", "PX", "30000"]);
   });
 
   it("expired PX seed must not be how monthly counters are initialized (regression)", async () => {

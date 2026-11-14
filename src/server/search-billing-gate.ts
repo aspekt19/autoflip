@@ -84,8 +84,16 @@ export async function releaseSearchCredit(
   if (!(await creditEventSeen(kv, spendKey))) {
     return { balance: await creditBalance(kv, userId), released: false };
   }
-  await creditCompensateSpend(kv, userId, spendKey);
-  return { balance: await creditBalance(kv, userId), released: true };
+  let compensation = await creditCompensateSpend(kv, userId, spendKey);
+  for (let attempt = 0; attempt < 3 && !compensation.ok; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)));
+    compensation = await creditCompensateSpend(kv, userId, spendKey);
+  }
+  const stillReserved = await creditEventSeen(kv, spendKey);
+  return {
+    balance: await creditBalance(kv, userId),
+    released: compensation.ok || !stillReserved,
+  };
 }
 
 export function creditsRequiredBody(input: {

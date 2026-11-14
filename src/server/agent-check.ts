@@ -6,7 +6,7 @@ import { freeCheckMonthKey } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import type { Kv } from "@/io/kv";
-import { creditBalance } from "@/io/credit-book";
+import { creditBalance, creditCompensateSpend } from "@/io/credit-book";
 import {
   hasDeliveredServVerdict,
   runCheck,
@@ -121,10 +121,11 @@ export async function runAgentCheck(
   const month = freeCheckMonthKey();
   const suppliedKey = input.idempotencyKey?.trim().slice(0, 80) || null;
   const clientKey = suppliedKey || crypto.randomUUID();
+  const lockToken = crypto.randomUUID();
   if (suppliedKey) {
     const cached = await readCachedCheck(deps.kv, caller.userId, clientKey);
     if (cached) return { ok: true, body: cached };
-    const locked = await deps.kv.setNx(checkLockKey(caller.userId, clientKey), "1", { ttlMs: 60_000 });
+    const locked = await deps.kv.setNx(checkLockKey(caller.userId, clientKey), lockToken, { ttlMs: 60_000 });
     if (!locked) {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -151,6 +152,8 @@ export async function runAgentCheck(
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
+  let creditSpent = false;
+  let creditSpendKey: string | null = null;
 
   const subjectKey =
     parsed.kind === "vin"
@@ -159,15 +162,13 @@ export async function runAgentCheck(
         ? `url:${Buffer.from(parsed.url).toString("base64url").slice(0, 24)}`
         : `paste:${Buffer.from(parsed.text.slice(0, 64)).toString("base64url").slice(0, 24)}`;
 
-  // Gate before work. Settle a free check or a report credit only after a delivered result.
-  {
+  try {
+    // Gate before work. Settle a free check or a report credit only after a delivered result.
     const slots = await freeCheckSlotsRemaining(deps.kv, caller.userId);
     if (slots.remaining < 1 && (await creditBalance(deps.kv, caller.userId)) < 1) {
       return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
     }
-  }
 
-  try {
     const result = await runCheck(parsed, deps);
     if (!result.ok) {
       return {
@@ -216,7 +217,6 @@ export async function runAgentCheck(
     const vinKey =
       result.result.vin && isValidVin(result.result.vin) ? result.result.vin : subjectKey;
 
-    let creditSpent = false;
     let credits = 0;
 
     {
@@ -245,6 +245,7 @@ export async function runAgentCheck(
 
       if (needsCredit) {
         const spendKey = `agent-check:${caller.userId}:${month}:${clientKey}:${subjectKey}`.slice(0, 180);
+        creditSpendKey = spendKey;
         const spent = await spendReportCredit(deps.kv, caller.userId, spendKey);
         if (!spent.ok) {
           if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
@@ -307,23 +308,37 @@ export async function runAgentCheck(
     if (suppliedKey) await deps.kv.set(checkIdemKey(caller.userId, clientKey), JSON.stringify(body));
     return { ok: true, body };
   } catch {
-    if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
+    let chargeReversed = !creditSpent;
+    if (creditSpent && creditSpendKey) {
+      const compensation = await creditCompensateSpend(deps.kv, caller.userId, creditSpendKey).catch(() => null);
+      chargeReversed = compensation?.ok === true;
+    }
+    if (usedFreeCheck && freeCheckKey) {
+      await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey).catch(() => undefined);
+    }
     return {
       ok: false,
       status: 500,
       body: agentError({
         error_code: "check_failed",
-        message: "Check failed. No credit was spent.",
-        retry_safe: true,
+        message: chargeReversed
+          ? "Check failed. No credit was spent."
+          : "Check failed after credit settlement. Contact support with the request details before retrying.",
+        credit_spent: !chargeReversed,
+        retry_safe: chargeReversed,
         next_steps: {
           action: "retry",
-          summary: "Retry with the same Idempotency-Key. No credit was spent.",
+          summary: chargeReversed
+            ? "Retry with the same Idempotency-Key. No credit was spent."
+            : "A credit may still be charged. Contact support before retrying.",
           request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
         },
       }),
     };
   } finally {
-    if (suppliedKey) await deps.kv.delete(checkLockKey(caller.userId, clientKey));
+    if (suppliedKey) {
+      await deps.kv.compareAndSwap(checkLockKey(caller.userId, clientKey), lockToken, null).catch(() => false);
+    }
   }
 }
 

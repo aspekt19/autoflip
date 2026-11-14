@@ -10,6 +10,7 @@
  * Concurrent reserves never exceed the monthly limit.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   FREE_VEHICLE_CHECKS_PER_MONTH,
   freeCheckMonthKey,
@@ -69,17 +70,18 @@ async function withUserMonthLock<T>(
   run: () => Promise<T>,
 ): Promise<T | null> {
   const lock = lockKey(userId, month);
+  const lockToken = randomUUID();
   let held = false;
   for (let attempt = 0; attempt < 12 && !held; attempt += 1) {
-    // Short lock only — never TTL the durable quota record itself.
-    held = await kv.setNx(lock, "1", { ttlMs: 4000 });
+    // The lease exceeds the bounded Upstash calls; compare-and-swap prevents stale release.
+    held = await kv.setNx(lock, lockToken, { ttlMs: 30_000 });
     if (!held) await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
   }
   if (!held) return null;
   try {
     return await run();
   } finally {
-    await kv.delete(lock);
+    await kv.compareAndSwap(lock, lockToken, null).catch(() => false);
   }
 }
 
