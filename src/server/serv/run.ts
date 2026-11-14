@@ -49,11 +49,11 @@ export type ServFacts = Readonly<Record<string, unknown>>;
 
 /**
  * Transport retry policy.
- * - `production` (default): empty-text re-POST + personal_alert_review timeout retry stay as designed.
+ * - `production` (default): profile-specific empty-response and timeout recovery stays enabled.
  * - `experiment_single_attempt`: eval/compare only — no silent empty/timeout re-POSTs.
  *   Every upstream HTTP is counted once; errors/empty/refusals are recorded and returned.
  *   Intentional applicationTool chat finalize (tool → prose) is still one protocol phase pair,
- *   not a silent retry; scout_plan has no applicationTool so compare steps are one HTTP each.
+ *   not a silent retry; profile calls without application tools use one HTTP request per step.
  */
 export type ServTransportPolicy = "production" | "experiment_single_attempt";
 
