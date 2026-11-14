@@ -56,29 +56,6 @@
       "multipath",
       "kronos"
     ],
-    "searchTrail": [
-      {
-        "zip": "80202",
-        "radiusMiles": 75,
-        "priceMaxUsd": 25000,
-        "bodyFamily": "suv",
-        "returned": 20
-      },
-      {
-        "zip": "80202",
-        "radiusMiles": 75,
-        "priceMaxUsd": 22500,
-        "bodyFamily": "suv",
-        "returned": 0
-      },
-      {
-        "zip": "80202",
-        "radiusMiles": 75,
-        "priceMaxUsd": 22500,
-        "bodyFamily": "suv",
-        "returned": 20
-      }
-    ],
     "creditsCharged": false,
     "productionDataChanged": false,
     "servResponseIds": [
@@ -90,7 +67,9 @@
       "resp_0d1845524b5c558c016af77359c8a887d2a4b0e0a568de9d81",
       "resp_0d1845524b5c558c016af7735e870c87d29cf14707e9a1cb89",
       "resp_0d1845524b5c558c016af773677cc087d288d23ca41f30b9dd"
-    ]
+    ],
+    "inventorySearchCount": 2,
+    "inventoryListingsReturned": 20
   },
   "links": {
     "geminiChat": "https://share.gemini.google/zr44XVFu8UNW",
