@@ -72,6 +72,13 @@ Required arms:
 
 The replay adapter must be deterministic and keyed by tool name plus normalized arguments. It must record requested tools, arguments, response IDs, result hashes, sequence, and whether a response was served from the cassette. An unmatched request must fail closed and be logged; it must not silently fetch new inventory.
 
+The first implementation adds a transport-level replay seam:
+- `FindAgentLoopDeps.toolFetch` is used only by Find application tools; SERV model calls continue using the normal `fetch`.
+- `runFindChatTurn` accepts an internal `toolFetchImpl` for evaluation harnesses. The public `/api/find/chat` route does not read or expose this option.
+- `src/server/find-agent/replay-cassette.ts` records/replays upstream HTTP responses by exact method, URL, safe request headers, and body. Credential-like query parameters are redacted from cassette metadata.
+- Replay has no live-network fallback, reports cassette misses, and can assert that every recorded response was consumed.
+- This establishes the injection seam and adapter mechanics; it does not yet mean a Denver cassette has been captured or that Track B has run.
+
 For each scenario, freeze:
 - exact user prompt and confirmed brief;
 - initial inventory result(s) and all downstream tool responses;
