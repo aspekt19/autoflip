@@ -269,9 +269,6 @@ export async function getRadarTestMode(
   kv: Kv,
   env: Record<string, string | undefined> = process.env,
 ): Promise<RadarTestModeState> {
-  if (env.RADAR_TEST_MODE === "0") {
-    return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
-  }
   const raw = await kv.get(RADAR_TEST_MODE_KEY);
   if (raw === null) {
     return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
@@ -279,6 +276,9 @@ export async function getRadarTestMode(
   try {
     const parsed = JSON.parse(raw) as Partial<RadarTestModeState>;
     if (parsed.status !== "armed" && parsed.status !== "stopped") throw new Error("invalid radar test mode");
+    if (env.RADAR_TEST_MODE === "0" && parsed.status === "stopped" && parsed.reason === "notification_sent") {
+      return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
+    }
     return {
       status: parsed.status,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
