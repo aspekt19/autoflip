@@ -34,6 +34,8 @@ import {
   creditsRequiredBody,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import {
   runResaleSearch,
@@ -610,8 +612,8 @@ export async function createAndRunResaleJobStep1(
   if (!reserved.ok) {
     return {
       ok: false,
-      status: 403,
-      body: creditsRequiredBody({ balance: reserved.balance, surface: "resale" }),
+      status: searchReservationFailureStatus(reserved.reason),
+      body: searchReservationFailureBody({ balance: reserved.balance, surface: "resale", reason: reserved.reason }),
     };
   }
 
