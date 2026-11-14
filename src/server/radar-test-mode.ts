@@ -4,7 +4,7 @@ const STOP_KEY = "radar:test-mode:stopped";
 
 /** Set RADAR_TEST_MODE=0 to re-arm normal Radar after the controlled demo. */
 export function isRadarTestModeEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.RADAR_TEST_MODE !== "0";
+  return env.RADAR_TEST_MODE === "1" || (env.RADAR_TEST_MODE !== "0" && Boolean(env.VERCEL));
 }
 const CYCLE_LOCK_KEY = "radar:test-mode:cycle-lock";
 const CYCLE_COUNT_KEY = "radar:test-mode:cycle-count";
@@ -67,6 +67,7 @@ export async function acquireRadarTestCycle(
   runId: string,
   env: Record<string, string | undefined>,
 ): Promise<{ ok: true } | { ok: false; stopped: boolean; message: string }> {
+  if (!isRadarTestModeEnabled(env)) return { ok: true };
   const state = await readRadarTestModeState(kv, env);
   if (state.stopped) {
     return { ok: false, stopped: true, message: state.message ?? STOPPED_MESSAGE };
