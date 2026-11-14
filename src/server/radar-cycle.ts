@@ -134,15 +134,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     network: null,
   };
 
-  const gate = await acquireRadarTestCycle(deps.kv, runId, deps.env);
-  if (!gate.ok) {
-    notes.push(gate.message);
-    steps.push({ id: "trial_safety", status: gate.stopped ? "stopped" : "skipped" });
-    const run = snapshot();
-    await upsertRun(deps.kv, run).catch(() => undefined);
-    return run;
-  }
-
   const snapshot = () =>
     finish(
       deps,
@@ -173,6 +164,15 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       })),
       proofRecords,
     );
+
+  const gate = await acquireRadarTestCycle(deps.kv, runId, deps.env);
+  if (!gate.ok) {
+    notes.push(gate.message);
+    steps.push({ id: "trial_safety", status: gate.stopped ? "stopped" : "skipped" });
+    const run = snapshot();
+    await upsertRun(deps.kv, run).catch(() => undefined);
+    return run;
+  }
 
   try {
     // Never inject demo/preset watches on cron — only user-saved searches run in prod.
