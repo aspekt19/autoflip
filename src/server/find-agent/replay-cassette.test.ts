@@ -25,7 +25,7 @@ describe("Find tool HTTP replay cassette", () => {
   it("rejects a cassette whose request hash was changed", () => {
     const cassette: FindReplayCassette = {
       schemaVersion: 1,
-      entries: [{ key: "wrong", request: { method: "GET", url: "https://api.auto.dev/listings", body: "" }, response: { kind: "response", status: 200, statusText: "OK", headers: [], body: "{}" } }],
+      entries: [{ key: "wrong", request: { method: "GET", url: "https://api.auto.dev/listings", headers: [], body: "" }, response: { kind: "response", status: 200, statusText: "OK", headers: [], body: "{}" } }],
     };
     expect(() => createFindReplayFetch(cassette)).toThrow("request hash mismatch");
   });
