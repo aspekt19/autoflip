@@ -29,14 +29,14 @@ export async function readRadarTestModeState(
   kv: Kv,
   env: Record<string, string | undefined> = process.env,
 ): Promise<RadarTestModeState> {
-  if (!isRadarTestModeEnabled(env)) {
-    return { stopped: false, stoppedAt: null, alertId: null, message: null };
-  }
   try {
     const raw = await kv.get(STOP_KEY);
     if (!raw) return { stopped: false, stoppedAt: null, alertId: null, message: null };
     try {
-      const parsed = JSON.parse(raw) as { stoppedAt?: unknown; alertId?: unknown; message?: unknown };
+      const parsed = JSON.parse(raw) as { stoppedAt?: unknown; alertId?: unknown; message?: unknown; reason?: unknown };
+      if (!isRadarTestModeEnabled(env) && parsed.reason === "notification_sent") {
+        return { stopped: false, stoppedAt: null, alertId: null, message: null };
+      }
       return {
         stopped: true,
         stoppedAt: typeof parsed.stoppedAt === "string" ? parsed.stoppedAt : null,
