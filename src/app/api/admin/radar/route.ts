@@ -1,6 +1,7 @@
 import { getKv } from "@/io/kv";
 import { armRadarTestMode, stopRadarTestMode } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
+import { radarTestModeIsBusy } from "@/server/radar-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid_action", message: "Send action: arm or stop." }, { status: 400 });
   }
   const kv = getKv();
+  if (body.action === "arm" && (await radarTestModeIsBusy(kv))) {
+    return Response.json(
+      { error: "radar_cycle_busy", message: "Wait for the active Radar cycle to finish before re-arming." },
+      { status: 409 },
+    );
+  }
   const state =
     body.action === "arm"
       ? await armRadarTestMode(kv)
