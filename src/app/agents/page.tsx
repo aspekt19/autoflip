@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AgentKeys } from "@/components/AgentKeys";
+import { TrialSearchNotice } from "@/components/TrialSearchNotice";
 
 export const metadata: Metadata = { title: "For AI agents" };
 
@@ -15,6 +16,8 @@ export default function AgentsPage() {
           plan/decide/second-check path and the same report with decision journal. Create a key for this browser, then send
           it as <code>Authorization: Bearer af_…</code>. Credits settle only after success. Site UI stays sign-in gated.
         </p>
+
+        <TrialSearchNotice />
 
         <section>
           <h2>MCP / API tools</h2>

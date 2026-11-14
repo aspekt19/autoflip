@@ -20,6 +20,8 @@ import {
   commitSearchCreditOnDelivery,
   releaseSearchCredit,
   reserveSearchCreditBeforeServ,
+  searchReservationFailureBody,
+  searchReservationFailureStatus,
 } from "@/server/search-billing-gate";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";

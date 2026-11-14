@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { CREDIT_PACKS } from "@/domain/assumptions";
 import { PLAN_CATALOG } from "@/domain/plans";
 import { StripeTestBuyButton } from "@/components/StripeTestBuyButton";
+import { TrialSearchNotice } from "@/components/TrialSearchNotice";
 
 type PlanModeState = { status: string; lookupKey: string | null; searchLimit?: number };
 type AccountState = {
@@ -151,6 +152,7 @@ function PricingContent() {
           Checks include 3 free per account per UTC month, then 1 credit. Deal Radar is a separate monthly plan —
           watches only, no included report credits. Stripe TEST mode only.
         </p>
+        <TrialSearchNotice />
         <p className="hint">
           Preview prices — Stripe TEST mode only. Credit packs buy report credits. Radar plans buy watched searches.
           Same checkout button style for both.
