@@ -462,7 +462,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             );
           }
           for (const item of fresh) {
-            if (freshAlerts.length > 0) break;
+            if (testModeEnabled && freshAlerts.length > 0) break;
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -626,7 +626,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         bumpSearch(search.id, { listings: scoped.length });
         let servSlot = 0;
         for (const winner of winners) {
-          if (freshAlerts.length > 0) break;
+          if (testModeEnabled && freshAlerts.length > 0) break;
           // Observational badge facts only — do not drop before SERV on tone.
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
           const personalCoverage = {
