@@ -265,7 +265,13 @@ export type RadarTestModeState = {
 
 const RADAR_TEST_MODE_KEY = "radar:test-mode:stopped";
 
-export async function getRadarTestMode(kv: Kv): Promise<RadarTestModeState> {
+export async function getRadarTestMode(
+  kv: Kv,
+  env: Record<string, string | undefined> = process.env,
+): Promise<RadarTestModeState> {
+  if (env.RADAR_TEST_MODE === "0") {
+    return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
+  }
   const raw = await kv.get(RADAR_TEST_MODE_KEY);
   if (raw === null) {
     return { status: "armed", updatedAt: null, stoppedAt: null, alertId: null, reason: null };
