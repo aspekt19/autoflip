@@ -85,7 +85,11 @@ export async function agentSaveRadarWatch(
     return { ok: false as const, status: 423, body: agentError({
       error_code: "radar_test_complete",
       message: testMode.message ?? "Deal Radar is paused after its first test notification.",
-      next_steps: { action: "read_existing_alerts", summary: "The test notification is saved. No further Radar watches can be activated." },
+      next_steps: {
+        action: "read_existing_alerts",
+        summary: "The test notification is saved. No further Radar watches can be activated.",
+        request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` },
+      },
     }) };
   }
   const criteria = input.criteria;
@@ -197,7 +201,11 @@ export async function agentSaveRadarWatch(
       body: agentError({
         error_code: "radar_test_watch_limit",
         message: "The current test allows one active Deal Radar watch across the entire project.",
-        next_steps: { action: "read_existing_watches", summary: "Pause or remove the existing watch before creating another." },
+        next_steps: {
+          action: "read_existing_watches",
+          summary: "Pause or remove the existing watch before creating another.",
+          request: { method: "GET", url: `${deps.origin}/api/v1/radar/watches` },
+        },
       }),
     };
   }
