@@ -135,3 +135,30 @@ describe("search billing gate (shared Find/Resale/MCP)", () => {
   });
 
 });
+
+
+describe("verified admin account search allowance", () => {
+  it("allows unlimited Find and Resale starts without report-credit debits", async () => {
+    const { KvAdapter } = await import("@/auth/kv-adapter");
+    const kv = new MemoryKv();
+    const previous = process.env.LEMONLESS_ADMIN_EMAILS;
+    process.env.LEMONLESS_ADMIN_EMAILS = "GERASSYK@GMAIL.COM";
+    try {
+      const user = await KvAdapter(kv).createUser?.({
+        name: "Admin",
+        email: "gerassyk@gmail.com",
+        emailVerified: new Date(),
+      });
+      expect(user?.id).toBeTruthy();
+      const first = await reserveSearchCreditBeforeServ(kv, "find", user!.id, "admin-first");
+      const second = await reserveSearchCreditBeforeServ(kv, "resale", user!.id, "admin-second");
+      const third = await reserveSearchCreditBeforeServ(kv, "find", user!.id, "admin-third");
+      expect(first.ok && second.ok && third.ok).toBe(true);
+      expect(await creditBalance(kv, user!.id)).toBe(0);
+      expect(await kv.get(`trial:search-quota:v1:${user!.id}`)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.LEMONLESS_ADMIN_EMAILS;
+      else process.env.LEMONLESS_ADMIN_EMAILS = previous;
+    }
+  });
+});

@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     message: typeof body.message === "string" ? body.message : null,
     continue: body.continue === true,
     confirmBrief: body.confirmBrief === true,
+    skipCredit: access.isAdmin,
     servKey: deps.servKey,
     autodevKey: deps.autodevKey,
     servBaseUrl: deps.servBaseUrl,

@@ -30,6 +30,7 @@ export async function GET() {
     authenticated: Boolean(session),
     email: session?.email ?? null,
     emailVerified: Boolean(session?.emailVerified),
+    isAdmin: Boolean(session?.isAdmin),
     auth,
     browserClaimable: Boolean(session && anon && anon !== session.id && !browserClaim),
     demo: isDemoUser(id),
