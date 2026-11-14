@@ -86,6 +86,8 @@ export type CycleDeps = {
   origin: string;
   env: Record<string, string | undefined>;
   forceAll?: boolean;
+  /** Production test mode can restrict the project-wide monitor to one saved watch. */
+  maxEnabledWatches?: number;
   deadlineMs?: number;
   timeouts?: Partial<typeof CALL_MS>;
 };
@@ -178,20 +180,23 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     // Never inject demo/preset watches on cron — only user-saved searches run in prod.
     const allSavedSearches = await listSearches(deps.kv);
     const enabledSearches = allSavedSearches.filter((item) => item.enabled);
-    // This is a project-wide test, not one test per paying (test-mode) account.
-    // If older data already has several active watches, only the oldest is eligible.
-    const searches = [...enabledSearches]
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-      .slice(0, 1);
-    if (enabledSearches.length > 1) {
-      const keepId = searches[0]?.id;
+    const orderedSearches = [...enabledSearches].sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+    );
+    const watchLimit =
+      typeof deps.maxEnabledWatches === "number" ? Math.max(0, Math.floor(deps.maxEnabledWatches)) : null;
+    const searches = watchLimit === null ? orderedSearches : orderedSearches.slice(0, watchLimit);
+    if (watchLimit !== null && enabledSearches.length > searches.length) {
+      const keepIds = new Set(searches.map((item) => item.id));
       await saveSearches(
         deps.kv,
         allSavedSearches.map((item) =>
-          item.enabled && item.id !== keepId ? { ...item, enabled: false } : item,
+          item.enabled && !keepIds.has(item.id) ? { ...item, enabled: false } : item,
         ),
       );
-      notes.push("Test mode allows one project-wide watch. Additional active watches were paused before external lookups.");
+      notes.push(
+        `Test mode allows ${watchLimit} project-wide active watch${watchLimit === 1 ? "" : "es"}. Additional active watches were paused before external lookups.`,
+      );
     }
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
