@@ -1,3 +1,4 @@
+import { getKv } from "@/io/kv";
 import { flipAlertWhy, topFlipCandidates } from "@/domain/flip-rank";
 import { priceBadge } from "@/domain/price-badge";
 import { scoreRadar } from "@/domain/radar";
