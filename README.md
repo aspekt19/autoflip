@@ -10,7 +10,7 @@ Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 
 ---
 
-## Start here: a judge's walkthrough
+## Start here
 
 1. Open the [live application](https://autoflip-umber.vercel.app/) and visit **Find**.
 2. Submit a natural-language request. SERV turns it into a structured brief; the shopper confirms the brief before inventory search begins.
