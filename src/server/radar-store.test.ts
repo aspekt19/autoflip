@@ -66,7 +66,7 @@ describe("global Radar test mode", () => {
     const kv = new MemoryKv();
     await claimRadarTestNotification(kv, "alert-normal-mode");
     expect((await getRadarTestMode(kv, { RADAR_TEST_MODE: "0" })).status).toBe("armed");
-    await stopRadarTestMode(kv);
+    await stopRadarTestMode(kv, new Date(), { RADAR_TEST_MODE: "0" });
     expect((await getRadarTestMode(kv, { RADAR_TEST_MODE: "0" })).status).toBe("stopped");
   });
 
