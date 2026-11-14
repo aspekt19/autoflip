@@ -42,6 +42,7 @@ import { agentPaymentInfo } from "@/server/x402-payments";
 import { agentProof, plannedProof } from "@/server/serv";
 import type { AgentScope } from "@/server/agent-scopes";
 import { readResaleJob } from "@/server/resale-job";
+import { RADAR_TEST_DIRECT_SCAN_MESSAGE } from "@/server/radar-test-mode";
 import type { WatchCriteria } from "@/domain/radar-watch";
 
 export const dynamic = "force-dynamic";
@@ -151,6 +152,20 @@ export async function POST(request: Request) {
       status: auth.status,
       headers: auth.headers,
     });
+  }
+
+  if (name === "deal_radar") {
+    return Response.json(
+      rpcResult(id, {
+        content: [{ type: "text", text: RADAR_TEST_DIRECT_SCAN_MESSAGE }],
+        isError: true,
+        structuredContent: {
+          error_code: "radar_test_mode_limited",
+          message: RADAR_TEST_DIRECT_SCAN_MESSAGE,
+          credit_spent: false,
+        },
+      }),
+    );
   }
 
   if (name === "check_car") {
