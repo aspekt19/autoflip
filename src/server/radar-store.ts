@@ -263,7 +263,7 @@ export type RadarTestModeState = {
   reason: "notification_sent" | "admin" | "state_unavailable" | null;
 };
 
-const RADAR_TEST_MODE_KEY = "radar:global-test-mode:v1";
+const RADAR_TEST_MODE_KEY = "radar:test-mode:stopped";
 
 export async function getRadarTestMode(kv: Kv): Promise<RadarTestModeState> {
   const raw = await kv.get(RADAR_TEST_MODE_KEY);
@@ -363,6 +363,8 @@ export async function armRadarTestMode(kv: Kv, now = new Date()): Promise<RadarT
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raw = await kv.get(RADAR_TEST_MODE_KEY);
     if (await kv.compareAndSwap(RADAR_TEST_MODE_KEY, raw, JSON.stringify(next))) {
+      // A new explicit test arm starts a fresh bounded test-cycle budget.
+      await kv.delete("radar:test-mode:cycle-count");
       const searches = await listSearches(kv);
       await saveSearches(
         kv,
