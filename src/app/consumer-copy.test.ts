@@ -20,6 +20,7 @@ describe("consumer copy", () => {
     const offenders: string[] = [];
     for (const file of filesUnder(root)) {
       if (file.includes(`${path.sep}developers${path.sep}`)) continue;
+      if (file.includes(`${path.sep}where-serv-runs${path.sep}`)) continue; // Dedicated technical transparency page.
       if (file.includes(`${path.sep}agents${path.sep}`)) continue;
       if (file.includes(`${path.sep}activity${path.sep}`)) continue;
       if (file.includes(`${path.sep}api${path.sep}`)) continue;

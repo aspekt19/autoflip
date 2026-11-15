@@ -21,8 +21,8 @@ const PAGES = [
   "/agents",
 ];
 
-/** Consumer pages. /agents is allowed to keep field names and protocol words. */
-const CONSUMER = PAGES.filter((path) => path !== "/agents");
+/** Consumer pages. Technical docs routes are exempt from shopper-copy jargon checks. */
+const CONSUMER = PAGES.filter((path) => path !== "/agents" && path !== "/where-serv-runs");
 
 const JARGON =
   /\b(find_plan|free-gov|free_gov|vPIC|OpenServ|openserv|webhook|SCOUT_UI_ENABLED|SERV_API_KEY|Upstash|money-button|allowlisted|TypeScript|triage|sERV)\b|\bNHTSA\b|\bclamp\b/;
