@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import findProofData from "../../../eval/results/find-gemini-proof-2026-11-13.json";
 import servComparisonData from "../../../eval/results/proof-serv-compare-2026-11-13.json";
-import profileEvaluationData from "../../../eval/results/latest.json";
 import { PIPELINE_STEPS } from "@/domain/serv-pipeline";
 import { loadServRunAggregateStats } from "@/io/decision-audit-store";
 
@@ -13,7 +12,6 @@ const findRun = findProofData.run;
 const comparison = servComparisonData.examples[0];
 const featuresOff = comparison.variants.features_off;
 const featuresOn = comparison.variants.features_on;
-const profileEvaluation = profileEvaluationData;
 
 const number = (value: number) => new Intl.NumberFormat("en-US").format(value);
 const utcDate = (value: string) =>
@@ -163,36 +161,6 @@ export default async function WhereServRunsPage() {
               rel="noreferrer"
             >
               Open the paired execution record and evidence
-            </a>
-          </p>
-        </section>
-
-        <section>
-          <h2>Earlier profile evaluation snapshot</h2>
-          <p className="hint">
-            Generated {utcDate(profileEvaluation.generatedAt)} UTC · model reported in this
-            evaluation: gpt-5.4-mini-2026-03-17. This is an earlier evaluation snapshot, not a
-            measurement of the current gpt-6.1-sol production default.
-          </p>
-          <ul className="refuse">
-            <li><strong>Paired cases:</strong> {number(profileEvaluation.pairs)}.</li>
-            <li><strong>Checked answer better:</strong> {number(profileEvaluation.better)}.</li>
-            <li><strong>Checked answer worse:</strong> {number(profileEvaluation.worse)}.</li>
-            <li><strong>Both passed:</strong> {number(profileEvaluation.bothPassed)}.</li>
-            <li><strong>Both failed:</strong> {number(profileEvaluation.bothFailed)}.</li>
-          </ul>
-          <p className="hint">
-            The snapshot reports mixed outcomes: the checked answer was better on some rows and
-            worse on others. It is retained as historical evidence rather than presented as a
-            current accuracy score.
-          </p>
-          <p>
-            <a
-              href="https://github.com/aspekt19/autoflip/blob/main/eval/results/latest.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Read the evaluation report
             </a>
           </p>
         </section>
