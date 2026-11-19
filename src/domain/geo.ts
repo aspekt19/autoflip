@@ -152,11 +152,16 @@ export function stampRadiusCheck<T extends {
   });
 }
 
-/** Buyer-facing distance. Never a silent blank when miles were not computed. */
+/**
+ * Buyer-facing distance.
+ * An explicit unverified radius check stays unverified even when a stale mile number is still on the row.
+ * A finite mile figure with a known (or unset) check is the computed distance.
+ */
 export function buyerDistanceText(input: {
   distanceMiles?: number | null;
   radiusCheck?: RadiusCheck | null;
 }): string {
+  if (input.radiusCheck === "unverified") return "unverified";
   if (typeof input.distanceMiles === "number" && Number.isFinite(input.distanceMiles)) {
     return `${Math.round(input.distanceMiles)} mi away`;
   }

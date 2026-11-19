@@ -241,7 +241,7 @@ export function ReportView({ report }: { report: FullReport }) {
                 ? `${formatUsd(computed.fuel.annualFuelCostLowUsd)}–${formatUsd(computed.fuel.annualFuelCostHighUsd)}`
                 : "—"}
           </b>
-          <span>EPA annual fuel</span>
+          <span>{computed.fuel?.costBasis === "epa_published" ? "EPA annual fuel" : "Est. annual fuel"}</span>
         </article>
       </div>
 

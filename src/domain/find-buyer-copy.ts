@@ -131,7 +131,7 @@ export const FIND_PAGE_BILLING_STEP =
   "Find reserves 1 report credit before search starts (released if nothing fits). Open a full report for any car you want to investigate further (1 report credit).";
 
 export const FIND_RESULTS_BILLING_HINT =
-  "Find reserves 1 report credit before search starts. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan (1 or 3 watches).";
+  "Find reserves 1 report credit before search starts (released if no car is found or nothing fits). A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan (1 or 3 watches).";
 
 /**
  * /credits?need=1 copy. Find is never paid by the monthly VIN / own-URL allotment.

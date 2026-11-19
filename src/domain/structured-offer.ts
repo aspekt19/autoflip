@@ -42,6 +42,39 @@ export function structuredOfferRepairIssue(input: {
   };
 }
 
+function offerDollars(text: string): number[] {
+  const amounts: number[] = [];
+  const pattern = /\$\s?(\d{1,3}(?:,\d{3})+|\d+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    amounts.push(Number(match[1]!.replace(/,/g, "")));
+  }
+  return amounts;
+}
+
+/**
+ * The structured offer is the only offer the shopper sees.
+ * A prose sentence that names a different dollar offer is dropped.
+ * Budget sentences that do not name an offer stay.
+ */
+export function alignRenderedOfferMessage(
+  message: string | null | undefined,
+  offerLabels: ReadonlyArray<string | null | undefined>,
+): string | null {
+  if (!message?.trim()) return message ?? null;
+  const allowed = new Set(offerLabels.flatMap((label) => offerDollars(label ?? "")));
+  const kept = message
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => {
+      if (!proseStatesOffer(sentence)) return true;
+      const amounts = offerDollars(sentence);
+      if (amounts.length === 0) return false;
+      return amounts.every((amount) => allowed.has(amount));
+    });
+  const next = kept.join(" ").trim();
+  return next || null;
+}
+
 /** Same sentence on every surface that shows the offer. */
 export function offerOnSurfaces(offer: StructuredOffer): {
   report: string;

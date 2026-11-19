@@ -18,15 +18,21 @@ export function templateExplanation(report: ComputedReport): string {
     ? "Sample data: these listings are the evaluation fixture, not a live market search."
     : "";
 
+  const fuelFact = report.fuel;
+  const providerAnnual = fuelFact?.costBasis === "epa_published";
   let fuel = "Annual fuel cost was not available from FuelEconomy.gov for this configuration.";
-  if (report.fuel?.annualFuelCostUsd !== null && report.fuel?.annualFuelCostUsd !== undefined) {
-    fuel = `EPA annual fuel cost for the matched configuration is ${formatUsd(report.fuel.annualFuelCostUsd)}.`;
+  if (fuelFact?.annualFuelCostUsd !== null && fuelFact?.annualFuelCostUsd !== undefined) {
+    fuel = providerAnnual
+      ? `EPA annual fuel cost for the matched configuration is ${formatUsd(fuelFact.annualFuelCostUsd)}.`
+      : `Estimated annual fuel cost for the matched configuration is ${formatUsd(fuelFact.annualFuelCostUsd)}. FuelEconomy.gov did not publish this dollar amount for the exact configuration.`;
   } else if (
-    report.fuel &&
-    report.fuel.annualFuelCostLowUsd !== null &&
-    report.fuel.annualFuelCostHighUsd !== null
+    fuelFact &&
+    fuelFact.annualFuelCostLowUsd !== null &&
+    fuelFact.annualFuelCostHighUsd !== null
   ) {
-    fuel = `EPA annual fuel cost across configurations of this year, make, and model runs from ${formatUsd(report.fuel.annualFuelCostLowUsd)} to ${formatUsd(report.fuel.annualFuelCostHighUsd)}. Trim match was uncertain.`;
+    fuel = providerAnnual
+      ? `EPA annual fuel cost across configurations of this year, make, and model runs from ${formatUsd(fuelFact.annualFuelCostLowUsd)} to ${formatUsd(fuelFact.annualFuelCostHighUsd)}. Trim match was uncertain.`
+      : `Estimated annual fuel cost across configurations of this year, make, and model runs from ${formatUsd(fuelFact.annualFuelCostLowUsd)} to ${formatUsd(fuelFact.annualFuelCostHighUsd)}. Trim match was uncertain, and this range is an estimate unless FuelEconomy.gov published it.`;
   }
 
   const recalls =

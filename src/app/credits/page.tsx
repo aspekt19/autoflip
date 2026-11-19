@@ -16,6 +16,9 @@ import { Suspense, useEffect, useRef, useState } from "react";
 
 const CREDITS_BEFORE_CHECKOUT_KEY = "lemonless.creditsBeforeCheckout";
 
+const CREDITS_LEAD =
+  "Sign in required. A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or listing checks per UTC month. Find and Resale each reserve 1 report credit before search starts (released if no car is found or nothing fits). Credit packs never include Deal Radar — watches require Radar ($100/mo, 1 watch) or Radar Pro ($250/mo, 3 watches) on Pricing. All preview prices are in U.S. dollars.";
+
 function CreditsInner() {
   const params = useSearchParams();
   const need = params.get("need") === "1";
@@ -112,7 +115,7 @@ function CreditsInner() {
       <div className="sheet-page site-frame">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
-      <p className="lead">Sign in required. A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or listing checks per UTC month. Find and Resale each reserve 1 report credit before search starts (released if nothing fits). Credit packs never include Deal Radar — watches require Radar ($100/mo, 1 watch) or Radar Pro ($250/mo, 3 watches) on Pricing. All preview prices are in U.S. dollars.</p>
+      <p className="lead">{CREDITS_LEAD}</p>
       <p className="hint">This is Stripe test mode: test-card checkouts do not take real money. Use 4242 4242 4242 4242, any future expiry date and any CVC.</p>
       {model.hint.kind === "loading" ? (
         <p className="hint" aria-busy="true">{model.hint.text}</p>
@@ -207,7 +210,9 @@ export default function CreditsPage() {
       fallback={
         <div className="sub">
           <div className="sheet-page site-frame">
-            <p className="eyebrow">Loading credits…</p>
+            <p className="kicker">Test checkout</p>
+            <h1>Credits</h1>
+            <p className="lead">{CREDITS_LEAD}</p>
           </div>
         </div>
       }
