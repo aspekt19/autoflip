@@ -3,7 +3,7 @@ import { accidentHistoryBuyerLine, NO_ACCIDENT_ALTERNATIVE_TEXT } from "./accide
 import { buyerDistanceText, distanceMilesBetweenZips } from "./geo";
 import { validateFindSubmitPicks } from "./find-agent";
 import { pickHeading } from "./run-view";
-import { offerOnSurfaces, renderStructuredOffer } from "./structured-offer";
+import { alignRenderedOfferMessage, offerOnSurfaces, renderStructuredOffer } from "./structured-offer";
 import { radarAlertTelegramText } from "@/io/telegram";
 
 const VIN = "1HGCM82633A004352";
@@ -114,6 +114,7 @@ describe("golden: Colorado Springs distance from 80202", () => {
     expect(miles).toBe(64);
     expect(buyerDistanceText({ distanceMiles: miles, radiusCheck: "known" })).toBe("64 mi away");
     expect(buyerDistanceText({ distanceMiles: null, radiusCheck: "unverified" })).toBe("unverified");
+    expect(buyerDistanceText({ distanceMiles: miles, radiusCheck: "unverified" })).toBe("unverified");
   });
 });
 
@@ -163,5 +164,15 @@ describe("structured offer is the rendered offer", () => {
     });
     expect(telegram).toContain(surfaces.rendered);
     expect(telegram).toContain("64 mi away");
+  });
+
+  it("drops a prose offer that is not the structured offer and keeps a budget sentence", () => {
+    const aligned = alignRenderedOfferMessage(
+      "My first inspection choice is the Forester. Offer $17,000 before taxes. Never exceed $22,000 out the door.",
+      ["Opening offer: not given. There is not enough similar-car data to name one."],
+    );
+    expect(aligned).toBe("My first inspection choice is the Forester. Never exceed $22,000 out the door.");
+    const matching = alignRenderedOfferMessage("Opening offer $19,000.", ["Opening offer: $19,000."]);
+    expect(matching).toContain("$19,000");
   });
 });

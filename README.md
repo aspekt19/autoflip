@@ -102,7 +102,7 @@ SERV's built-in markers and Lemonless application tools are intentionally distin
 
 Find and Resale have a step policy: intake and search use the base model; the dedicated final selection hop enables the product-specific reasoning bundle. Prompt Guard is included on the first SERV call of the chat. This keeps the profile consistent with the actual role of each turn. The profile registry also defines the focused Check, report, and Radar steps.
 
-The implementation and profile matrix are documented in [SERV architecture](docs/SERV_ARCHITECTURE.md). OpenServ's overview is available at [SERV Reasoning](https://www.openserv.ai/reasoning).
+The implementation and profile matrix are documented in [SERV architecture](docs/SERV_ARCHITECTURE.md). OpenServ's overview is available at [SERV Reasoning](https://docs.openserv.ai/serv-reasoning).
 
 ### Why the Responses tool protocol matters
 

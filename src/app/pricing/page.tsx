@@ -8,6 +8,41 @@ import { PLAN_CATALOG } from "@/domain/plans";
 import { StripeTestBuyButton } from "@/components/StripeTestBuyButton";
 import { TrialSearchNotice } from "@/components/TrialSearchNotice";
 
+const PRICING_LEAD =
+  "Sign in required. A listing link or VIN includes 3 free checks per account per UTC month, then 1 credit. Find and Resale each reserve 1 report credit before search starts and release it when no car is found or nothing fits. Deal Radar is separate: $100 per month for 1 watch, or $250 per month for 3 watches. Watches do not include report credits. Stripe TEST mode only.";
+
+function PricingFacts() {
+  return (
+    <>
+      <p className="kicker">Pricing</p>
+      <h1>Credits &amp; Deal Radar</h1>
+      <p className="lead">{PRICING_LEAD}</p>
+      <h2>Radar plans (Stripe TEST)</h2>
+      <div className="prices">
+        {PLAN_CATALOG.map((plan) => (
+          <article className="pack" key={plan.id}>
+            <h3>{plan.name}</h3>
+            <p className="sum">${(plan.amountCents / 100).toFixed(0)}/mo</p>
+            <p className="hint">{plan.detail}</p>
+          </article>
+        ))}
+      </div>
+      <h2>Report credit packs</h2>
+      <div className="prices">
+        {CREDIT_PACKS.map((pack) => (
+          <article className="pack" key={pack.id}>
+            <h3>{pack.name}</h3>
+            <p className="sum">${(pack.amountCents / 100).toFixed(0)}</p>
+            <p className="hint">
+              {pack.credits} report credits. No radar watches included. Test price.
+            </p>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
 type PlanModeState = { status: string; lookupKey: string | null; searchLimit?: number };
 type AccountState = {
   demo: boolean;
@@ -147,11 +182,7 @@ function PricingContent() {
       <div className="sheet-page site-frame">
         <p className="kicker">Pricing</p>
         <h1>Credits &amp; Deal Radar</h1>
-        <p className="lead">
-          Sign in required. Find and Resale each use 1 report credit per search (reserved before search starts).
-          Checks include 3 free per account per UTC month, then 1 credit. Deal Radar is a separate monthly plan —
-          watches only, no included report credits. Stripe TEST mode only.
-        </p>
+        <p className="lead">{PRICING_LEAD}</p>
         <TrialSearchNotice />
         <p className="hint">
           Preview prices — Stripe TEST mode only. Credit packs buy report credits. Radar plans buy watched searches.
@@ -279,7 +310,7 @@ export default function PricingPage() {
       fallback={
         <div className="sub">
           <div className="sheet-page site-frame">
-            <p className="eyebrow">Loading pricing…</p>
+            <PricingFacts />
           </div>
         </div>
       }

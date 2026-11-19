@@ -85,6 +85,48 @@ describe("run settlement", () => {
     expect(html).toContain("chatcmpl-secret");
   });
 
+  it("does not publish an accident car as the primary pick when the brief forbids it", () => {
+    const settled = applyObservation(draft(), {
+      note: "AWD SUV near 80202, no accident or salvage history",
+      queryCount: 1,
+      listings: [{ ...CIVIC, accidentCount: 1, offerUsd: null, offerLabel: "Opening offer: not given." }],
+      picks: [CIVIC.vin],
+      verdict: "needs_inspection",
+      confidence: "medium",
+      buyerMessage: "My first inspection choice. Offer $17,000 before taxes.",
+      creditsCharged: 1,
+      terminal: true,
+    });
+    expect(settled.verdict).toBe("needs_inspection");
+    const view = toRunView(settled, null);
+    expect(view.picks).toEqual([]);
+    expect(view.verdict).toBeNull();
+    expect(view.creditsCharged).toBe(0);
+    expect(view.listings[0]?.picked).toBe(false);
+    expect(view.listings[0]?.alternativeLabel).toMatch(/no-accident rule/);
+    const html = renderRunPermalinkHtml(view);
+    expect(html).not.toMatch(/\$17,000/);
+    expect(html).not.toMatch(/Verdict:/);
+    expect(html).toMatch(/does not meet your no-accident rule/);
+  });
+
+  it("keeps a pick when accident history is missing and the brief forbids accidents", () => {
+    const settled = applyObservation(draft(), {
+      note: "AWD SUV, no accident or salvage history",
+      queryCount: 1,
+      listings: [{ ...CIVIC, accidentCount: null }],
+      picks: [CIVIC.vin],
+      verdict: "needs_inspection",
+      confidence: "low",
+      creditsCharged: 0,
+      terminal: true,
+    });
+    const view = toRunView(settled, null);
+    expect(view.verdict).toBe("needs_inspection");
+    expect(view.picks).toEqual([CIVIC.vin]);
+    expect(view.listings[0]?.alternativeLabel ?? null).toBeNull();
+  });
+
   it("a clarification changes the stored spec and leaves the verdict to the server", () => {
     const next = appendClarification(draft(), "it is for a new driver", {
       priceMaxUsd: { value: 8000, origin: "user" as const },

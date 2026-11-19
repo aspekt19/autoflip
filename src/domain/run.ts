@@ -2,8 +2,10 @@
  * Server-side Run. The permalink and the live pages render this record.
  * A finished run's public fields are the last in-progress snapshot plus the decision.
  */
+import { carViolatesNoAccidentBrief, NO_ACCIDENT_ALTERNATIVE_TEXT } from "./accident-hard-constraint";
 import { formatNumber, formatUsd } from "./format";
 import { settlePublishedRun } from "./run-invariants";
+import { alignRenderedOfferMessage } from "./structured-offer";
 import { yearSpanSentence } from "./year-span";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "./search-spec";
 import {
@@ -492,6 +494,26 @@ export function limitSentences(spec: SearchSpec | null): string[] {
 }
 
 export function toRunView(run: RunRecord, viewerId: string | null): RunView {
+  const violating = new Set(
+    run.listings
+      .filter((car) =>
+        carViolatesNoAccidentBrief({
+          note: run.inputs.note,
+          clarifications: run.inputs.clarifications,
+          accidentCount: car.accidentCount,
+        }),
+      )
+      .map((car) => car.vin),
+  );
+  const picks = run.picks.filter((vin) => !violating.has(vin));
+  const droppedPrimary = run.picks.length > 0 && picks.length === 0;
+  const verdict = droppedPrimary ? null : run.verdict;
+  const buyerMessage = droppedPrimary
+    ? `No primary pick. The listed car ${NO_ACCIDENT_ALTERNATIVE_TEXT}.`
+    : alignRenderedOfferMessage(
+        run.buyerMessage,
+        run.listings.map((car) => car.offerLabel),
+      );
   return {
     id: run.id,
     kind: run.kind,
@@ -501,12 +523,12 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
     note: run.inputs.note,
     clarifications: [...run.inputs.clarifications],
     limits: limitSentences(run.spec),
-    verdict: run.verdict,
-    confidence: run.confidence,
-    confidenceReason: run.confidenceReason ?? null,
-    creditsCharged: run.verdict ? run.creditsCharged : 0,
+    verdict,
+    confidence: verdict ? run.confidence : null,
+    confidenceReason: verdict ? (run.confidenceReason ?? null) : null,
+    creditsCharged: verdict ? run.creditsCharged : 0,
     failureReasons: [...run.failureReasons],
-    buyerMessage: run.buyerMessage ?? null,
+    buyerMessage,
     steps: [...run.steps]
       .sort((a, b) => JOURNAL_STEP_IDS.indexOf(a.step) - JOURNAL_STEP_IDS.indexOf(b.step))
       .map((step) => ({
@@ -517,8 +539,12 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
         failureDetail: step.failureDetail ?? null,
       })),
     sources: [...run.sources],
-    listings: run.listings.map((car) => ({ ...car, picked: run.picks.includes(car.vin) })),
-    picks: [...run.picks],
+    listings: run.listings.map((car) => ({
+      ...car,
+      picked: picks.includes(car.vin),
+      alternativeLabel: violating.has(car.vin) ? NO_ACCIDENT_ALTERNATIVE_TEXT : (car.alternativeLabel ?? null),
+    })),
+    picks,
   };
 }
 

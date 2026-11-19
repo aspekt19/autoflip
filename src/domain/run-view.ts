@@ -26,6 +26,7 @@ import {
   type VerdictId,
 } from "./buyer-copy-table";
 import { accidentHistoryBuyerLine, NO_ACCIDENT_ALTERNATIVE_TEXT } from "./accident-hard-constraint";
+import { alignRenderedOfferMessage } from "./structured-offer";
 import { buyerDistanceText } from "./geo";
 import { buyerListingHref } from "./find-listing-link";
 import type { VehicleSourceAttempt } from "./normalized-vehicle";
@@ -211,12 +212,15 @@ export function runReportModel(view: RunView): RunReportModel {
       linkLabel: host ? `Listing on ${host}` : null,
       sourcesLine,
       summary:
-        joinBuyerParts([
-          car.summary,
-          car.reason,
-          car.offerLabel,
-          mileageFlag,
-        ]) || null,
+        alignRenderedOfferMessage(
+          joinBuyerParts([
+            car.summary,
+            car.reason,
+            car.offerLabel,
+            mileageFlag,
+          ]),
+          [car.offerLabel],
+        ) || null,
     };
   });
   // Prefer per-VIN attempt checklists over the legacy generic "Cars for sale" block.
@@ -236,7 +240,10 @@ export function runReportModel(view: RunView): RunReportModel {
       .filter((line) => !journalSentences.has(line))
       .filter((line) => !messageText.toLowerCase().includes(line.toLowerCase())),
     chargeLine,
-    buyerMessage: view.buyerMessage,
+    buyerMessage: alignRenderedOfferMessage(
+      view.buyerMessage,
+      view.listings.map((car) => car.offerLabel),
+    ),
     note: view.note,
     clarifications: view.clarifications,
     limits: view.limits,

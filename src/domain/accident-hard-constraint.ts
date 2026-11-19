@@ -75,3 +75,17 @@ export function accidentHistoryBuyerLine(accidentCount: number | null | undefine
   if (accidentCount == null) return "Accident history unverified";
   return null;
 }
+
+/** True when this car cannot be the primary pick under a no-accident / no-salvage brief. */
+export function carViolatesNoAccidentBrief(input: {
+  note: string;
+  clarifications: readonly string[];
+  accidentCount: number | null | undefined;
+}): boolean {
+  const forbids = briefForbidsAccidents([
+    { key: "note", value: input.note },
+    ...input.clarifications.map((value) => ({ key: "clarification", value })),
+  ]);
+  if (!forbids) return false;
+  return readAccidentHistory({ accidentCounts: [input.accidentCount] }).kind === "violation";
+}

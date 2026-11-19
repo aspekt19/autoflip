@@ -153,6 +153,11 @@ export default async function WhereServRunsPage() {
             The feature-enabled run recorded no feature rejections. The two picks and inventory
             snapshots are preserved as separate run records. The comparison demonstrates actual
             feature routing and tool execution, not a statistically conclusive quality uplift.
+            It is not a frozen listing snapshot: each arm searched live inventory on its own.
+            Both recorded picks had a source-reported accident, so they are not evidence that
+            the current no-accident rule accepted them. The run page keeps that car off the
+            primary pick. A prose offer in this table is the recorded model text; the structured
+            offer on the run is the offer the page renders.
           </p>
           <p>
             <a
