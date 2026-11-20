@@ -4,7 +4,7 @@
 
 **Naming:** the product is Lemonless; **autoflip** is the original working name (GitHub repo, `autoflip-umber.vercel.app` domain, and internal ids such as `af_` API keys).
 
-[**Live application**](https://autoflip-umber.vercel.app/) · [**Proof of AI**](https://autoflip-umber.vercel.app/proof) · [**Where SERV runs**](https://autoflip-umber.vercel.app/where-serv-runs) · [**Recorded Find trail**](docs/serv-decision-trail-2026-11-13.md) · [**Agent API**](https://autoflip-umber.vercel.app/developers) · [**OpenAPI**](https://autoflip-umber.vercel.app/openapi.json)
+[**Live application**](https://autoflip-umber.vercel.app/) · [**Proof of AI**](https://autoflip-umber.vercel.app/proof) · [**Where SERV runs**](https://autoflip-umber.vercel.app/where-serv-runs) · [**Recorded Find trail**](docs/serv-decision-trail-2026-11-13.md) · [**Agent API**](https://autoflip-umber.vercel.app/developers) · [**OpenAPI**](https://autoflip-umber.vercel.app/openapi.json) · [**Demo video on X**](https://x.com/gerassyk/status/2121577786326528010)
 
 [![CI](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml/badge.svg)](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml)
 
@@ -19,6 +19,7 @@ No login required:
 1. [Proof of AI](https://autoflip-umber.vercel.app/proof) — recorded Denver Find run vs Gemini Auto.
 2. [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) — runtime integration view.
 3. [Recorded Find trail](docs/serv-decision-trail-2026-11-13.md) — what the committed Proof JSON actually stores (and what it does not).
+4. [Demo video on X](https://x.com/gerassyk/status/2121577786326528010) — 50-second walkthrough, posted 14 November 2026.
 
 Three files to open next:
 
