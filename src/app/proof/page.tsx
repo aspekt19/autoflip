@@ -65,6 +65,17 @@ export default function ProofPage() {
           inventory, selected an actual listing, checked vehicle-specific data and translated the result
           into a VIN-linked recommendation and a concrete negotiation plan.
         </p>
+        <p className="hint">
+          Recorded decision trail (fields present in the committed run JSON):{" "}
+          <a
+            href="https://github.com/aspekt19/autoflip/blob/main/docs/serv-decision-trail-2026-11-13.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open the SERV decision trail
+          </a>
+          .
+        </p>
 
         <section className="proof-example" id="denver-find-vs-gemini-auto">
           <details className="decision" open>
