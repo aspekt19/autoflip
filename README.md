@@ -2,7 +2,9 @@
 
 **Lemonless is an OpenServ SERV-powered vehicle decision agent.** It turns a natural-language buyer brief into a validated search, gathers vehicle-level evidence, compares candidates, and returns a specific next action with an auditable decision trail.
 
-[**Live application**](https://autoflip-umber.vercel.app/) · [**Proof of AI**](https://autoflip-umber.vercel.app/proof) · [**Where SERV runs**](https://autoflip-umber.vercel.app/where-serv-runs) · [**Agent API**](https://autoflip-umber.vercel.app/developers) · [**OpenAPI**](https://autoflip-umber.vercel.app/openapi.json)
+**Naming:** the product is Lemonless; **autoflip** is the original working name (GitHub repo, `autoflip-umber.vercel.app` domain, and internal ids such as `af_` API keys).
+
+[**Live application**](https://autoflip-umber.vercel.app/) · [**Proof of AI**](https://autoflip-umber.vercel.app/proof) · [**Where SERV runs**](https://autoflip-umber.vercel.app/where-serv-runs) · [**Recorded Find trail**](docs/serv-decision-trail-2026-11-13.md) · [**Agent API**](https://autoflip-umber.vercel.app/developers) · [**OpenAPI**](https://autoflip-umber.vercel.app/openapi.json)
 
 [![CI](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml/badge.svg)](https://github.com/aspekt19/autoflip/actions/workflows/ci.yml)
 
@@ -10,13 +12,49 @@ Built for **OpenServ SERV Hackathon Edition 02 — Open Track**.
 
 ---
 
+## Review in 60 seconds
+
+No login required:
+
+1. [Proof of AI](https://autoflip-umber.vercel.app/proof) — recorded Denver Find run vs Gemini Auto.
+2. [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) — runtime integration view.
+3. [Recorded Find trail](docs/serv-decision-trail-2026-11-13.md) — what the committed Proof JSON actually stores (and what it does not).
+
+Three files to open next:
+
+- [`src/server/find-agent/loop.ts`](https://github.com/aspekt19/autoflip/blob/main/src/server/find-agent/loop.ts#L526-L548) — Find system prompt and tool loop; the prompt lists the minimum evidence checks SERV must attempt before `submit_picks` (around line 546).
+- [`src/server/serv/agent-serv-features.ts`](https://github.com/aspekt19/autoflip/blob/main/src/server/serv/agent-serv-features.ts) — per-step Prompt Guard, Kronos, Multipath, and Shadow Agent policy.
+- [`src/server/serv/agent-tool-loop-protocol.ts`](https://github.com/aspekt19/autoflip/blob/main/src/server/serv/agent-tool-loop-protocol.ts) — Responses multi-turn function-tool contract.
+
+**SERV decides** the search direction, follow-up tool calls, candidate triage, and the final pick or `submit_nothing_fits`. **Code computes and verifies** inventory fetches, VIN/normalize facts, distance, price context, offers, hard constraints, and credit commits. Find needs sign-in because of abuse limits: **2 Find/Resale sessions per non-admin account** in the current test configuration, plus credit gating on paid paths.
+
+## Hackathon window
+
+This repository was started **4 November 2026** (initial commit `bd30cb3`) and built during **SERV Hackathon Edition 02 (2–15 November 2026)**.
+
+The last commit before the deadline (**15 November 2026, 23:59 UTC**) is:
+
+- **`91a120e`** — `fix: publish current SERV execution evidence` (commit time 2026-11-15 20:03:19 UTC)
+- Git tag: [`hackathon-deadline-nov15-91a120e`](https://github.com/aspekt19/autoflip/releases/tag/hackathon-deadline-nov15-91a120e)
+
+Commits after that deadline:
+
+| Commit / PR | Why it landed after the window |
+|---|---|
+| [`6e99623`](https://github.com/aspekt19/autoflip/commit/6e99623) · [#229](https://github.com/aspekt19/autoflip/pull/229) | Removed the historical profile-evaluation block from Where SERV runs. |
+| [`bc32c3c`](https://github.com/aspekt19/autoflip/commit/bc32c3c) · [#230](https://github.com/aspekt19/autoflip/pull/230) | Fixed published-run consistency: accident filtering, offer text vs structured offer, unverified distance, fuel estimate labels, pricing SSR. |
+| [`43d0d17`](https://github.com/aspekt19/autoflip/commit/43d0d17) · [#231](https://github.com/aspekt19/autoflip/pull/231) | Fixed escaped backticks so README code paths and the mermaid diagram render. |
+| [#232](https://github.com/aspekt19/autoflip/pull/232) (this PR) | Docs-only: hackathon window, review path, decision-trail honesty, claim alignment with the live site, and archive markers for noisy eval artifacts. |
+
 ## Start here
 
-1. Open the [live application](https://autoflip-umber.vercel.app/) and visit **Find**.
+1. Open the [live application](https://autoflip-umber.vercel.app/) and visit **Find** (sign-in required for a live session; see the abuse-limit note above).
 2. Submit a natural-language request. SERV turns it into a structured brief; the shopper confirms the brief before inventory search begins.
 3. Follow the live agent trail: SERV chooses search and evidence tools, reviews the returned candidates, and submits a terminal recommendation or a reasoned no-fit result.
 4. Open [Proof of AI](https://autoflip-umber.vercel.app/proof) to inspect the recorded end-to-end Find case, including the exact listing, supporting evidence, offer, confidence, SERV/tool counts, and the Gemini comparison.
 5. Open [Where SERV runs](https://autoflip-umber.vercel.app/where-serv-runs) for the runtime integration view, then inspect the implementation paths below.
+
+The Find prompt states the **minimum evidence checks** SERV must attempt before a pick (`get_recalls_complaints`, `get_safety_ratings`, `get_vin_decode`, `get_fuel_economy`, `get_market_comps` — see [`loop.ts` around line 546](https://github.com/aspekt19/autoflip/blob/main/src/server/find-agent/loop.ts#L546)). SERV still chooses which searches to run, which follow-ups to request, how to triage candidates, and whether to pick a car or call `submit_nothing_fits`. Empty, error, or unavailable tool results still count as attempted checks.
 
 The most important source files for reviewing the SERV integration are:
 
@@ -222,7 +260,9 @@ Agent keys use the `af_` prefix and the `Authorization: Bearer af_…` header. K
 
 ### x402 payments
 
-The agent payment layer implements **x402 v2 exact payments in USDC on Base Mainnet**:
+The agent payment layer **implements** x402 v2 exact payments in USDC on Base Mainnet. On the current deployment it is **implemented, currently disabled**: `GET /api/agents/payment-info` returns `"available": false` (verified against [https://autoflip-umber.vercel.app/api/agents/payment-info](https://autoflip-umber.vercel.app/api/agents/payment-info)).
+
+When enabled, the configured rail is:
 
 - Network: `eip155:8453`
 - Asset: Base USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
@@ -238,7 +278,7 @@ The agent payment layer implements **x402 v2 exact payments in USDC on Base Main
 | Radar · 1 saved watch / up to 300 monthly reviews | `POST /api/agents/billing/plans` · `radar` | $100 USDC / 30 days |
 | Radar Pro · 3 saved watches / up to 900 monthly reviews | Same endpoint · `radar_pro` | $250 USDC / 30 days |
 
-x402 is enabled when CDP facilitator credentials are configured. The readiness endpoint is `GET /api/agents/payment-info`. The receiving wallet's private key is not stored in Lemonless. Human browser checkout is separate and remains in Stripe **Test Mode**.
+x402 becomes available when CDP facilitator credentials are configured and the readiness endpoint reports `"available": true`. The receiving wallet's private key is not stored in Lemonless. Human browser checkout is separate and remains in Stripe **Test Mode**.
 
 ## Architecture map
 
@@ -331,7 +371,17 @@ Use Upstash for shared production state. The Vercel runtime is multi-instance; s
 - Stripe human checkout remains in **Test Mode**.
 - The deployed Deal Radar is in bounded one-notification test mode by default: one project-wide watch, one uncached inventory lookup and one candidate review per cycle, with a three-cycle ceiling. After the first notification, all new monitoring checks are globally paused. An administrator can re-arm the test; set `RADAR_TEST_MODE=0` to run normal Radar operation.
 - Find and Resale share the temporary two-session test limit per non-admin account. The verified administrator allowlist bypasses that limit; the Account admin panel can grant additional combined Find/Resale sessions to a verified user.
+- Agent x402 checkout is implemented in code and currently disabled on the live deployment (`available: false` on `GET /api/agents/payment-info`).
 - The daily Radar schedule is configured in `vercel.json` at 14:00 UTC.
+
+## Limitations and what we learned about SERV
+
+- **Published Proof is a summary, not a full per-turn journal.** The committed Nov 13 Find artifact records response IDs, token counts, tool-round totals, the selected listing, and high-level evidence notes. It does not store an ordered per-turn list of tool name → inputs → result → rejected candidates. See [the recorded Find trail](docs/serv-decision-trail-2026-11-13.md).
+- **Prompt rules are not the same as autonomy.** The Find instructions require SERV to attempt a fixed evidence set before `submit_picks`, but search strategy, follow-ups, triage, and the terminal pick-or-no-fit call remain SERV's.
+- **Feature cost and step policy matter.** Kronos, Multipath, Shadow Agent, and Prompt Guard are billable SERV steps. Lemonless keeps them off intake/search and on the dedicated final selection hop so ordinary tool rounds stay on the base model.
+- **Responses tool protocol is strict.** Every `function_call` needs a matching `function_call_output` on the next turn; a missing output fails the hop. That contract lives in `agent-tool-loop-protocol.ts`.
+- **Live inventory moves.** A recorded run is reproducible as an artifact, not as a guarantee that the same VDP is still listed tomorrow.
+- **Some eval files are historical or noisy.** They stay in the tree for provenance; [eval/results/README.md](eval/results/README.md) marks which ones are archived.
 
 ## License
 
