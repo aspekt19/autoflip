@@ -44,7 +44,7 @@ Commits after that deadline:
 | [`6e99623`](https://github.com/aspekt19/autoflip/commit/6e99623) · [#229](https://github.com/aspekt19/autoflip/pull/229) | Removed the historical profile-evaluation block from Where SERV runs. |
 | [`bc32c3c`](https://github.com/aspekt19/autoflip/commit/bc32c3c) · [#230](https://github.com/aspekt19/autoflip/pull/230) | Fixed published-run consistency: accident filtering, offer text vs structured offer, unverified distance, fuel estimate labels, pricing SSR. |
 | [`43d0d17`](https://github.com/aspekt19/autoflip/commit/43d0d17) · [#231](https://github.com/aspekt19/autoflip/pull/231) | Fixed escaped backticks so README code paths and the mermaid diagram render. |
-| This PR | Docs-only: hackathon window, review path, decision-trail honesty, claim alignment with the live site, and archive markers for noisy eval artifacts. |
+| [#232](https://github.com/aspekt19/autoflip/pull/232) (this PR) | Docs-only: hackathon window, review path, decision-trail honesty, claim alignment with the live site, and archive markers for noisy eval artifacts. |
 
 ## Start here
 
