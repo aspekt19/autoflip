@@ -1,6 +1,6 @@
 # Lemonless Find — decide and challenge (SERV graph system prompt, v3)
 
-Paste the contents of `find-decide-graph-prompt.txt` (exactly the text below, nothing else) into console.openserv.ai → Graphs → New graph. The app calls the graph with its `gr_` id as the model on `/v1/responses`; the run input arrives in `instructions` as JSON (`find-decide-graph.schema.json`, `input`).
+Paste the contents of `find-decide-graph-prompt.txt` (exactly the text below, nothing else) into console.openserv.ai → Graphs → New graph. The app calls the graph with its `gr_` id as the model on `/v1/responses`; the run input arrives in `instructions` as JSON in the graph's own input schema (`src/server/serv/find-decide-graph-input.schema.json`, built by `src/server/find-decide-graph-input.ts`).
 
 ## Why v2
 
