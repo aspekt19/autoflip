@@ -168,56 +168,13 @@ function emptySecondPass(
   };
 }
 
-export type FindDecideServResult = {
-  bestDeal: BestDealResult;
-  decide: FindDecide;
-  source: "SERV" | "code";
-  agentVerdict: AgentVerdict;
-  secondPass: AgentSecondPassResult;
-  proofRecords: DecisionProofRecord[];
-};
-
-export async function runFindDecideServ(input: {
-  need: StructuredNeed;
-  bestDeal: BestDealResult;
-  shortlistKeys: readonly string[];
+/** Code-computed fact sheet shared by the two-call decide, the decide graph and the loop second check. */
+export function buildFindDecideFacts(input: {
+  peers: readonly BestDealCandidate[];
   receipts: readonly FindFreeGovReceipt[];
-  marketPool?: readonly Listing[];
-  servKey?: string | null;
-  servBaseUrl?: string;
-  model?: string;
-  fetchImpl?: typeof fetch;
-  transportPolicy?: ServDeps["transportPolicy"];
-  /** How long this call may wait. The route sets this from the time still left. */
-  timeoutMs?: number;
-  /** Time left on the route, including this call. A retry runs only when this covers another full wait. */
-  remainingMs?: number;
-  /**
-   * SERV graph id for the decide + challenge graph. `undefined` reads env
-   * SERV_GRAPH_FIND_DECIDE_ID; `null` forces the two-call path (eval baseline).
-   */
-  graphId?: string | null;
-}): Promise<FindDecideServResult> {
-  const shortlistKeys = [...input.shortlistKeys];
-  const rankedByKey = new Map(
-    [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked].map((row) => [row.key, row]),
-  );
-  const shortlistRows: BestDealCandidate[] = shortlistKeys
-    .map((key) => rankedByKey.get(key))
-    .filter((row): row is BestDealCandidate => Boolean(row))
-    .filter((row) => !row.excludedFromPick);
-  const peers =
-    shortlistRows.length > 0
-      ? shortlistRows
-      : input.bestDeal.ranked.filter((row) => !row.excludedFromPick);
-  const codePick =
-    peers.find((row) => !row.excludedFromPick) ??
-    input.bestDeal.pick ??
-    peers[0] ??
-    null;
-
-  const recordedAt = new Date().toISOString();
-  const proofRecords: DecisionProofRecord[] = [];
+  marketPool: readonly Listing[];
+}) {
+  const peers = [...input.peers];
   const allowedEvidenceIds = new Set<string>();
   for (const row of peers) {
     allowedEvidenceIds.add(`car:${row.key}`);
@@ -228,7 +185,7 @@ export async function runFindDecideServ(input: {
   for (const r of input.receipts) allowedEvidenceIds.add(receiptEvidenceId(r));
 
   const factSheet = peers.map((row) => {
-    const report = buildFindPickComputedReport(row, peers, input.marketPool ?? []);
+    const report = buildFindPickComputedReport(row, peers, [...input.marketPool]);
     const mmyReceipts = input.receipts.filter(
       (r) =>
         r.make.toLowerCase() === row.make.toLowerCase() &&
@@ -295,14 +252,21 @@ export async function runFindDecideServ(input: {
     "Published confidence = min(C3, C4 revised, guardrail caps).",
   ];
 
-  const servKey = input.servKey?.trim() || "";
-  let decide: FindDecide | null = null;
-  let source: "SERV" | "code" = "code";
-  let decideModel: string | null = null;
-  let decideResponseId: string | null = null;
-  let decideFailureDetail: string | null = null;
-  const decideTimeoutMs = input.timeoutMs ?? profile("find_decide").timeoutMs;
-  const decideUser = JSON.stringify({
+  return { factSheet, allowedEvidenceIds, guardrailRules };
+}
+
+export type FindDecideFactSheet = ReturnType<typeof buildFindDecideFacts>["factSheet"];
+
+/** JSON run input for find_decide and the decide graph (`{ facts }`). */
+export function findDecideInstructions(input: {
+  need: StructuredNeed;
+  factSheet: FindDecideFactSheet;
+  shortlistKeys: readonly string[];
+  allowedEvidenceIds: ReadonlySet<string>;
+  codeRankedKey: string | null;
+  guardrailRules: readonly string[];
+}): string {
+  return JSON.stringify({
     facts: {
       intent: {
         note: input.need.note ?? null,
@@ -314,16 +278,89 @@ export async function runFindDecideServ(input: {
         priorities: input.need.priorities ?? [],
         awdPreference: input.need.awdPreference === true,
       },
-      shortlist: factSheet,
-      shortlistKeys,
-      allowedEvidenceIds: [...allowedEvidenceIds],
-      codeRankedKey: codePick?.key ?? null,
+      shortlist: input.factSheet,
+      shortlistKeys: [...input.shortlistKeys],
+      allowedEvidenceIds: [...input.allowedEvidenceIds],
+      codeRankedKey: input.codeRankedKey,
       guardrailRules: [
-        ...guardrailRules,
+        ...input.guardrailRules,
         "When awdPreference is true, prefer confirmed AWD/4WD (drivetrainConfirmedAwd) over unknown/FWD unless other hard risks dominate.",
         "Use accidentCountReported as a soft risk — do not invent clean history from a zero or null.",
       ],
     },
+  });
+}
+
+export type FindDecideServResult = {
+  bestDeal: BestDealResult;
+  decide: FindDecide;
+  source: "SERV" | "code";
+  agentVerdict: AgentVerdict;
+  secondPass: AgentSecondPassResult;
+  proofRecords: DecisionProofRecord[];
+};
+
+export async function runFindDecideServ(input: {
+  need: StructuredNeed;
+  bestDeal: BestDealResult;
+  shortlistKeys: readonly string[];
+  receipts: readonly FindFreeGovReceipt[];
+  marketPool?: readonly Listing[];
+  servKey?: string | null;
+  servBaseUrl?: string;
+  model?: string;
+  fetchImpl?: typeof fetch;
+  transportPolicy?: ServDeps["transportPolicy"];
+  /** How long this call may wait. The route sets this from the time still left. */
+  timeoutMs?: number;
+  /** Time left on the route, including this call. A retry runs only when this covers another full wait. */
+  remainingMs?: number;
+  /**
+   * SERV graph id for the decide + challenge graph. `undefined` reads env
+   * SERV_GRAPH_FIND_DECIDE_ID; `null` forces the two-call path (eval baseline).
+   */
+  graphId?: string | null;
+}): Promise<FindDecideServResult> {
+  const shortlistKeys = [...input.shortlistKeys];
+  const rankedByKey = new Map(
+    [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked].map((row) => [row.key, row]),
+  );
+  const shortlistRows: BestDealCandidate[] = shortlistKeys
+    .map((key) => rankedByKey.get(key))
+    .filter((row): row is BestDealCandidate => Boolean(row))
+    .filter((row) => !row.excludedFromPick);
+  const peers =
+    shortlistRows.length > 0
+      ? shortlistRows
+      : input.bestDeal.ranked.filter((row) => !row.excludedFromPick);
+  const codePick =
+    peers.find((row) => !row.excludedFromPick) ??
+    input.bestDeal.pick ??
+    peers[0] ??
+    null;
+
+  const recordedAt = new Date().toISOString();
+  const proofRecords: DecisionProofRecord[] = [];
+  const { factSheet, allowedEvidenceIds, guardrailRules } = buildFindDecideFacts({
+    peers,
+    receipts: input.receipts,
+    marketPool: input.marketPool ?? [],
+  });
+
+  const servKey = input.servKey?.trim() || "";
+  let decide: FindDecide | null = null;
+  let source: "SERV" | "code" = "code";
+  let decideModel: string | null = null;
+  let decideResponseId: string | null = null;
+  let decideFailureDetail: string | null = null;
+  const decideTimeoutMs = input.timeoutMs ?? profile("find_decide").timeoutMs;
+  const decideUser = findDecideInstructions({
+    need: input.need,
+    factSheet,
+    shortlistKeys,
+    allowedEvidenceIds,
+    codeRankedKey: codePick?.key ?? null,
+    guardrailRules,
   });
 
   const shortlistMeta: FindDecideShortlistMeta[] = peers.map((row) => ({
