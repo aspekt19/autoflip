@@ -5,52 +5,52 @@
     "graph",
     "loop_second_check"
   ],
-  "generatedAt": "2026-11-27T19:32:19.859Z",
+  "generatedAt": "2026-11-27T20:07:45.620Z",
   "dryRun": false,
   "graphId": "gr_3d039bd8de63381a",
   "fixture": "eval/comparison/fixtures/find-cases.json",
-  "repeats": 1,
+  "repeats": 2,
   "summary": {
     "two_call": {
-      "attempts": 3,
+      "attempts": 20,
       "validatorPassRate": 1,
-      "repeatConsistency": 1,
-      "latencyP50Ms": 18144,
-      "latencyP95Ms": 18697,
-      "httpCalls": 6,
-      "tokens": 22515,
+      "repeatConsistency": 0.95,
+      "latencyP50Ms": 18291,
+      "latencyP95Ms": 24406,
+      "httpCalls": 40,
+      "tokens": 140440,
       "costUsd": null,
       "graphFallbacks": null,
       "secondCheckAgreed": null,
       "secondCheckDisagreed": null
     },
     "graph": {
-      "attempts": 3,
-      "validatorPassRate": 0,
-      "repeatConsistency": null,
-      "latencyP50Ms": 21853,
-      "latencyP95Ms": 23369,
-      "httpCalls": 9,
-      "tokens": 22472,
+      "attempts": 20,
+      "validatorPassRate": 1,
+      "repeatConsistency": 0.9,
+      "latencyP50Ms": 11835,
+      "latencyP95Ms": 13454,
+      "httpCalls": 20,
+      "tokens": 549990,
       "costUsd": null,
-      "graphFallbacks": 3,
+      "graphFallbacks": 0,
       "secondCheckAgreed": null,
       "secondCheckDisagreed": null
     },
     "loop_second_check": {
-      "attempts": 3,
-      "validatorPassRate": 0,
-      "repeatConsistency": null,
-      "latencyP50Ms": 5592,
-      "latencyP95Ms": 5795,
-      "httpCalls": 3,
-      "tokens": null,
+      "attempts": 20,
+      "validatorPassRate": 1,
+      "repeatConsistency": 0.9,
+      "latencyP50Ms": 11563,
+      "latencyP95Ms": 14604,
+      "httpCalls": 20,
+      "tokens": 491431,
       "costUsd": null,
       "graphFallbacks": null,
       "secondCheckAgreed": 0,
-      "secondCheckDisagreed": 0
+      "secondCheckDisagreed": 20
     },
-    "decisionAgreement": null
+    "decisionAgreement": 0.6
   },
   "notes": [
     "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
@@ -71,10 +71,10 @@
       "loopPick": "2HKRM4H75FH123456|negotiate",
       "modal": {
         "two_call": "2HKRM4H75FH123456|negotiate",
-        "graph": null,
-        "loop_second_check": null
+        "graph": "2HKRM4H75FH123456|inspect_first",
+        "loop_second_check": "2HKRM4H75FH123456|inspect_first"
       },
-      "agree": null,
+      "agree": false,
       "attempts": [
         {
           "arm": "two_call",
@@ -85,53 +85,106 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18144,
+          "latencyMs": 19828,
           "httpCalls": 2,
-          "tokens": 7833,
+          "tokens": 8005,
           "costUsd": null,
           "runIds": [
-            "b5b0f143-cb82-4a40-84c5-1bbcb934cef7",
-            "6f2035d9-8613-4fd1-922e-6825149086f7"
+            "cdcf3b70-f14c-41c1-80c0-2e6a5e7df1b6",
+            "97b78697-8c53-466c-be3f-ead4361cb97b"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18291,
+          "httpCalls": 2,
+          "tokens": 7928,
+          "costUsd": null,
+          "runIds": [
+            "e254da4f-1bbc-407a-bde5-14417bdc1e01",
+            "38f912f2-9fd6-49ad-b722-afd31a45deef"
           ],
           "failure": null
         },
         {
           "arm": "graph",
           "repeat": 1,
-          "ok": false,
-          "usedGraph": false,
+          "ok": true,
+          "usedGraph": true,
           "pickKey": "2HKRM4H75FH123456",
-          "action": "negotiate",
-          "confidence": "low",
+          "action": "inspect_first",
+          "confidence": "medium",
           "secondPass": "agreed",
-          "latencyMs": 21853,
-          "httpCalls": 3,
-          "tokens": 7749,
+          "latencyMs": 13219,
+          "httpCalls": 1,
+          "tokens": 33050,
           "costUsd": null,
           "runIds": [
-            "647aa91e-be0e-47aa-a2a9-d696391e11d4",
-            "89c0e853-bcb3-4fd3-b52a-6a50df30eb5e",
-            "301ae4d4-3a2d-4fb3-b169-c900dc37716c"
+            "df5293d5-e739-40db-8a9c-6975ba9bd20e"
           ],
-          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 11799,
+          "httpCalls": 1,
+          "tokens": 31546,
+          "costUsd": null,
+          "runIds": [
+            "38e481c3-1686-47ea-a7c8-6706603a285f"
+          ],
+          "failure": null
         },
         {
           "arm": "loop_second_check",
           "repeat": 1,
-          "ok": false,
+          "ok": true,
           "usedGraph": true,
-          "pickKey": null,
-          "action": null,
-          "confidence": null,
-          "secondPass": "not_run",
-          "latencyMs": 5172,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 11020,
           "httpCalls": 1,
-          "tokens": null,
+          "tokens": 24636,
           "costUsd": null,
           "runIds": [
-            "41e9fe3a-93f1-43fb-98c6-3668f07ff63b"
+            "f55522f5-1a14-42f9-85dd-6667aec39c9c"
           ],
-          "failure": "Second check not run: the graph check did not answer."
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 9848,
+          "httpCalls": 1,
+          "tokens": 24117,
+          "costUsd": null,
+          "runIds": [
+            "f4bfa4f3-b9b0-4174-b63e-632b69b384f5"
+          ],
+          "failure": null
         }
       ]
     },
@@ -147,10 +200,10 @@
       "loopPick": "4T1BF1FK5EU100001|negotiate",
       "modal": {
         "two_call": "4T1BF1FK5EU100001|inspect_first",
-        "graph": null,
-        "loop_second_check": null
+        "graph": "4T1BF1FK5EU100001|inspect_first",
+        "loop_second_check": "4T1BF1FK5EU100001|inspect_first"
       },
-      "agree": null,
+      "agree": true,
       "attempts": [
         {
           "arm": "two_call",
@@ -161,53 +214,106 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18697,
+          "latencyMs": 18298,
           "httpCalls": 2,
-          "tokens": 7923,
+          "tokens": 7985,
           "costUsd": null,
           "runIds": [
-            "0e11fadb-aab2-4aa7-8419-6e7e7897326d",
-            "416294b9-c74e-4045-ad5b-7bd7228dec65"
+            "4e643425-0f5f-4f11-8d21-4103f6807e60",
+            "1f5c501c-e8b9-4606-84c3-eabe40fdb2e3"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 17796,
+          "httpCalls": 2,
+          "tokens": 8044,
+          "costUsd": null,
+          "runIds": [
+            "89474f58-078b-44b0-b8c0-de72f5a8e2a7",
+            "adc70dcb-c679-45e2-ac7a-829208cf5635"
           ],
           "failure": null
         },
         {
           "arm": "graph",
           "repeat": 1,
-          "ok": false,
-          "usedGraph": false,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 11835,
+          "httpCalls": 1,
+          "tokens": 32053,
+          "costUsd": null,
+          "runIds": [
+            "7532bf7f-ae4c-42ff-9690-52c755caa673"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
           "pickKey": "4T1BF1FK5EU100001",
           "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 23369,
-          "httpCalls": 3,
-          "tokens": 7993,
+          "secondPass": "disagreed",
+          "latencyMs": 12367,
+          "httpCalls": 1,
+          "tokens": 32191,
           "costUsd": null,
           "runIds": [
-            "090ffa57-2c11-4ecc-afdb-bf8d72c11244",
-            "31a6a33a-76a2-403e-8a64-d799231bb103",
-            "ff114ca2-2341-4ed8-aad8-065a8f087d28"
+            "153f6ffc-13e1-4c2a-94b2-6626afa92bc4"
           ],
-          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+          "failure": null
         },
         {
           "arm": "loop_second_check",
           "repeat": 1,
-          "ok": false,
+          "ok": true,
           "usedGraph": true,
-          "pickKey": null,
-          "action": null,
-          "confidence": null,
-          "secondPass": "not_run",
-          "latencyMs": 5592,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 10785,
           "httpCalls": 1,
-          "tokens": null,
+          "tokens": 24870,
           "costUsd": null,
           "runIds": [
-            "debf37fc-bcc4-4add-8570-688bea99493f"
+            "92918d6d-9879-4c64-a09a-9954659e69e4"
           ],
-          "failure": "Second check not run: the graph check did not answer."
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 10458,
+          "httpCalls": 1,
+          "tokens": 24321,
+          "costUsd": null,
+          "runIds": [
+            "2c47fb79-7cfd-4d6c-b3a9-a66ea3c46cfd"
+          ],
+          "failure": null
         }
       ]
     },
@@ -222,10 +328,10 @@
       "loopPick": "2T1BU4EE5DC500001|negotiate",
       "modal": {
         "two_call": "2T1BU4EE5DC500001|inspect_first",
-        "graph": null,
-        "loop_second_check": null
+        "graph": "2T1BU4EE5DC500001|inspect_first",
+        "loop_second_check": "2T1BU4EE5DC500001|inspect_first"
       },
-      "agree": null,
+      "agree": true,
       "attempts": [
         {
           "arm": "two_call",
@@ -236,53 +342,1002 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 16844,
+          "latencyMs": 17071,
           "httpCalls": 2,
-          "tokens": 6759,
+          "tokens": 6788,
           "costUsd": null,
           "runIds": [
-            "c19552f8-9a23-483c-a896-6ddf2e0cd0e2",
-            "f80afd09-8ad1-48b2-a4c8-b3b2045bedcf"
+            "d27bb906-a7e1-426b-b0c0-7b9733b51bb3",
+            "3fcb7217-093a-4143-ba29-5200b3434fbe"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 16243,
+          "httpCalls": 2,
+          "tokens": 6787,
+          "costUsd": null,
+          "runIds": [
+            "24da95b7-04b9-49bf-9c7c-759b0e5588b8",
+            "109a1354-3db9-4cd3-ab34-5feb3d30069e"
           ],
           "failure": null
         },
         {
           "arm": "graph",
           "repeat": 1,
-          "ok": false,
-          "usedGraph": false,
+          "ok": true,
+          "usedGraph": true,
           "pickKey": "2T1BU4EE5DC500001",
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 21826,
-          "httpCalls": 3,
-          "tokens": 6730,
+          "latencyMs": 11453,
+          "httpCalls": 1,
+          "tokens": 26701,
           "costUsd": null,
           "runIds": [
-            "7504793c-97cc-4e02-81f8-b679188ac1c3",
-            "613a959b-fcb1-45d6-bc9d-50819846bf6a",
-            "9deae3a9-44ba-44e1-b5f9-ee5ca2267789"
+            "6317ed5b-a8f3-46a5-bd09-b34c47bf2ff9"
           ],
-          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 11208,
+          "httpCalls": 1,
+          "tokens": 25898,
+          "costUsd": null,
+          "runIds": [
+            "0f0ebe67-9a60-41bb-9339-86416ba73a83"
+          ],
+          "failure": null
         },
         {
           "arm": "loop_second_check",
           "repeat": 1,
-          "ok": false,
+          "ok": true,
           "usedGraph": true,
-          "pickKey": null,
-          "action": null,
-          "confidence": null,
-          "secondPass": "not_run",
-          "latencyMs": 5795,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11762,
           "httpCalls": 1,
-          "tokens": null,
+          "tokens": 24710,
           "costUsd": null,
           "runIds": [
-            "33b34cca-836a-4f52-b063-0ee0e2a17d5f"
+            "d76ae027-f375-4ed3-b5d1-367e06c99ad4"
           ],
-          "failure": "Second check not run: the graph check did not answer."
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCP2F37CA600002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11728,
+          "httpCalls": 1,
+          "tokens": 26181,
+          "costUsd": null,
+          "runIds": [
+            "d31aaa3f-afb6-46cc-a07a-b13ce8304560"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-awd-winter-18k-msp",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JM3KE2DY5G0700001",
+        "5J6RM4H75GL800002",
+        "2T3ZF4DV5BW900003",
+        "3CZRE3H50BG000004"
+      ],
+      "loopPick": "JM3KE2DY5G0700001|negotiate",
+      "modal": {
+        "two_call": "JM3KE2DY5G0700001|inspect_first",
+        "graph": "JM3KE2DY5G0700001|inspect_first",
+        "loop_second_check": "JM3KE2DY5G0700001|inspect_first"
+      },
+      "agree": true,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18775,
+          "httpCalls": 2,
+          "tokens": 8114,
+          "costUsd": null,
+          "runIds": [
+            "9c4bc59c-6328-46fd-98bb-7c071c11107f",
+            "a01392c5-307e-4f80-bf30-06efb53a90cb"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18122,
+          "httpCalls": 2,
+          "tokens": 8080,
+          "costUsd": null,
+          "runIds": [
+            "57a18c11-5a6b-4041-aa19-14e7202e4cf3",
+            "74b68d9d-c6db-468c-864b-faeef8fbc807"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 12467,
+          "httpCalls": 1,
+          "tokens": 33220,
+          "costUsd": null,
+          "runIds": [
+            "ead93e79-9616-4e0c-88a7-c36b6b12328d"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13454,
+          "httpCalls": 1,
+          "tokens": 30763,
+          "costUsd": null,
+          "runIds": [
+            "5ae2ce86-04c3-426a-884c-e273fe900d02"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 10452,
+          "httpCalls": 1,
+          "tokens": 25264,
+          "costUsd": null,
+          "runIds": [
+            "757d59ad-c9c7-4a17-89ee-cd27930cd52f"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11060,
+          "httpCalls": 1,
+          "tokens": 24726,
+          "costUsd": null,
+          "runIds": [
+            "65a91e0a-caa4-4b50-9c4f-1b8f414e32c9"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-low-mile-camry-20k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1B11HK1JU700003",
+        "4T1B11HK5JU700001",
+        "4T1B11HK0JU700002"
+      ],
+      "loopPick": "4T1B11HK1JU700003|negotiate",
+      "modal": {
+        "two_call": "4T1B11HK1JU700003|inspect_first",
+        "graph": "4T1B11HK1JU700003|inspect_first",
+        "loop_second_check": "4T1B11HK1JU700003|inspect_first"
+      },
+      "agree": true,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 17575,
+          "httpCalls": 2,
+          "tokens": 6773,
+          "costUsd": null,
+          "runIds": [
+            "102d50db-7822-4727-a18f-f5e80c133feb",
+            "33954baa-47ad-4cea-834a-ea2af66ecaf0"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 24406,
+          "httpCalls": 2,
+          "tokens": 6731,
+          "costUsd": null,
+          "runIds": [
+            "f6b4c3d8-6cbd-4b03-9946-7bfb057a324f",
+            "25fa90c6-aa0b-4b0c-bbdb-1ca7ec3abbf6"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12107,
+          "httpCalls": 1,
+          "tokens": 27067,
+          "costUsd": null,
+          "runIds": [
+            "9f31921e-4d90-4fb9-8be3-2e5318726655"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 11453,
+          "httpCalls": 1,
+          "tokens": 26295,
+          "costUsd": null,
+          "runIds": [
+            "09e362ca-5d54-495d-95aa-556e449bec13"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 12981,
+          "httpCalls": 1,
+          "tokens": 26271,
+          "costUsd": null,
+          "runIds": [
+            "321daebb-6f82-4b43-9900-ac2d622d7515"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 14254,
+          "httpCalls": 1,
+          "tokens": 25391,
+          "costUsd": null,
+          "runIds": [
+            "fd91c198-4876-4ec2-b8f2-16d01ff5818f"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-truck-weekend-22k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "1FTER4EH5HLA00002",
+        "5TFRU5F18GX100001",
+        "5TFRU5F10DX200003"
+      ],
+      "loopPick": "1FTER4EH5HLA00002|negotiate",
+      "modal": {
+        "two_call": "1FTER4EH5HLA00002|negotiate",
+        "graph": "1FTER4EH5HLA00002|inspect_first",
+        "loop_second_check": "1FTER4EH5HLA00002|inspect_first"
+      },
+      "agree": false,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18299,
+          "httpCalls": 2,
+          "tokens": 6901,
+          "costUsd": null,
+          "runIds": [
+            "7b44cb6d-cf0b-42bc-b1af-9f064061cc77",
+            "3480c396-8f74-4f30-8513-826de072fa76"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18465,
+          "httpCalls": 2,
+          "tokens": 6893,
+          "costUsd": null,
+          "runIds": [
+            "0555d6e2-caa2-4e3a-aa87-c00fdd6b3c79",
+            "7f8eec76-4a25-47d7-b918-0f38c4f08e39"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 12976,
+          "httpCalls": 1,
+          "tokens": 26026,
+          "costUsd": null,
+          "runIds": [
+            "fc7e39fa-bf16-45d4-bc1f-c2c7f04b25b3"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 10814,
+          "httpCalls": 1,
+          "tokens": 25633,
+          "costUsd": null,
+          "runIds": [
+            "9a8c73e2-6763-486f-9a9b-ce88786ed03f"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11892,
+          "httpCalls": 1,
+          "tokens": 25041,
+          "costUsd": null,
+          "runIds": [
+            "24a9fe09-5c7c-4a3f-a404-4a42178c9321"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14604,
+          "httpCalls": 1,
+          "tokens": 27167,
+          "costUsd": null,
+          "runIds": [
+            "753d141b-0f5b-46ed-ab93-ff9ee4040175"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-hybrid-fuel-16k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JTDKN3DU5E0100001",
+        "4T1BF1FK5EU300003",
+        "JTDKB20U293200002"
+      ],
+      "loopPick": "JTDKN3DU5E0100001|negotiate",
+      "modal": {
+        "two_call": "JTDKN3DU5E0100001|inspect_first",
+        "graph": "JTDKN3DU5E0100001|inspect_first",
+        "loop_second_check": "JTDKN3DU5E0100001|inspect_first"
+      },
+      "agree": true,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 19755,
+          "httpCalls": 2,
+          "tokens": 6865,
+          "costUsd": null,
+          "runIds": [
+            "eaf397a9-ad12-4807-b6d5-c8c4d750072b",
+            "4be60f77-c7f0-4431-a8fd-f6f4ccdbe0a1"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18528,
+          "httpCalls": 2,
+          "tokens": 6820,
+          "costUsd": null,
+          "runIds": [
+            "108ab28e-335f-419b-85bc-94ca4f1bec1d",
+            "d24879b7-a6ec-421c-a321-ce8ed2f244ea"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 11167,
+          "httpCalls": 1,
+          "tokens": 25412,
+          "costUsd": null,
+          "runIds": [
+            "0880c1af-9bf7-4abd-bea1-e8cdb5618f38"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13160,
+          "httpCalls": 1,
+          "tokens": 28906,
+          "costUsd": null,
+          "runIds": [
+            "fa1961a8-cebc-48cd-ad57-2f42d53d5ed3"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11563,
+          "httpCalls": 1,
+          "tokens": 24774,
+          "costUsd": null,
+          "runIds": [
+            "d84c1ff0-c5b4-4246-9ece-5ea89cab106c"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11290,
+          "httpCalls": 1,
+          "tokens": 24520,
+          "costUsd": null,
+          "runIds": [
+            "bd0964fa-c4a9-4da5-a0c9-a08666c176d6"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-luxury-stretch-25k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "58ABK1GG5GU400001",
+        "JTHBK1GG7E2500003",
+        "19UDE2F70GA500002"
+      ],
+      "loopPick": "58ABK1GG5GU400001|negotiate",
+      "modal": {
+        "two_call": "58ABK1GG5GU400001|negotiate",
+        "graph": "58ABK1GG5GU400001|inspect_first",
+        "loop_second_check": "19UDE2F70GA500002|inspect_first"
+      },
+      "agree": false,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 17584,
+          "httpCalls": 2,
+          "tokens": 6746,
+          "costUsd": null,
+          "runIds": [
+            "66510b55-45f2-4759-9a0f-0b702fb609dd",
+            "c8e55a73-5d5b-41ea-9a00-1675bfd64779"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18731,
+          "httpCalls": 2,
+          "tokens": 6802,
+          "costUsd": null,
+          "runIds": [
+            "d9f326eb-6f4d-4561-ab94-358022729872",
+            "386d7f34-3bf7-42e0-a41a-d932aa42e9d9"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 11693,
+          "httpCalls": 1,
+          "tokens": 25818,
+          "costUsd": null,
+          "runIds": [
+            "07ac7ac9-dc09-448a-9404-29a85110ed1f"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "inspect_first",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12065,
+          "httpCalls": 1,
+          "tokens": 25783,
+          "costUsd": null,
+          "runIds": [
+            "6c5ae4b4-a8fd-435f-8e62-ec2f96e42d13"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "19UDE2F70GA500002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 10484,
+          "httpCalls": 1,
+          "tokens": 24450,
+          "costUsd": null,
+          "runIds": [
+            "27a04138-83cf-417c-b6e7-30649593acfa"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12958,
+          "httpCalls": 1,
+          "tokens": 25834,
+          "costUsd": null,
+          "runIds": [
+            "2a1e8ade-1f51-4bde-808d-ba8871d676b7"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-city-crossover-14k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JTMZF4DV5ED600001",
+        "JM3TB2CA5D0800003",
+        "SHSRD77805U700002"
+      ],
+      "loopPick": "JTMZF4DV5ED600001|negotiate",
+      "modal": {
+        "two_call": "JTMZF4DV5ED600001|negotiate",
+        "graph": "JM3TB2CA5D0800003|inspect_first",
+        "loop_second_check": "JM3TB2CA5D0800003|inspect_first"
+      },
+      "agree": false,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 16036,
+          "httpCalls": 2,
+          "tokens": 6638,
+          "costUsd": null,
+          "runIds": [
+            "82ffbe1a-d143-4714-bc1a-2ae4057e2331",
+            "b50eb921-70d6-419a-a84f-bb60f3d18c84"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 16159,
+          "httpCalls": 2,
+          "tokens": 6586,
+          "costUsd": null,
+          "runIds": [
+            "74096465-cfc6-48de-bb7a-959a24db0809",
+            "3e499b93-f2a0-43b3-b9f5-503eac7aa8c7"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3TB2CA5D0800003",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 11147,
+          "httpCalls": 1,
+          "tokens": 25461,
+          "costUsd": null,
+          "runIds": [
+            "3c1070b8-500b-4d6c-a8ea-0b9aa2c37a86"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13424,
+          "httpCalls": 1,
+          "tokens": 28206,
+          "costUsd": null,
+          "runIds": [
+            "a2de2539-8cda-401d-9e79-42310a51cf74"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3TB2CA5D0800003",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11806,
+          "httpCalls": 1,
+          "tokens": 26685,
+          "costUsd": null,
+          "runIds": [
+            "7927fc35-806d-4f97-80c6-9aa04c5205fb"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3TB2CA5D0800003",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11163,
+          "httpCalls": 1,
+          "tokens": 24189,
+          "costUsd": null,
+          "runIds": [
+            "7559e0ed-9ee0-4d1a-8899-3d5a51d5bca0"
+          ],
+          "failure": null
+        }
+      ]
+    },
+    {
+      "caseId": "find-cheapest-reliable-honda-33101",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HGFC2F59GH900002",
+        "1HGCM82633A800001"
+      ],
+      "loopPick": "2HGFC2F59GH900002|negotiate",
+      "modal": {
+        "two_call": "2HGFC2F59GH900002|inspect_first",
+        "graph": "2HGFC2F59GH900002|inspect_first",
+        "loop_second_check": "2HGFC2F59GH900002|inspect_first"
+      },
+      "agree": true,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 17594,
+          "httpCalls": 2,
+          "tokens": 5557,
+          "costUsd": null,
+          "runIds": [
+            "56366a6f-6bf6-4b2b-b069-a0bfb274fd0f",
+            "174c5fe8-501e-435b-a9ec-c8298f077661"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "two_call",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 14591,
+          "httpCalls": 2,
+          "tokens": 5397,
+          "costUsd": null,
+          "runIds": [
+            "c3940910-098b-4e2f-a390-cd170bc13642",
+            "dab9d4d6-7081-4b77-9dc8-39478a082f60"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 10394,
+          "httpCalls": 1,
+          "tokens": 19729,
+          "costUsd": null,
+          "runIds": [
+            "608b0d37-38ba-4289-8f62-faef80b09c2b"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 10295,
+          "httpCalls": 1,
+          "tokens": 20232,
+          "costUsd": null,
+          "runIds": [
+            "f9c3c802-74b5-491b-b22a-97a469ec78ed"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12529,
+          "httpCalls": 1,
+          "tokens": 19115,
+          "costUsd": null,
+          "runIds": [
+            "6271aa9f-7925-4f4d-b17e-553b16bb5822"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 10198,
+          "httpCalls": 1,
+          "tokens": 19169,
+          "costUsd": null,
+          "runIds": [
+            "d80d8d08-9545-4d59-91d2-c01870c4e317"
+          ],
+          "failure": null
         }
       ]
     }

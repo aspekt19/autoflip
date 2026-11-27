@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { StructuredNeed } from "@/domain/need";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { FIND_DECIDE_GRAPH_MAX_CARS } from "@/server/serv/graph";
+import { validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
 import {
   FIND_GRAPH_CHECK_MAX_MS,
   findGraphCheckTimeoutMs,
@@ -136,8 +137,9 @@ describe("Find loop second check via SERV graph", () => {
     const out = await check(mapped, fetchImpl);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.model).toBe("gr_check");
-    const facts = JSON.parse(calls[0]!.instructions);
-    expect(facts.facts.shortlistKeys).toEqual(expect.arrayContaining([A, B]));
+    const sent = JSON.parse(calls[0]!.instructions);
+    expect(sent.permitted_car_keys).toEqual(expect.arrayContaining([A, B]));
+    expect(validateFindDecideGraphInput(sent)).toEqual([]);
     expect(out.ran).toBe(true);
     expect(out.secondPass.status).toBe("agreed");
     // published confidence never goes above the graph's
@@ -252,7 +254,7 @@ describe("Find loop second check via SERV graph", () => {
       graphId: "gr_check",
     });
     expect(keys.length).toBeGreaterThan(FIND_DECIDE_GRAPH_MAX_CARS);
-    const sent = JSON.parse(calls[0]!.instructions).facts.shortlistKeys as string[];
+    const sent = JSON.parse(calls[0]!.instructions).permitted_car_keys as string[];
     expect(sent.length).toBeLessThanOrEqual(FIND_DECIDE_GRAPH_MAX_CARS);
     expect(sent).toContain(mapped.agentVerdict.pick!.key);
     if (keys.length > FIND_DECIDE_GRAPH_MAX_CARS) {

@@ -52,7 +52,9 @@ import {
   runServGraph,
   type GraphRunMeta,
   FIND_DECIDE_GRAPH_MAX_CARS,
+  graphInputRejected,
 } from "@/server/serv/graph";
+import { buildFindDecideGraphInput, validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
 import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
 import {
   callStep,
@@ -415,16 +417,29 @@ export async function runFindDecideServ(input: {
     shortlistKeys.length <= FIND_DECIDE_GRAPH_MAX_CARS &&
     decideTimeoutMs >= FIND_DECIDE_MIN_MS
   ) {
-    const graphRun = await runServGraph({
-      graphId,
-      instructions: decideUser,
-      deps: {
-        fetch: input.fetchImpl,
-        apiKey: servKey,
-        baseUrl: input.servBaseUrl,
-        timeoutMs: decideTimeoutMs,
-      },
+    // Send the graph its own input schema so the platform runs it as is (no input-mapping call).
+    const graphInput = buildFindDecideGraphInput({
+      need: input.need,
+      factSheet,
+      shortlistKeys,
+      allowedEvidenceIds,
+      codeRankedKey: codePick?.key ?? null,
+      guardrailRules,
     });
+    const graphInputErrors = validateFindDecideGraphInput(graphInput);
+    const graphRun =
+      graphInputErrors.length > 0
+        ? graphInputRejected(graphId, graphInputErrors)
+        : await runServGraph({
+            graphId,
+            instructions: JSON.stringify(graphInput),
+            deps: {
+              fetch: input.fetchImpl,
+              apiKey: servKey,
+              baseUrl: input.servBaseUrl,
+              timeoutMs: decideTimeoutMs,
+            },
+          });
     const proofGraph: DecisionProofGraphRun = {
       graphId,
       runId: graphRun.meta.runId,

@@ -40,13 +40,14 @@ import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
 import { providerResponseId } from "@/domain/serv-response-id";
 import {
   buildFindDecideFacts,
-  findDecideInstructions,
   parseFindDecideGraphOutput,
 } from "@/server/find-decide-serv";
+import { buildFindDecideGraphInput, validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
 import { buildFindPickComputedReport } from "@/server/find-settle-serv";
 import {
   FIND_DECIDE_GRAPH_MAX_CARS,
   findDecideGraphId,
+  graphInputRejected,
   runServGraph,
   type GraphRunMeta,
 } from "@/server/serv/graph";
@@ -192,7 +193,8 @@ export async function runFindGraphSecondCheck(input: {
     marketPool: input.marketPool,
   });
   const shortlistKeys = peers.map((row) => row.key);
-  const instructions = findDecideInstructions({
+  // The graph's own input schema, built in code and checked locally: no platform input mapping.
+  const graphInput = buildFindDecideGraphInput({
     need: input.need,
     factSheet,
     shortlistKeys,
@@ -200,6 +202,7 @@ export async function runFindGraphSecondCheck(input: {
     codeRankedKey: null,
     guardrailRules,
   });
+  const graphInputErrors = validateFindDecideGraphInput(graphInput);
   const shortlistMeta: FindDecideShortlistMeta[] = peers.map((row) => ({
     key: row.key,
     vin: row.vin ?? null,
@@ -208,11 +211,14 @@ export async function runFindGraphSecondCheck(input: {
     model: row.model,
   }));
 
-  const graphRun = await runServGraph({
-    graphId,
-    instructions,
-    deps: { fetch: input.fetchImpl, apiKey: servKey, baseUrl: input.servBaseUrl, timeoutMs },
-  });
+  const graphRun =
+    graphInputErrors.length > 0
+      ? graphInputRejected(graphId, graphInputErrors)
+      : await runServGraph({
+          graphId,
+          instructions: JSON.stringify(graphInput),
+          deps: { fetch: input.fetchImpl, apiKey: servKey, baseUrl: input.servBaseUrl, timeoutMs },
+        });
   const proofGraph: DecisionProofGraphRun = {
     graphId,
     runId: graphRun.meta.runId,
@@ -250,7 +256,11 @@ export async function runFindGraphSecondCheck(input: {
 
   if (!graphRun.ok) {
     return fail(
-      graphRun.transportErrorClass === "timeout" ? "the graph check timed out" : "the graph check did not answer",
+      graphRun.transportErrorClass === "timeout"
+        ? "the graph check timed out"
+        : graphRun.transportErrorClass === "invalid_input"
+          ? "the graph input failed its schema check"
+          : "the graph check did not answer",
       [{ field: "graph", message: graphRun.error }],
     );
   }

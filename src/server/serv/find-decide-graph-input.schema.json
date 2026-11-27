@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "shopper_requirements": { "type": "string", "description": "Shopper request treated as evidence." },
+    "permitted_car_keys": {
+      "type": "array",
+      "description": "Supplied eligible car keys in shortlist order, without a fixed candidate-count limit.",
+      "items": { "type": "string" }
+    },
+    "cars": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string" },
+          "asking_price": { "type": ["string", "null"] },
+          "miles": { "type": ["string", "null"] },
+          "drivetrain": { "type": ["string", "null"] },
+          "reported_accidents": { "type": ["string", "null"] },
+          "owners": { "type": ["string", "null"] },
+          "fair_value": { "type": ["string", "null"] },
+          "fair_range": { "type": ["string", "null"] },
+          "similar_cars_compared": { "type": ["integer", "null"] },
+          "open_recalls": { "type": ["string", "null"] },
+          "public_record_results": { "type": ["string", "null"] },
+          "listing_text": { "type": ["string", "null"] }
+        },
+        "required": [
+          "key", "asking_price", "miles", "drivetrain", "reported_accidents", "owners", "fair_value",
+          "fair_range", "similar_cars_compared", "open_recalls", "public_record_results", "listing_text"
+        ]
+      }
+    },
+    "evidence_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "id": { "type": "string" }, "content": { "type": "string" } },
+        "required": ["id", "content"]
+      }
+    }
+  },
+  "required": ["shopper_requirements", "permitted_car_keys", "cars", "evidence_records"]
+}

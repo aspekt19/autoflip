@@ -43,7 +43,7 @@ export type GraphRunResult =
   | {
       ok: false;
       error: string;
-      transportErrorClass: ServTransportErrorClass | "tool_call" | "empty";
+      transportErrorClass: ServTransportErrorClass | "tool_call" | "empty" | "invalid_input";
       payload: unknown;
       meta: GraphRunMeta;
     };
@@ -186,3 +186,14 @@ export async function runServGraph(input: {
  * cars twice: 11 + 2·2·6 = 35 visits, well under the 50-visit run budget.
  */
 export const FIND_DECIDE_GRAPH_MAX_CARS = 6;
+
+/** A graph run we refused to send because its input failed the local schema check (no HTTP call). */
+export function graphInputRejected(graphId: string, errors: readonly string[]): GraphRunResult {
+  return {
+    ok: false,
+    error: `graph input failed the schema check: ${errors.slice(0, 5).join("; ")}`,
+    transportErrorClass: "invalid_input",
+    payload: null,
+    meta: { graphId, runId: null, responseId: null, steps: null, durationMs: 0, httpStatus: null, usage: null },
+  };
+}
