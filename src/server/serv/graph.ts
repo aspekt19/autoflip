@@ -179,3 +179,10 @@ export async function runServGraph(input: {
     clearTimeout(timer);
   }
 }
+
+/**
+ * Most cars the Find decide graph (gr_… "Lemonless Find decide v2") may receive.
+ * The generated graph has ~11 fixed steps plus ~2 steps per car, and a revised branch can walk the
+ * cars twice: 11 + 2·2·6 = 35 visits, well under the 50-visit run budget.
+ */
+export const FIND_DECIDE_GRAPH_MAX_CARS = 6;

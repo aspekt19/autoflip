@@ -44,7 +44,12 @@ import {
   parseFindDecideGraphOutput,
 } from "@/server/find-decide-serv";
 import { buildFindPickComputedReport } from "@/server/find-settle-serv";
-import { findDecideGraphId, runServGraph, type GraphRunMeta } from "@/server/serv/graph";
+import {
+  FIND_DECIDE_GRAPH_MAX_CARS,
+  findDecideGraphId,
+  runServGraph,
+  type GraphRunMeta,
+} from "@/server/serv/graph";
 
 /**
  * Upper bound for the graph run. Graph steps run one at a time (decide, challenge,
@@ -163,10 +168,20 @@ export async function runFindGraphSecondCheck(input: {
   const rankedByKey = new Map(
     [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked].map((row) => [row.key, row]),
   );
-  const peers: BestDealCandidate[] = input.shortlistKeys
+  const allPeers: BestDealCandidate[] = input.shortlistKeys
     .map((key) => rankedByKey.get(key))
     .filter((row): row is BestDealCandidate => Boolean(row));
-  if (!loopPickKey || peers.length === 0) return skip("no chosen car to check");
+  if (!loopPickKey || allPeers.length === 0) return skip("no chosen car to check");
+  // Keep the graph well inside its 50-visit budget: the loop's pick plus the top cars by code rank.
+  const codeRank = new Map(input.bestDeal.ranked.map((row, index) => [row.key, index]));
+  const rankOf = (row: BestDealCandidate) =>
+    row.key.toUpperCase() === loopPickKey ? -1 : (codeRank.get(row.key) ?? Number.MAX_SAFE_INTEGER);
+  const peers =
+    allPeers.length > FIND_DECIDE_GRAPH_MAX_CARS
+      ? [...allPeers].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, FIND_DECIDE_GRAPH_MAX_CARS)
+      : allPeers;
+  const shortlistCapped =
+    peers.length < allPeers.length ? { from: allPeers.length, to: peers.length } : null;
   const timeoutMs = findGraphCheckTimeoutMs(input.remainingRouteMs);
   if (timeoutMs < FIND_GRAPH_CHECK_MIN_MS) return skip("not enough time left in this request");
 
@@ -221,7 +236,7 @@ export async function runFindGraphSecondCheck(input: {
           recordedAt,
           responseId,
           model: graphModel,
-          inputs: { shortlistKeys, issues: issues.slice(0, 8) },
+          inputs: { shortlistKeys, shortlistCapped, issues: issues.slice(0, 8) },
           detail: secondPass.objection,
           rawResponse: graphRun.ok ? graphRun.text : null,
           graph: proofGraph,
@@ -299,7 +314,9 @@ export async function runFindGraphSecondCheck(input: {
   const stepCount = graphRun.meta.steps?.length ?? null;
   const trailStep: AgentTrailStep = {
     decided: agreed ? "Second check agreed." : "Second check disagreed.",
-    why: `${final.confidenceWhy}${stepCount ? ` (${stepCount} graph steps)` : ""}`,
+    why: `${final.confidenceWhy}${stepCount ? ` (${stepCount} graph steps)` : ""}${
+      shortlistCapped ? ` Checked the top ${shortlistCapped.to} of ${shortlistCapped.from} shortlisted cars.` : ""
+    }`,
     changed: after !== before ? `Confidence ${before ?? "unknown"} → ${after}.` : null,
     evidenceIds,
     model: graphModel,
@@ -335,6 +352,7 @@ export async function runFindGraphSecondCheck(input: {
         model: graphModel,
         inputs: {
           shortlistKeys,
+          shortlistCapped,
           loopPickKey,
           loopAction: input.agentVerdict.verdict,
           graphPickKey: final.pickKey,

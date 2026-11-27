@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StructuredNeed } from "@/domain/need";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
+import { FIND_DECIDE_GRAPH_MAX_CARS } from "@/server/serv/graph";
 import {
   FIND_GRAPH_CHECK_MAX_MS,
   findGraphCheckTimeoutMs,
@@ -212,6 +213,51 @@ describe("Find loop second check via SERV graph", () => {
     expect(out.secondPass.status).toBe("not_run");
     expect(out.secondPass.objection).toMatch(/not enough time/);
     expect(out.proofRecords[0]?.status).toBe("skipped");
+  });
+
+  it("sends at most FIND_DECIDE_GRAPH_MAX_CARS cars, keeping the loop's pick", async () => {
+    const many = Array.from({ length: 9 }, (_, i) =>
+      row(`1HGCV1F30LA00010${i}`, { year: 2019, make: "Honda", model: "Accord", priceUsd: 20_000 + i * 100, miles: 40_000 + i * 1000 }),
+    );
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 1,
+        verdictReached: true,
+        verdict: {
+          summary: "s",
+          confidence: "medium",
+          picks: many.map((l) => ({ vin: l.vin, label: "Accord", action: "negotiate", offerUsd: null, why: "w" })),
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(many.map((l) => [l.vin, l])),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const keys = [...new Set([...mapped.shortlistKeys, ...mapped.bestDeal.ranked.map((r) => r.key)])];
+    const { fetchImpl, calls } = graphFetch({ error: "x" }, 502);
+    const out = await runFindGraphSecondCheck({
+      need,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: keys,
+      marketPool: mapped.offerPool,
+      servKey: "k",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    expect(keys.length).toBeGreaterThan(FIND_DECIDE_GRAPH_MAX_CARS);
+    const sent = JSON.parse(calls[0]!.instructions).facts.shortlistKeys as string[];
+    expect(sent.length).toBeLessThanOrEqual(FIND_DECIDE_GRAPH_MAX_CARS);
+    expect(sent).toContain(mapped.agentVerdict.pick!.key);
+    if (keys.length > FIND_DECIDE_GRAPH_MAX_CARS) {
+      expect(out.proofRecords[0]?.status).toBe("failed");
+    }
   });
 
   it("caps the timeout at 90s and leaves 15s headroom", () => {

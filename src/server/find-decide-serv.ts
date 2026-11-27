@@ -51,6 +51,7 @@ import {
   findDecideGraphId,
   runServGraph,
   type GraphRunMeta,
+  FIND_DECIDE_GRAPH_MAX_CARS,
 } from "@/server/serv/graph";
 import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
 import {
@@ -406,7 +407,14 @@ export async function runFindDecideServ(input: {
   const graphId = input.graphId === undefined ? findDecideGraphId() : input.graphId;
   let graphChallenge: { payload: unknown; meta: GraphRunMeta } | null = null;
   let graphProof: DecisionProofGraphRun | null = null;
-  if (graphId && servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
+  if (
+    graphId &&
+    servKey &&
+    codePick &&
+    shortlistKeys.length > 0 &&
+    shortlistKeys.length <= FIND_DECIDE_GRAPH_MAX_CARS &&
+    decideTimeoutMs >= FIND_DECIDE_MIN_MS
+  ) {
     const graphRun = await runServGraph({
       graphId,
       instructions: decideUser,
