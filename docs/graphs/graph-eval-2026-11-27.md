@@ -1,6 +1,8 @@
 # Find decide graph — live runs (Nov 27, 2026)
 
-Graph: `gr_3d039bd8de63381a` ("Lemonless Find decide v2"), generated from `find-decide-graph-prompt.txt`: 15 nodes (4 agents, 7 decisions, 4 scripts). Results: `eval/results/graph-vs-baseline.json` (10 frozen cases × 2 repeats × 3 arms).
+Two graphs were evaluated: v2 (`gr_3d039bd8de63381a`) and v3 (`gr_28beee6b8bffe5a9`, production since Nov 28). v2 results: `eval/results/graph-vs-baseline-v2.json`; v3 results: `eval/results/graph-vs-baseline.json`.
+
+Graph: `gr_3d039bd8de63381a` ("Lemonless Find decide v2"), generated from `find-decide-graph-prompt.txt`: 15 nodes (4 agents, 7 decisions, 4 scripts). Results: `eval/results/graph-vs-baseline-v2.json` (10 frozen cases × 2 repeats × 3 arms).
 
 ## First attempt: 7 of 8 runs failed before any step
 
@@ -23,6 +25,31 @@ Fix: code now builds the graph's own input (`shopper_requirements`, `permitted_c
 - Second check: against the frozen loop stand-in (top code-ranked car, `negotiate`, high confidence) the graph kept the same car in 8 of 10 cases and disagreed on the action every time, because it answers `inspect_first`. In production that shows as "Second check disagreed" with the graph's objection; the loop's pick and action stay, and the published confidence drops to the lower of the two (the graph answered low in 29 of 40 runs).
 - Cost: the provider returns tokens but no price. The console showed $0.004 for a complete run, about 27,000 tokens; the graph uses about 4 times the tokens of the two-call path and is about 6 s faster.
 
-## What ships
+## What shipped with v2
 
 The second check after the agentic Find loop is on in production with `SERV_GRAPH_FIND_DECIDE_ID=gr_3d039bd8de63381a`. The run gets at most 90 s (p95 here is under 15 s). Any failure still leaves "Second check not run" with the reason and never blocks the answer. Next improvement: regenerate the graph with a prompt that separates "negotiate on price" from "inspect first", so the second check stops treating every non-buy as an inspection.
+
+## v3 (`gr_28beee6b8bffe5a9`)
+
+Prompt v3 defines each action by the evidence (price lever → negotiate; a specific risk an inspection would settle → inspect_first, named in the reply; missing data alone is not a reason to inspect). The console generated 13 nodes (3 agents, 7 decisions, 3 scripts) and a new input schema (`src/server/serv/find-decide-graph-input-v3.schema.json`): numbers as numbers, recalls as a list, only the upper bound of the fair range, and a slot `car_1`…`car_5` per car. The graph's selection steps return slots, so code assigns unique slots, sends at most 5 cars (the loop's pick first, then code rank), and maps a slot answer back to its key from its own map; an unknown slot makes the answer invalid. The app picks the input schema by graph id (`SERV_GRAPH_FIND_DECIDE_INPUT=v2|v3` overrides it for a new id).
+
+Same 10 cases × 2 repeats:
+
+| | v2 graph | v3 graph | v2 second check | v3 second check |
+| --- | --- | --- | --- | --- |
+| Valid | 20/20 | 20/20 | 20/20 | 20/20 |
+| inspect_first | 19/20 | 5/20 | 20/20 | 2/20 |
+| negotiate / buy / pass | 0 / 0 / 1 | 11 / 3 / 1 | 0 / 0 / 0 | 12 / 5 / 1 |
+| Same car as the two-call path | 9/10 | 10/10 | — | — |
+| Same car + action as the two-call path | 6/10 | 6/10 | — | — |
+| Same car as the loop stand-in | — | — | 8/10 | 8/10 |
+| Agreed with the loop stand-in (`negotiate`) | — | — | 0/20 | 8/20 |
+| Repeat consistency | 0.90 | 0.80 | 0.90 | 0.85 |
+| Latency p50 / p95 | 11.8 s / 13.5 s | 13.9 s / 16.6 s | 11.6 s / 14.6 s | 13.1 s / 14.9 s |
+| Tokens (provider) | 549,990 | 525,753 | 491,431 | 458,335 |
+
+The two-call path in the v3 run: 19/20 valid (one run gave no decision), `inspect_first` 13 and `negotiate` 6, p50 18.4 s; three of its calls took 288–553 s, which is the two-call path, not the graph.
+
+`buy` appeared 8 times out of 40 v3 answers, always on cars whose frozen listings report no accident or recall (these fixtures carry no accident or recall data), and with low or medium confidence. A separate check with a synthetic shortlist where the cheapest car had 2 reported accidents (2 runs) moved the pick to the clean car with `negotiate` both times. v3 is less consistent across repeats than v2 (0.80 vs 0.90): with the action no longer pinned to `inspect_first`, it varies between `negotiate` and `buy` on borderline prices.
+
+The reply's trailing `Evidence:` line is now parsed for ids and removed from the shopper-facing reason.

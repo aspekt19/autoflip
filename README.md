@@ -158,7 +158,7 @@ In production the same graph is the second check after the agentic Find loop (`s
 
 The graph run gets at most 90 seconds, the same budget as the `find_decide` and `find_challenge` calls it stands in for, and never runs into the last 15 seconds of the 300-second route. With less than 20 seconds left it is skipped. A skipped, failed, timed-out or invalid run leaves the result as before ("Second check not run", with the reason) and never blocks the answer. The second check does not cost the user an extra search credit; the delivered result keeps its one credit.
 
-The path is off until `SERV_GRAPH_FIND_DECIDE_ID` is set. The app sends the graph its own input schema (`src/server/find-decide-graph-input.ts`, checked against `src/server/serv/find-decide-graph-input.schema.json`), so the platform does not have to map the input. Live results are in `docs/graphs/graph-eval-2026-11-27.md`: after that fix, 46 of 46 graph runs completed, p95 under 15 s; the graph leans to "inspect first", so as a second check it often disagrees with a "negotiate" pick.
+The path is off until `SERV_GRAPH_FIND_DECIDE_ID` is set. The app sends the graph its own input schema (`src/server/find-decide-graph-input.ts`, checked against `src/server/serv/find-decide-graph-input.schema.json`), so the platform does not have to map the input. Live results are in `docs/graphs/graph-eval-2026-11-27.md`. Production runs graph v3 (`gr_28beee6b8bffe5a9`): 40 of 40 runs valid, p95 under 17 s, and "inspect first" in 7 of 40 answers instead of 39 of 40 with v2. The input schema is chosen by graph id, and v3 answers that name a slot (`car_1`…`car_5`) are mapped back to the car key in code.
 
 ### Production boundary
 

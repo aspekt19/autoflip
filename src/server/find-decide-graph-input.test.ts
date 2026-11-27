@@ -6,6 +6,11 @@ import { emptyBestDealFromListings } from "../../test/golden/empty-best-deal";
 import type { ShownListing } from "../../test/golden/types";
 import { buildFindDecideFacts } from "./find-decide-serv";
 import {
+  FIND_DECIDE_GRAPH_INPUT_SCHEMA_V3,
+  findDecideGraphInputVersion,
+  findDecideGraphMaxCars,
+  prepareFindDecideGraphRun,
+  resolveFindDecideGraphSlots,
   FIND_DECIDE_GRAPH_INPUT_SCHEMA,
   buildFindDecideGraphInput,
   validateFindDecideGraphInput,
@@ -93,5 +98,44 @@ describe("Find decide graph input", () => {
     expect(validateFindDecideGraphInput(bad)).toContain("evidence_records.0.content: must be string");
     const badCar = { ...input, cars: [{ ...input.cars[0]!, similar_cars_compared: 2.5 }] };
     expect(validateFindDecideGraphInput(badCar)).toContain("cars.0.similar_cars_compared: must be integer or null");
+  });
+
+  it("v3: numbers stay numbers, unique slots, schema-valid, versioned by graph id", () => {
+    expect(findDecideGraphInputVersion("gr_3d039bd8de63381a", {})).toBe("v2");
+    expect(findDecideGraphInputVersion("gr_28beee6b8bffe5a9", {})).toBe("v3");
+    expect(findDecideGraphInputVersion("gr_new", { SERV_GRAPH_FIND_DECIDE_INPUT: "v2" })).toBe("v2");
+    expect(findDecideGraphMaxCars("v3")).toBe(5);
+    const docSchema = JSON.parse(
+      readFileSync(resolve(__dirname, "serv/find-decide-graph-input-v3.schema.json"), "utf8"),
+    );
+    expect(FIND_DECIDE_GRAPH_INPUT_SCHEMA_V3).toEqual(docSchema);
+    const best = emptyBestDealFromListings(need, listings);
+    const facts = buildFindDecideFacts({ peers: best.ranked, receipts: [], marketPool: [] });
+    const run = prepareFindDecideGraphRun(
+      "gr_28beee6b8bffe5a9",
+      { need, factSheet: facts.factSheet, shortlistKeys: best.ranked.map((r) => r.key), allowedEvidenceIds: facts.allowedEvidenceIds, codeRankedKey: null, guardrailRules: facts.guardrailRules },
+      {},
+    );
+    expect(run.version).toBe("v3");
+    expect(run.errors).toEqual([]);
+    const cars = (run.input as { cars: Array<Record<string, unknown>> }).cars;
+    const a = cars.find((c) => c.key === A)!;
+    expect(a.asking_price).toBe(21000);
+    expect(a.miles).toBe(40000);
+    expect(Array.isArray(a.open_recalls)).toBe(true);
+    const b = cars.find((c) => c.key === B)!;
+    expect(b.asking_price).toBeNull();
+    expect(new Set(cars.map((c) => c.slot)).size).toBe(cars.length);
+    expect(run.slotToKey.get(String(a.slot))).toBe(A);
+  });
+
+  it("resolves slot picks from our own map and refuses unknown slots", () => {
+    const map = new Map([["car_1", A], ["car_2", B]]);
+    const payload = { decide: { pickKey: "car_2", confidenceWhy: "car_2 is cheaper", reasons: [{ text: "car_2 asks less", evidenceIds: [] }] }, challenge: { agree: true, issues: [] } };
+    const out = resolveFindDecideGraphSlots(payload, map)!;
+    expect((out.decide as { pickKey: string }).pickKey).toBe(B);
+    expect((out.decide as { reasons: Array<{ text: string }> }).reasons[0]!.text).toBe(`${B} asks less`);
+    expect(resolveFindDecideGraphSlots({ ...payload, decide: { pickKey: "car_4" } }, map)).toBeNull();
+    expect((resolveFindDecideGraphSlots({ ...payload, decide: { pickKey: A } }, map)!.decide as { pickKey: string }).pickKey).toBe(A);
   });
 });

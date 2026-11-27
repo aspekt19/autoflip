@@ -58,6 +58,11 @@ function evidenceFrom(text: string): string[] {
   return out;
 }
 
+/** Drop a trailing "Evidence: id, id" from shopper-facing text; the ids are read separately. */
+function stripEvidenceTail(text: string): string {
+  return text.replace(/\s*\(?\s*evidence(?:\s*ids?)?\s*[:=][^]*$/i, "").trim();
+}
+
 function fromLines(text: string): Compact | null {
   const line = (label: RegExp): string | null => {
     const re = new RegExp(`^[\\s>*#_\\-]*(?:${label.source})[\\s*_]*[:=\\-–—]\\s*(.+)$`, "im");
@@ -71,13 +76,20 @@ function fromLines(text: string): Compact | null {
   const reviewRaw = line(/review|self[-\s]?review|challenge/);
   const review = reviewRaw ? (/revis/i.test(reviewRaw) ? "revised" : /kept|keep|agree/i.test(reviewRaw) ? "kept" : null) : null;
   const reviewNote = reviewRaw ? clean(reviewRaw.replace(/^\W*(kept|keep|revised|revise)\W*/i, "")) || null : null;
-  const labelled = /^[\s>*#_\-]*(pick(\s*key)?|chosen car|car|action|verdict|confidence|review|self[-\s]?review|challenge)[\s*_]*[:=\-–—]/i;
-  const rest = text
+  const labelled = /^[\s>*#_\-]*(pick(\s*key)?|chosen car|car|action|verdict|confidence|review|self[-\s]?review|challenge|evidence(\s*ids?)?)[\s*_]*[:=\-–—]/i;
+  const evidenceLines = text
     .split(/\r?\n/)
-    .filter((row) => row.trim() && !labelled.test(row))
+    .filter((row) => /^[\s>*#_\-]*evidence(\s*ids?)?[\s*_]*[:=]/i.test(row))
     .join(" ");
+  const rest = stripEvidenceTail(
+    text
+      .split(/\r?\n/)
+      .filter((row) => row.trim() && !labelled.test(row))
+      .join(" "),
+  );
   const risk = line(/risk|main risk|watch[-\s]?out|check/);
-  const reason = line(/reason|why/) ?? (clean(rest) || null);
+  const reasonLine = line(/reason|why/);
+  const reason = (reasonLine ? stripEvidenceTail(reasonLine) : clean(rest)) || null;
   return {
     pick: firstWordToken(pick),
     action: normalizeAction(action),
@@ -86,7 +98,7 @@ function fromLines(text: string): Compact | null {
     reviewNote,
     reason,
     risk,
-    evidenceIds: evidenceFrom(rest + " " + (risk ?? "") + " " + (reviewNote ?? "")),
+    evidenceIds: evidenceFrom(text.split(/\r?\n/).filter((row) => !labelled.test(row) || /evidence/i.test(row)).join(" ") + " " + evidenceLines + " " + (risk ?? "") + " " + (reviewNote ?? "")),
   };
 }
 
@@ -143,7 +155,7 @@ function fromJson(payload: Record<string, unknown>): Compact | null {
     confidence: firstWordToken(confidence).toLowerCase(),
     review,
     reviewNote,
-    reason,
+    reason: reason ? stripEvidenceTail(reason) || null : null,
     risk,
     evidenceIds,
   };
