@@ -42,10 +42,14 @@ import {
   buildFindDecideFacts,
   parseFindDecideGraphOutput,
 } from "@/server/find-decide-serv";
-import { buildFindDecideGraphInput, validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
+import {
+  findDecideGraphInputVersion,
+  findDecideGraphMaxCars,
+  prepareFindDecideGraphRun,
+  resolveFindDecideGraphSlots,
+} from "@/server/find-decide-graph-input";
 import { buildFindPickComputedReport } from "@/server/find-settle-serv";
 import {
-  FIND_DECIDE_GRAPH_MAX_CARS,
   findDecideGraphId,
   graphInputRejected,
   runServGraph,
@@ -173,13 +177,15 @@ export async function runFindGraphSecondCheck(input: {
     .map((key) => rankedByKey.get(key))
     .filter((row): row is BestDealCandidate => Boolean(row));
   if (!loopPickKey || allPeers.length === 0) return skip("no chosen car to check");
-  // Keep the graph well inside its 50-visit budget: the loop's pick plus the top cars by code rank.
+  // Keep the graph inside its limits (v3: five slots; v2: 50-visit budget):
+  // the loop's pick plus the top cars by code rank.
+  const maxCars = findDecideGraphMaxCars(findDecideGraphInputVersion(graphId));
   const codeRank = new Map(input.bestDeal.ranked.map((row, index) => [row.key, index]));
   const rankOf = (row: BestDealCandidate) =>
     row.key.toUpperCase() === loopPickKey ? -1 : (codeRank.get(row.key) ?? Number.MAX_SAFE_INTEGER);
   const peers =
-    allPeers.length > FIND_DECIDE_GRAPH_MAX_CARS
-      ? [...allPeers].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, FIND_DECIDE_GRAPH_MAX_CARS)
+    allPeers.length > maxCars
+      ? [...allPeers].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, maxCars)
       : allPeers;
   const shortlistCapped =
     peers.length < allPeers.length ? { from: allPeers.length, to: peers.length } : null;
@@ -194,7 +200,7 @@ export async function runFindGraphSecondCheck(input: {
   });
   const shortlistKeys = peers.map((row) => row.key);
   // The graph's own input schema, built in code and checked locally: no platform input mapping.
-  const graphInput = buildFindDecideGraphInput({
+  const prepared = prepareFindDecideGraphRun(graphId, {
     need: input.need,
     factSheet,
     shortlistKeys,
@@ -202,7 +208,6 @@ export async function runFindGraphSecondCheck(input: {
     codeRankedKey: null,
     guardrailRules,
   });
-  const graphInputErrors = validateFindDecideGraphInput(graphInput);
   const shortlistMeta: FindDecideShortlistMeta[] = peers.map((row) => ({
     key: row.key,
     vin: row.vin ?? null,
@@ -212,11 +217,11 @@ export async function runFindGraphSecondCheck(input: {
   }));
 
   const graphRun =
-    graphInputErrors.length > 0
-      ? graphInputRejected(graphId, graphInputErrors)
+    prepared.errors.length > 0
+      ? graphInputRejected(graphId, prepared.errors)
       : await runServGraph({
           graphId,
-          instructions: JSON.stringify(graphInput),
+          instructions: JSON.stringify(prepared.input),
           deps: { fetch: input.fetchImpl, apiKey: servKey, baseUrl: input.servBaseUrl, timeoutMs },
         });
   const proofGraph: DecisionProofGraphRun = {
@@ -264,7 +269,7 @@ export async function runFindGraphSecondCheck(input: {
       [{ field: "graph", message: graphRun.error }],
     );
   }
-  const parsed = parseFindDecideGraphOutput(graphRun.text);
+  const parsed = resolveFindDecideGraphSlots(parseFindDecideGraphOutput(graphRun.text), prepared.slotToKey);
   if (!parsed) return fail("the graph answer could not be read", []);
   const pickKey =
     typeof (parsed.decide as { pickKey?: unknown }).pickKey === "string"

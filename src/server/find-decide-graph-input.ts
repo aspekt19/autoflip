@@ -12,6 +12,7 @@
 import type { StructuredNeed } from "@/domain/need";
 import type { FindDecideFactSheet } from "@/server/find-decide-serv";
 import schema from "@/server/serv/find-decide-graph-input.schema.json";
+import schemaV3 from "@/server/serv/find-decide-graph-input-v3.schema.json";
 
 export const FIND_DECIDE_GRAPH_INPUT_SCHEMA = schema;
 
@@ -231,4 +232,180 @@ export function validateFindDecideGraphInput(value: unknown): string[] {
   const errors: string[] = [];
   check(value, FIND_DECIDE_GRAPH_INPUT_SCHEMA as Schema, "", errors);
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// v3 graph (gr_28beee6b8bffe5a9, prompt v3). Its generated input schema differs from v2:
+// numbers are numbers, open_recalls is a list, fair_range is only its upper bound, and every car
+// carries a slot car_1..car_5 that the graph's selection steps return instead of a key.
+// ---------------------------------------------------------------------------
+
+export const FIND_DECIDE_GRAPH_INPUT_SCHEMA_V3 = schemaV3;
+
+export type FindDecideGraphInputVersion = "v2" | "v3";
+
+/** Graph ids we generated, with the input schema each one was generated with. */
+export const FIND_DECIDE_GRAPH_INPUT_VERSIONS: Readonly<Record<string, FindDecideGraphInputVersion>> = {
+  gr_3d039bd8de63381a: "v2",
+  gr_28beee6b8bffe5a9: "v3",
+};
+
+/**
+ * Input schema for a configured graph id. `SERV_GRAPH_FIND_DECIDE_INPUT=v2|v3` overrides it for a
+ * newly generated graph; an unknown id gets the latest schema (v3).
+ */
+export function findDecideGraphInputVersion(
+  graphId: string,
+  env: Record<string, string | undefined> = process.env,
+): FindDecideGraphInputVersion {
+  const forced = env.SERV_GRAPH_FIND_DECIDE_INPUT?.trim();
+  if (forced === "v2" || forced === "v3") return forced;
+  return FIND_DECIDE_GRAPH_INPUT_VERSIONS[graphId] ?? "v3";
+}
+
+/** Most cars one run may receive: v3 has five slots; v2 stays inside its 50-visit budget at six. */
+export function findDecideGraphMaxCars(version: FindDecideGraphInputVersion): number {
+  return version === "v3" ? 5 : 6;
+}
+
+const V3_SLOTS = ["car_1", "car_2", "car_3", "car_4", "car_5"] as const;
+
+function openRecallsList(row: Row): string[] {
+  if (row.recallsAvailable !== true) return ["Recall data was not available for this car."];
+  const out: string[] = [];
+  if (row.openParkIt) out.push("Open recall: do not drive the car (park it).");
+  if (row.openParkOutside) out.push("Open recall: park the car outside.");
+  return out;
+}
+
+export type FindDecideGraphCarV3 = {
+  slot: (typeof V3_SLOTS)[number];
+  key: string;
+  asking_price: number | null;
+  miles: number | null;
+  drivetrain: string | null;
+  reported_accidents: string | null;
+  owners: number | null;
+  fair_value: number | null;
+  fair_range_upper_bound: number | null;
+  similar_cars_compared: number | null;
+  open_recalls: string[];
+  public_record_results: string | null;
+  listing_text: string | null;
+};
+
+export type FindDecideGraphInputV3 = Omit<FindDecideGraphInput, "cars"> & { cars: FindDecideGraphCarV3[] };
+
+export function buildFindDecideGraphInputV3(input: Parameters<typeof buildFindDecideGraphInput>[0]): {
+  input: FindDecideGraphInputV3;
+  slotToKey: Map<string, string>;
+} {
+  const v2 = buildFindDecideGraphInput(input);
+  const rows = input.factSheet.slice(0, V3_SLOTS.length);
+  const slotToKey = new Map<string, string>();
+  const cars: FindDecideGraphCarV3[] = rows.map((row, index) => {
+    const slot = V3_SLOTS[index]!;
+    slotToKey.set(slot, row.key);
+    const round = (v: unknown) => {
+      const n = num(v);
+      return n == null ? null : Math.round(n);
+    };
+    return {
+      slot,
+      key: row.key,
+      asking_price: round(row.askUsd),
+      miles: round(row.miles),
+      drivetrain: row.drivetrain ?? null,
+      reported_accidents: row.accidentCountReported != null ? `${row.accidentCountReported} reported` : null,
+      owners: round(row.ownerCount),
+      fair_value: round(row.fairValueUsd),
+      fair_range_upper_bound: round(row.fairRangeHighUsd),
+      similar_cars_compared: round(row.compCount),
+      open_recalls: openRecallsList(row),
+      public_record_results: publicRecordsText(row),
+      listing_text: listingText(row),
+    };
+  });
+  const keys = new Set(rows.map((r) => r.key));
+  return {
+    input: {
+      ...v2,
+      permitted_car_keys: v2.permitted_car_keys.filter((k) => keys.has(k)),
+      cars,
+      shopper_requirements: `${v2.shopper_requirements}\nEach car also has a slot (car_1 to car_5); a slot names exactly one car.`,
+    },
+    slotToKey,
+  };
+}
+
+export function validateFindDecideGraphInputFor(value: unknown, version: FindDecideGraphInputVersion): string[] {
+  const errors: string[] = [];
+  check(value, (version === "v3" ? FIND_DECIDE_GRAPH_INPUT_SCHEMA_V3 : FIND_DECIDE_GRAPH_INPUT_SCHEMA) as Schema, "", errors);
+  if (version === "v3" && errors.length === 0) {
+    const slots = (value as FindDecideGraphInputV3).cars.map((c) => c.slot);
+    if (new Set(slots).size !== slots.length) errors.push("cars: slots must be unique");
+  }
+  return errors;
+}
+
+/** Build and check the run input for the configured graph. Errors → do not call the graph. */
+export function prepareFindDecideGraphRun(
+  graphId: string,
+  input: Parameters<typeof buildFindDecideGraphInput>[0],
+  env: Record<string, string | undefined> = process.env,
+): {
+  version: FindDecideGraphInputVersion;
+  input: FindDecideGraphInput | FindDecideGraphInputV3;
+  slotToKey: Map<string, string>;
+  errors: string[];
+} {
+  const version = findDecideGraphInputVersion(graphId, env);
+  if (version === "v3") {
+    const built = buildFindDecideGraphInputV3(input);
+    return { version, ...built, errors: validateFindDecideGraphInputFor(built.input, "v3") };
+  }
+  const built = buildFindDecideGraphInput(input);
+  return { version, input: built, slotToKey: new Map(), errors: validateFindDecideGraphInputFor(built, "v2") };
+}
+
+const SLOT_TOKEN = /\bcar_[1-9]\b/g;
+
+/**
+ * Map a graph answer that names a slot (car_1..car_5) back to the permitted key, from our own map.
+ * A key is kept as is. An unknown slot returns null (the answer is invalid; nothing is guessed).
+ * Slot mentions in the shopper-facing text are replaced with the key they stand for.
+ */
+export function resolveFindDecideGraphSlots<T extends { decide: unknown; challenge: unknown }>(
+  payload: T | null,
+  slotToKey: ReadonlyMap<string, string>,
+): T | null {
+  if (!payload || slotToKey.size === 0) return payload;
+  const decide = payload.decide as Record<string, unknown>;
+  const pick = typeof decide?.pickKey === "string" ? decide.pickKey.trim() : "";
+  let pickKey = pick;
+  if (/^car_[0-9]+$/i.test(pick)) {
+    const mapped = slotToKey.get(pick.toLowerCase());
+    if (!mapped) return null;
+    pickKey = mapped;
+  }
+  const swap = (text: unknown) =>
+    typeof text === "string" ? text.replace(SLOT_TOKEN, (slot) => slotToKey.get(slot) ?? slot) : text;
+  const swapLines = (lines: unknown) =>
+    Array.isArray(lines)
+      ? lines.map((line) =>
+          line && typeof line === "object" ? { ...(line as object), text: swap((line as { text?: unknown }).text) } : line,
+        )
+      : lines;
+  const challenge = payload.challenge as Record<string, unknown>;
+  return {
+    ...payload,
+    decide: {
+      ...decide,
+      pickKey,
+      confidenceWhy: swap(decide.confidenceWhy),
+      reasons: swapLines(decide.reasons),
+      watchOuts: swapLines(decide.watchOuts),
+    },
+    challenge: challenge && typeof challenge === "object" ? { ...challenge, issues: swapLines(challenge.issues) } : challenge,
+  };
 }

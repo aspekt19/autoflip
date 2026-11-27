@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { StructuredNeed } from "@/domain/need";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { FIND_DECIDE_GRAPH_MAX_CARS } from "@/server/serv/graph";
-import { validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
+import { validateFindDecideGraphInputFor } from "@/server/find-decide-graph-input";
 import {
   FIND_GRAPH_CHECK_MAX_MS,
   findGraphCheckTimeoutMs,
@@ -139,7 +139,8 @@ describe("Find loop second check via SERV graph", () => {
     expect(calls[0]!.model).toBe("gr_check");
     const sent = JSON.parse(calls[0]!.instructions);
     expect(sent.permitted_car_keys).toEqual(expect.arrayContaining([A, B]));
-    expect(validateFindDecideGraphInput(sent)).toEqual([]);
+    expect(validateFindDecideGraphInputFor(sent, "v3")).toEqual([]);
+    expect(sent.cars.map((c: { slot: string }) => c.slot)).toEqual(["car_1", "car_2"]);
     expect(out.ran).toBe(true);
     expect(out.secondPass.status).toBe("agreed");
     // published confidence never goes above the graph's
@@ -166,6 +167,21 @@ describe("Find loop second check via SERV graph", () => {
     const out = await check(mapped, fetchImpl);
     expect(out.secondPass.status).toBe("agreed");
     expect(out.graphFinal).toEqual({ pickKey: A, action: "negotiate", confidence: "high" });
+  });
+
+  it("maps a slot pick back to its key and rejects an unknown slot", async () => {
+    const mapped = loopResult();
+    const ok = graphFetch({
+      output_text: `Pick: car_2\nAction: inspect_first\nConfidence: low\nReview: kept\ncar_2 has a reported accident to check.\nEvidence: car:${B}`,
+    });
+    const out = await check(mapped, ok.fetchImpl);
+    expect(out.graphFinal?.pickKey).toBe(B);
+    expect(out.secondPass.status).toBe("disagreed");
+    expect(out.secondPass.objection).toContain(B.length ? "Camry" : "");
+    const bad = graphFetch({ output_text: "Pick: car_5\nAction: buy\nConfidence: high\nReview: kept\nFine." });
+    const out2 = await check(mapped, bad.fetchImpl);
+    expect(out2.secondPass.status).toBe("not_run");
+    expect(out2.graphFinal).toBeNull();
   });
 
   it("records a disagreement but keeps the loop's pick", async () => {

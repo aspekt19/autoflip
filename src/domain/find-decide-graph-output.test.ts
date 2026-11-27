@@ -68,4 +68,13 @@ describe("parseFindDecideGraphOutput", () => {
     expect(parseFindDecideGraphOutput(`Pick: ${A}\nAction: buy`)).toBeNull();
     expect(parseFindDecideGraphOutput("")).toBeNull();
   });
+
+  it("strips the trailing Evidence line from the reason and keeps its ids", () => {
+    const text = `Pick: ${A}\nAction: negotiate\nConfidence: medium\nReview: kept\nAsks above fair value; offer near it.\nEvidence: car:${A}, fair:${A}`;
+    const out = parseFindDecideGraphOutput(text)!;
+    const decide = out.decide as { reasons: Array<{ text: string; evidenceIds: string[] }>; confidenceWhy: string };
+    expect(decide.reasons[0]!.text).toBe("Asks above fair value; offer near it.");
+    expect(decide.confidenceWhy).not.toMatch(/Evidence/);
+    expect(decide.reasons[0]!.evidenceIds).toEqual(expect.arrayContaining([`car:${A}`, `fair:${A}`]));
+  });
 });

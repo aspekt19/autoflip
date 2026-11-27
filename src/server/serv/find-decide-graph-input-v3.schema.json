@@ -1,0 +1,164 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "shopper_requirements": {
+      "type": "string",
+      "description": "Shopper requirement text."
+    },
+    "permitted_car_keys": {
+      "type": "array",
+      "description": "Permitted car keys.",
+      "items": {
+        "type": "string",
+        "description": "Permitted car key."
+      }
+    },
+    "cars": {
+      "type": "array",
+      "description": "Supplied car facts.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "slot": {
+            "type": "string",
+            "description": "Stable car comparison slot.",
+            "enum": [
+              "car_1",
+              "car_2",
+              "car_3",
+              "car_4",
+              "car_5"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "description": "Supplied car key."
+          },
+          "asking_price": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied asking price or unknown."
+          },
+          "miles": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied mileage or unknown."
+          },
+          "drivetrain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supplied drivetrain or unknown."
+          },
+          "reported_accidents": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supplied accident information or unknown."
+          },
+          "owners": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied owner count or unknown."
+          },
+          "fair_value": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied fair value or unknown."
+          },
+          "fair_range_upper_bound": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied fair-range upper bound or unknown."
+          },
+          "similar_cars_compared": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Supplied comparable-car count or unknown."
+          },
+          "open_recalls": {
+            "type": "array",
+            "description": "Supplied recall descriptions.",
+            "items": {
+              "type": "string",
+              "description": "Recall description."
+            }
+          },
+          "public_record_results": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supplied public-record result or unknown."
+          },
+          "listing_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supplied listing text or unknown."
+          }
+        },
+        "required": [
+          "slot",
+          "key",
+          "asking_price",
+          "miles",
+          "drivetrain",
+          "reported_accidents",
+          "owners",
+          "fair_value",
+          "fair_range_upper_bound",
+          "similar_cars_compared",
+          "open_recalls",
+          "public_record_results",
+          "listing_text"
+        ]
+      }
+    },
+    "evidence_records": {
+      "type": "array",
+      "description": "Supporting evidence records.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Evidence record identifier."
+          },
+          "content": {
+            "type": "string",
+            "description": "Evidence record content."
+          }
+        },
+        "required": [
+          "id",
+          "content"
+        ]
+      }
+    }
+  },
+  "required": [
+    "shopper_requirements",
+    "permitted_car_keys",
+    "cars",
+    "evidence_records"
+  ]
+}

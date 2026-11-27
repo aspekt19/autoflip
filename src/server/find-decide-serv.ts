@@ -51,10 +51,14 @@ import {
   findDecideGraphId,
   runServGraph,
   type GraphRunMeta,
-  FIND_DECIDE_GRAPH_MAX_CARS,
   graphInputRejected,
 } from "@/server/serv/graph";
-import { buildFindDecideGraphInput, validateFindDecideGraphInput } from "@/server/find-decide-graph-input";
+import {
+  findDecideGraphInputVersion,
+  findDecideGraphMaxCars,
+  prepareFindDecideGraphRun,
+  resolveFindDecideGraphSlots,
+} from "@/server/find-decide-graph-input";
 import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
 import {
   callStep,
@@ -414,11 +418,11 @@ export async function runFindDecideServ(input: {
     servKey &&
     codePick &&
     shortlistKeys.length > 0 &&
-    shortlistKeys.length <= FIND_DECIDE_GRAPH_MAX_CARS &&
+    shortlistKeys.length <= findDecideGraphMaxCars(findDecideGraphInputVersion(graphId)) &&
     decideTimeoutMs >= FIND_DECIDE_MIN_MS
   ) {
     // Send the graph its own input schema so the platform runs it as is (no input-mapping call).
-    const graphInput = buildFindDecideGraphInput({
+    const prepared = prepareFindDecideGraphRun(graphId, {
       need: input.need,
       factSheet,
       shortlistKeys,
@@ -426,13 +430,12 @@ export async function runFindDecideServ(input: {
       codeRankedKey: codePick?.key ?? null,
       guardrailRules,
     });
-    const graphInputErrors = validateFindDecideGraphInput(graphInput);
     const graphRun =
-      graphInputErrors.length > 0
-        ? graphInputRejected(graphId, graphInputErrors)
+      prepared.errors.length > 0
+        ? graphInputRejected(graphId, prepared.errors)
         : await runServGraph({
             graphId,
-            instructions: JSON.stringify(graphInput),
+            instructions: JSON.stringify(prepared.input),
             deps: {
               fetch: input.fetchImpl,
               apiKey: servKey,
@@ -447,12 +450,14 @@ export async function runFindDecideServ(input: {
     };
     const graphModel = `graph:${graphId}`;
     const graphResponseId = graphRun.meta.runId ?? graphRun.meta.responseId;
-    const parsedGraph = graphRun.ok ? parseFindDecideGraphOutput(graphRun.text) : null;
+    const parsedGraph = graphRun.ok
+      ? resolveFindDecideGraphSlots(parseFindDecideGraphOutput(graphRun.text), prepared.slotToKey)
+      : null;
     let graphIssues: FindDecideIssue[] = [];
     if (!graphRun.ok) {
       graphIssues = [{ field: "graph", message: graphRun.error }];
     } else if (!parsedGraph) {
-      graphIssues = [{ field: "graph", message: "the graph answer was not { decide, challenge } JSON" }];
+      graphIssues = [{ field: "graph", message: "the graph answer could not be read (no pick, action and confidence, or an unknown slot)" }];
     } else {
       const pickRow = rankedByKey.get(
         typeof (parsedGraph.decide as { pickKey?: unknown })?.pickKey === "string"

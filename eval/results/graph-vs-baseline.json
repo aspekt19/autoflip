@@ -5,20 +5,20 @@
     "graph",
     "loop_second_check"
   ],
-  "generatedAt": "2026-11-27T20:07:45.620Z",
+  "generatedAt": "2026-11-27T21:15:07.009Z",
   "dryRun": false,
-  "graphId": "gr_3d039bd8de63381a",
+  "graphId": "gr_28beee6b8bffe5a9",
   "fixture": "eval/comparison/fixtures/find-cases.json",
   "repeats": 2,
   "summary": {
     "two_call": {
       "attempts": 20,
-      "validatorPassRate": 1,
-      "repeatConsistency": 0.95,
-      "latencyP50Ms": 18291,
-      "latencyP95Ms": 24406,
-      "httpCalls": 40,
-      "tokens": 140440,
+      "validatorPassRate": 0.95,
+      "repeatConsistency": 1,
+      "latencyP50Ms": 18360,
+      "latencyP95Ms": 553407,
+      "httpCalls": 43,
+      "tokens": 138136,
       "costUsd": null,
       "graphFallbacks": null,
       "secondCheckAgreed": null,
@@ -27,11 +27,11 @@
     "graph": {
       "attempts": 20,
       "validatorPassRate": 1,
-      "repeatConsistency": 0.9,
-      "latencyP50Ms": 11835,
-      "latencyP95Ms": 13454,
+      "repeatConsistency": 0.8,
+      "latencyP50Ms": 13908,
+      "latencyP95Ms": 16605,
       "httpCalls": 20,
-      "tokens": 549990,
+      "tokens": 525753,
       "costUsd": null,
       "graphFallbacks": 0,
       "secondCheckAgreed": null,
@@ -40,15 +40,15 @@
     "loop_second_check": {
       "attempts": 20,
       "validatorPassRate": 1,
-      "repeatConsistency": 0.9,
-      "latencyP50Ms": 11563,
-      "latencyP95Ms": 14604,
+      "repeatConsistency": 0.85,
+      "latencyP50Ms": 13068,
+      "latencyP95Ms": 14940,
       "httpCalls": 20,
-      "tokens": 491431,
+      "tokens": 458335,
       "costUsd": null,
       "graphFallbacks": null,
-      "secondCheckAgreed": 0,
-      "secondCheckDisagreed": 20
+      "secondCheckAgreed": 8,
+      "secondCheckDisagreed": 12
     },
     "decisionAgreement": 0.6
   },
@@ -71,10 +71,10 @@
       "loopPick": "2HKRM4H75FH123456|negotiate",
       "modal": {
         "two_call": "2HKRM4H75FH123456|negotiate",
-        "graph": "2HKRM4H75FH123456|inspect_first",
-        "loop_second_check": "2HKRM4H75FH123456|inspect_first"
+        "graph": "2HKRM4H75FH123456|negotiate",
+        "loop_second_check": "2HKRM4H75FH123456|negotiate"
       },
-      "agree": false,
+      "agree": true,
       "attempts": [
         {
           "arm": "two_call",
@@ -85,13 +85,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 19828,
+          "latencyMs": 18360,
           "httpCalls": 2,
-          "tokens": 8005,
+          "tokens": 7917,
           "costUsd": null,
           "runIds": [
-            "cdcf3b70-f14c-41c1-80c0-2e6a5e7df1b6",
-            "97b78697-8c53-466c-be3f-ead4361cb97b"
+            "44fca3cc-2d97-4d6f-8077-246151284391",
+            "166166b5-cbab-4649-814d-541d1d447e4c"
           ],
           "failure": null
         },
@@ -104,13 +104,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18291,
-          "httpCalls": 2,
-          "tokens": 7928,
+          "latencyMs": 288768,
+          "httpCalls": 3,
+          "tokens": 7947,
           "costUsd": null,
           "runIds": [
-            "e254da4f-1bbc-407a-bde5-14417bdc1e01",
-            "38f912f2-9fd6-49ad-b722-afd31a45deef"
+            "34bf6394-a516-4db8-9a5b-c53d3c710e46",
+            "b3e086df-2194-46dd-bb2d-4b4b5934d3b9"
           ],
           "failure": null
         },
@@ -120,15 +120,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HKRM4H75FH123456",
-          "action": "inspect_first",
-          "confidence": "medium",
-          "secondPass": "agreed",
-          "latencyMs": 13219,
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14056,
           "httpCalls": 1,
-          "tokens": 33050,
+          "tokens": 33061,
           "costUsd": null,
           "runIds": [
-            "df5293d5-e739-40db-8a9c-6975ba9bd20e"
+            "06a462f1-37d4-4705-950a-16e279fd4936"
           ],
           "failure": null
         },
@@ -138,15 +138,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HKRM4H75FH123456",
-          "action": "inspect_first",
-          "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 11799,
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 12132,
           "httpCalls": 1,
-          "tokens": 31546,
+          "tokens": 22808,
           "costUsd": null,
           "runIds": [
-            "38e481c3-1686-47ea-a7c8-6706603a285f"
+            "7f9680e5-2f34-4dd9-b11e-1f0c012cb28a"
           ],
           "failure": null
         },
@@ -156,15 +156,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HKRM4H75FH123456",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "medium",
-          "secondPass": "disagreed",
-          "latencyMs": 11020,
+          "secondPass": "agreed",
+          "latencyMs": 12972,
           "httpCalls": 1,
-          "tokens": 24636,
+          "tokens": 19949,
           "costUsd": null,
           "runIds": [
-            "f55522f5-1a14-42f9-85dd-6667aec39c9c"
+            "6dd0f5c1-6b67-482c-84f7-3e213bb31b44"
           ],
           "failure": null
         },
@@ -174,15 +174,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HKRM4H75FH123456",
-          "action": "inspect_first",
-          "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 9848,
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 11949,
           "httpCalls": 1,
-          "tokens": 24117,
+          "tokens": 19883,
           "costUsd": null,
           "runIds": [
-            "f4bfa4f3-b9b0-4174-b63e-632b69b384f5"
+            "1013a753-a034-474c-aacc-bcc95b9cdd70"
           ],
           "failure": null
         }
@@ -200,10 +200,10 @@
       "loopPick": "4T1BF1FK5EU100001|negotiate",
       "modal": {
         "two_call": "4T1BF1FK5EU100001|inspect_first",
-        "graph": "4T1BF1FK5EU100001|inspect_first",
-        "loop_second_check": "4T1BF1FK5EU100001|inspect_first"
+        "graph": "4T1BF1FK5EU100001|buy",
+        "loop_second_check": "4T1BF1FK5EU100001|buy"
       },
-      "agree": true,
+      "agree": false,
       "attempts": [
         {
           "arm": "two_call",
@@ -214,13 +214,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18298,
+          "latencyMs": 18209,
           "httpCalls": 2,
-          "tokens": 7985,
+          "tokens": 7936,
           "costUsd": null,
           "runIds": [
-            "4e643425-0f5f-4f11-8d21-4103f6807e60",
-            "1f5c501c-e8b9-4606-84c3-eabe40fdb2e3"
+            "0b00c74b-d565-436c-8c7b-47f804d0bce1",
+            "53fb8545-4de6-433b-be10-784961ab7fcf"
           ],
           "failure": null
         },
@@ -233,13 +233,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 17796,
+          "latencyMs": 17294,
           "httpCalls": 2,
-          "tokens": 8044,
+          "tokens": 7913,
           "costUsd": null,
           "runIds": [
-            "89474f58-078b-44b0-b8c0-de72f5a8e2a7",
-            "adc70dcb-c679-45e2-ac7a-829208cf5635"
+            "ac479497-0bd1-4833-98f0-73b195c681e8",
+            "464614a9-7d87-45d0-9492-657367f46233"
           ],
           "failure": null
         },
@@ -249,33 +249,33 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1BF1FK5EU100001",
-          "action": "inspect_first",
-          "confidence": "medium",
-          "secondPass": "agreed",
-          "latencyMs": 11835,
-          "httpCalls": 1,
-          "tokens": 32053,
-          "costUsd": null,
-          "runIds": [
-            "7532bf7f-ae4c-42ff-9690-52c755caa673"
-          ],
-          "failure": null
-        },
-        {
-          "arm": "graph",
-          "repeat": 2,
-          "ok": true,
-          "usedGraph": true,
-          "pickKey": "4T1BF1FK5EU100001",
-          "action": "inspect_first",
+          "action": "buy",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 12367,
+          "latencyMs": 15440,
           "httpCalls": 1,
-          "tokens": 32191,
+          "tokens": 23867,
           "costUsd": null,
           "runIds": [
-            "153f6ffc-13e1-4c2a-94b2-6626afa92bc4"
+            "ae9123fa-0c73-42e0-98d5-b0fd63f6cf12"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 16605,
+          "httpCalls": 1,
+          "tokens": 23719,
+          "costUsd": null,
+          "runIds": [
+            "9ae9edad-c1cc-40b2-a857-c9ec75b58c0d"
           ],
           "failure": null
         },
@@ -285,15 +285,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1BF1FK5EU100001",
-          "action": "inspect_first",
+          "action": "buy",
           "confidence": "medium",
           "secondPass": "disagreed",
-          "latencyMs": 10785,
+          "latencyMs": 10894,
           "httpCalls": 1,
-          "tokens": 24870,
+          "tokens": 19083,
           "costUsd": null,
           "runIds": [
-            "92918d6d-9879-4c64-a09a-9954659e69e4"
+            "56e3c3d2-52f0-4e48-8480-db6e40463853"
           ],
           "failure": null
         },
@@ -303,15 +303,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1BF1FK5EU100001",
-          "action": "inspect_first",
-          "confidence": "medium",
+          "action": "buy",
+          "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 10458,
+          "latencyMs": 13305,
           "httpCalls": 1,
-          "tokens": 24321,
+          "tokens": 29001,
           "costUsd": null,
           "runIds": [
-            "2c47fb79-7cfd-4d6c-b3a9-a66ea3c46cfd"
+            "268a4935-8a9e-4fbf-bb7f-2d40bb43419a"
           ],
           "failure": null
         }
@@ -328,10 +328,10 @@
       "loopPick": "2T1BU4EE5DC500001|negotiate",
       "modal": {
         "two_call": "2T1BU4EE5DC500001|inspect_first",
-        "graph": "2T1BU4EE5DC500001|inspect_first",
-        "loop_second_check": "2T1BU4EE5DC500001|inspect_first"
+        "graph": "2T1BU4EE5DC500001|negotiate",
+        "loop_second_check": "2T1BU4EE5DC500001|negotiate"
       },
-      "agree": true,
+      "agree": false,
       "attempts": [
         {
           "arm": "two_call",
@@ -342,13 +342,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 17071,
+          "latencyMs": 16739,
           "httpCalls": 2,
-          "tokens": 6788,
+          "tokens": 6709,
           "costUsd": null,
           "runIds": [
-            "d27bb906-a7e1-426b-b0c0-7b9733b51bb3",
-            "3fcb7217-093a-4143-ba29-5200b3434fbe"
+            "7cc59587-3bfb-4e87-b197-fe94e7de785a",
+            "d3073108-e0fa-40d3-844f-be230c6e743f"
           ],
           "failure": null
         },
@@ -361,13 +361,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 16243,
+          "latencyMs": 17719,
           "httpCalls": 2,
-          "tokens": 6787,
+          "tokens": 6883,
           "costUsd": null,
           "runIds": [
-            "24da95b7-04b9-49bf-9c7c-759b0e5588b8",
-            "109a1354-3db9-4cd3-ab34-5feb3d30069e"
+            "1771d989-0e56-42f1-a0b3-21a32592f2ea",
+            "f4826e3e-9ee9-46f2-8cac-85aaa21ada8f"
           ],
           "failure": null
         },
@@ -377,15 +377,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2T1BU4EE5DC500001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 11453,
+          "latencyMs": 12992,
           "httpCalls": 1,
-          "tokens": 26701,
+          "tokens": 29642,
           "costUsd": null,
           "runIds": [
-            "6317ed5b-a8f3-46a5-bd09-b34c47bf2ff9"
+            "f648c1c6-46e0-4f24-9b3e-aa9f45c5a942"
           ],
           "failure": null
         },
@@ -397,13 +397,13 @@
           "pickKey": "2T1BU4EE5DC500001",
           "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 11208,
+          "secondPass": "disagreed",
+          "latencyMs": 14961,
           "httpCalls": 1,
-          "tokens": 25898,
+          "tokens": 32429,
           "costUsd": null,
           "runIds": [
-            "0f0ebe67-9a60-41bb-9339-86416ba73a83"
+            "8dcbe1f2-f892-4f6a-a543-c65bba374f92"
           ],
           "failure": null
         },
@@ -413,15 +413,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2T1BU4EE5DC500001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 11762,
+          "secondPass": "agreed",
+          "latencyMs": 13304,
           "httpCalls": 1,
-          "tokens": 24710,
+          "tokens": 20066,
           "costUsd": null,
           "runIds": [
-            "d76ae027-f375-4ed3-b5d1-367e06c99ad4"
+            "498cd64a-46bd-4957-90e5-3d4c5bf73036"
           ],
           "failure": null
         },
@@ -430,16 +430,16 @@
           "repeat": 2,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "1HGCP2F37CA600002",
-          "action": "inspect_first",
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 11728,
+          "secondPass": "agreed",
+          "latencyMs": 13061,
           "httpCalls": 1,
-          "tokens": 26181,
+          "tokens": 19403,
           "costUsd": null,
           "runIds": [
-            "d31aaa3f-afb6-46cc-a07a-b13ce8304560"
+            "891a6dd9-211c-4cbc-8a98-e378c778ab46"
           ],
           "failure": null
         }
@@ -471,13 +471,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18775,
+          "latencyMs": 20180,
           "httpCalls": 2,
-          "tokens": 8114,
+          "tokens": 8226,
           "costUsd": null,
           "runIds": [
-            "9c4bc59c-6328-46fd-98bb-7c071c11107f",
-            "a01392c5-307e-4f80-bf30-06efb53a90cb"
+            "e01ccd34-8132-4d7f-89e1-c5fdcf8ff0bf",
+            "b7b3cd0e-d82c-4cce-b69d-0367a5e604bb"
           ],
           "failure": null
         },
@@ -490,13 +490,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18122,
-          "httpCalls": 2,
-          "tokens": 8080,
+          "latencyMs": 287886,
+          "httpCalls": 3,
+          "tokens": 8007,
           "costUsd": null,
           "runIds": [
-            "57a18c11-5a6b-4041-aa19-14e7202e4cf3",
-            "74b68d9d-c6db-468c-864b-faeef8fbc807"
+            "68668a52-b10b-4609-90ad-363e2b906455",
+            "46124ae7-ad46-4f67-adce-b6a8bdf84ca0"
           ],
           "failure": null
         },
@@ -508,13 +508,13 @@
           "pickKey": "JM3KE2DY5G0700001",
           "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 12467,
+          "secondPass": "disagreed",
+          "latencyMs": 15985,
           "httpCalls": 1,
-          "tokens": 33220,
+          "tokens": 24009,
           "costUsd": null,
           "runIds": [
-            "ead93e79-9616-4e0c-88a7-c36b6b12328d"
+            "a2afed34-3fa7-408f-a441-f03b810991ff"
           ],
           "failure": null
         },
@@ -524,15 +524,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JM3KE2DY5G0700001",
-          "action": "pass",
+          "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 13454,
+          "secondPass": "disagreed",
+          "latencyMs": 14027,
           "httpCalls": 1,
-          "tokens": 30763,
+          "tokens": 23237,
           "costUsd": null,
           "runIds": [
-            "5ae2ce86-04c3-426a-884c-e273fe900d02"
+            "eae97dce-ffd7-4e97-816f-5649b41ab9b4"
           ],
           "failure": null
         },
@@ -545,12 +545,12 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 10452,
+          "latencyMs": 12910,
           "httpCalls": 1,
-          "tokens": 25264,
+          "tokens": 20122,
           "costUsd": null,
           "runIds": [
-            "757d59ad-c9c7-4a17-89ee-cd27930cd52f"
+            "75dfb20d-a644-428c-9265-f5c450417037"
           ],
           "failure": null
         },
@@ -563,12 +563,12 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 11060,
+          "latencyMs": 14376,
           "httpCalls": 1,
-          "tokens": 24726,
+          "tokens": 30064,
           "costUsd": null,
           "runIds": [
-            "65a91e0a-caa4-4b50-9c4f-1b8f414e32c9"
+            "f81dcb73-429b-4af5-b8de-58d6ac95ec8d"
           ],
           "failure": null
         }
@@ -586,7 +586,7 @@
       "modal": {
         "two_call": "4T1B11HK1JU700003|inspect_first",
         "graph": "4T1B11HK1JU700003|inspect_first",
-        "loop_second_check": "4T1B11HK1JU700003|inspect_first"
+        "loop_second_check": "4T1B11HK1JU700003|buy"
       },
       "agree": true,
       "attempts": [
@@ -599,13 +599,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 17575,
+          "latencyMs": 19406,
           "httpCalls": 2,
-          "tokens": 6773,
+          "tokens": 6996,
           "costUsd": null,
           "runIds": [
-            "102d50db-7822-4727-a18f-f5e80c133feb",
-            "33954baa-47ad-4cea-834a-ea2af66ecaf0"
+            "9f4549a4-8f2c-408a-af2a-42c26cc99d4c",
+            "6ba19f6b-21df-4e62-ba0d-7a1f6eee7bb4"
           ],
           "failure": null
         },
@@ -618,13 +618,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 24406,
+          "latencyMs": 16618,
           "httpCalls": 2,
-          "tokens": 6731,
+          "tokens": 6636,
           "costUsd": null,
           "runIds": [
-            "f6b4c3d8-6cbd-4b03-9946-7bfb057a324f",
-            "25fa90c6-aa0b-4b0c-bbdb-1ca7ec3abbf6"
+            "d7becaa4-33b3-4d02-8ab9-00bffe48c16f",
+            "e777421c-f949-4376-9eea-190778bff3a0"
           ],
           "failure": null
         },
@@ -635,14 +635,14 @@
           "usedGraph": true,
           "pickKey": "4T1B11HK1JU700003",
           "action": "inspect_first",
-          "confidence": "medium",
-          "secondPass": "agreed",
-          "latencyMs": 12107,
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12795,
           "httpCalls": 1,
-          "tokens": 27067,
+          "tokens": 30373,
           "costUsd": null,
           "runIds": [
-            "9f31921e-4d90-4fb9-8be3-2e5318726655"
+            "912217d5-13f9-4577-ad2d-4ef644352b31"
           ],
           "failure": null
         },
@@ -652,15 +652,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1B11HK1JU700003",
-          "action": "inspect_first",
-          "confidence": "medium",
-          "secondPass": "agreed",
-          "latencyMs": 11453,
+          "action": "buy",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14394,
           "httpCalls": 1,
-          "tokens": 26295,
+          "tokens": 20947,
           "costUsd": null,
           "runIds": [
-            "09e362ca-5d54-495d-95aa-556e449bec13"
+            "ff7c1604-63d9-4cac-b2db-c297998bda1b"
           ],
           "failure": null
         },
@@ -670,15 +670,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1B11HK1JU700003",
-          "action": "inspect_first",
-          "confidence": "medium",
+          "action": "buy",
+          "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 12981,
+          "latencyMs": 13105,
           "httpCalls": 1,
-          "tokens": 26271,
+          "tokens": 19425,
           "costUsd": null,
           "runIds": [
-            "321daebb-6f82-4b43-9900-ac2d622d7515"
+            "f302e0c5-241e-4299-bd71-14a588a4fa0c"
           ],
           "failure": null
         },
@@ -688,15 +688,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "4T1B11HK1JU700003",
-          "action": "inspect_first",
-          "confidence": "medium",
+          "action": "buy",
+          "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 14254,
+          "latencyMs": 13068,
           "httpCalls": 1,
-          "tokens": 25391,
+          "tokens": 19716,
           "costUsd": null,
           "runIds": [
-            "fd91c198-4876-4ec2-b8f2-16d01ff5818f"
+            "16fde3a9-5c00-4d81-99b7-158da7d10db2"
           ],
           "failure": null
         }
@@ -712,9 +712,9 @@
       ],
       "loopPick": "1FTER4EH5HLA00002|negotiate",
       "modal": {
-        "two_call": "1FTER4EH5HLA00002|negotiate",
-        "graph": "1FTER4EH5HLA00002|inspect_first",
-        "loop_second_check": "1FTER4EH5HLA00002|inspect_first"
+        "two_call": "1FTER4EH5HLA00002|inspect_first",
+        "graph": "1FTER4EH5HLA00002|negotiate",
+        "loop_second_check": "1FTER4EH5HLA00002|negotiate"
       },
       "agree": false,
       "attempts": [
@@ -724,16 +724,16 @@
           "ok": true,
           "usedGraph": false,
           "pickKey": "1FTER4EH5HLA00002",
-          "action": "negotiate",
+          "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18299,
+          "latencyMs": 22548,
           "httpCalls": 2,
-          "tokens": 6901,
+          "tokens": 6899,
           "costUsd": null,
           "runIds": [
-            "7b44cb6d-cf0b-42bc-b1af-9f064061cc77",
-            "3480c396-8f74-4f30-8513-826de072fa76"
+            "efda91c9-0c7a-41b7-89ab-d5202797ca4d",
+            "6f9a40b5-8641-44c4-8a28-93421b1055de"
           ],
           "failure": null
         },
@@ -746,13 +746,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18465,
+          "latencyMs": 19261,
           "httpCalls": 2,
-          "tokens": 6893,
+          "tokens": 6984,
           "costUsd": null,
           "runIds": [
-            "0555d6e2-caa2-4e3a-aa87-c00fdd6b3c79",
-            "7f8eec76-4a25-47d7-b918-0f38c4f08e39"
+            "8ca44550-dfa4-4710-a968-9e89d63dd269",
+            "0fc556dd-99ec-4557-893d-e0960725973c"
           ],
           "failure": null
         },
@@ -762,15 +762,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "1FTER4EH5HLA00002",
-          "action": "inspect_first",
-          "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 12976,
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 11617,
           "httpCalls": 1,
-          "tokens": 26026,
+          "tokens": 20873,
           "costUsd": null,
           "runIds": [
-            "fc7e39fa-bf16-45d4-bc1f-c2c7f04b25b3"
+            "fbdf1bcd-11ac-47e4-b800-7563144a2aaa"
           ],
           "failure": null
         },
@@ -780,15 +780,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "1FTER4EH5HLA00002",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 10814,
+          "secondPass": "disagreed",
+          "latencyMs": 11925,
           "httpCalls": 1,
-          "tokens": 25633,
+          "tokens": 30574,
           "costUsd": null,
           "runIds": [
-            "9a8c73e2-6763-486f-9a9b-ce88786ed03f"
+            "19b58163-f597-4834-8a1e-ba8118a90229"
           ],
           "failure": null
         },
@@ -798,15 +798,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "1FTER4EH5HLA00002",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 11892,
+          "secondPass": "agreed",
+          "latencyMs": 13503,
           "httpCalls": 1,
-          "tokens": 25041,
+          "tokens": 20523,
           "costUsd": null,
           "runIds": [
-            "24a9fe09-5c7c-4a3f-a404-4a42178c9321"
+            "a7b68d84-9a34-4d46-b11d-5a4a57f742a3"
           ],
           "failure": null
         },
@@ -815,16 +815,16 @@
           "repeat": 2,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "1FTER4EH5HLA00002",
-          "action": "inspect_first",
+          "pickKey": "5TFRU5F10DX200003",
+          "action": "negotiate",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 14604,
+          "latencyMs": 13248,
           "httpCalls": 1,
-          "tokens": 27167,
+          "tokens": 29290,
           "costUsd": null,
           "runIds": [
-            "753d141b-0f5b-46ed-ab93-ff9ee4040175"
+            "9aebbcd7-86c8-481d-a5e3-802be49f4728"
           ],
           "failure": null
         }
@@ -841,10 +841,10 @@
       "loopPick": "JTDKN3DU5E0100001|negotiate",
       "modal": {
         "two_call": "JTDKN3DU5E0100001|inspect_first",
-        "graph": "JTDKN3DU5E0100001|inspect_first",
-        "loop_second_check": "JTDKN3DU5E0100001|inspect_first"
+        "graph": "JTDKN3DU5E0100001|negotiate",
+        "loop_second_check": "JTDKN3DU5E0100001|negotiate"
       },
-      "agree": true,
+      "agree": false,
       "attempts": [
         {
           "arm": "two_call",
@@ -855,13 +855,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 19755,
+          "latencyMs": 18971,
           "httpCalls": 2,
-          "tokens": 6865,
+          "tokens": 6894,
           "costUsd": null,
           "runIds": [
-            "eaf397a9-ad12-4807-b6d5-c8c4d750072b",
-            "4be60f77-c7f0-4431-a8fd-f6f4ccdbe0a1"
+            "f14a710a-7551-47ec-a5cd-44960accb75d",
+            "6cba4b12-9c91-47c2-abd2-d92918613de5"
           ],
           "failure": null
         },
@@ -874,13 +874,13 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18528,
+          "latencyMs": 17719,
           "httpCalls": 2,
-          "tokens": 6820,
+          "tokens": 6834,
           "costUsd": null,
           "runIds": [
-            "108ab28e-335f-419b-85bc-94ca4f1bec1d",
-            "d24879b7-a6ec-421c-a321-ce8ed2f244ea"
+            "fe4c709f-6989-4160-b934-0aa8366a067a",
+            "7490d991-256c-4216-a753-b0405589256f"
           ],
           "failure": null
         },
@@ -890,15 +890,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JTDKN3DU5E0100001",
-          "action": "inspect_first",
-          "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 11167,
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 11978,
           "httpCalls": 1,
-          "tokens": 25412,
+          "tokens": 20870,
           "costUsd": null,
           "runIds": [
-            "0880c1af-9bf7-4abd-bea1-e8cdb5618f38"
+            "5aecbbeb-66bd-4447-b94b-a77d8d8a6cf0"
           ],
           "failure": null
         },
@@ -908,15 +908,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JTDKN3DU5E0100001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 13160,
+          "secondPass": "disagreed",
+          "latencyMs": 13908,
           "httpCalls": 1,
-          "tokens": 28906,
+          "tokens": 30466,
           "costUsd": null,
           "runIds": [
-            "fa1961a8-cebc-48cd-ad57-2f42d53d5ed3"
+            "fb453021-78d0-43bf-85bd-f2fe94255b1f"
           ],
           "failure": null
         },
@@ -926,15 +926,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JTDKN3DU5E0100001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 11563,
+          "secondPass": "agreed",
+          "latencyMs": 13299,
           "httpCalls": 1,
-          "tokens": 24774,
+          "tokens": 28445,
           "costUsd": null,
           "runIds": [
-            "d84c1ff0-c5b4-4246-9ece-5ea89cab106c"
+            "04fba906-bce2-472c-88d0-9838ef83bf0f"
           ],
           "failure": null
         },
@@ -944,15 +944,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JTDKN3DU5E0100001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 11290,
+          "secondPass": "agreed",
+          "latencyMs": 14940,
           "httpCalls": 1,
-          "tokens": 24520,
+          "tokens": 30241,
           "costUsd": null,
           "runIds": [
-            "bd0964fa-c4a9-4da5-a0c9-a08666c176d6"
+            "b7028965-83a4-4d32-89a8-fb08f9952b63"
           ],
           "failure": null
         }
@@ -969,10 +969,10 @@
       "loopPick": "58ABK1GG5GU400001|negotiate",
       "modal": {
         "two_call": "58ABK1GG5GU400001|negotiate",
-        "graph": "58ABK1GG5GU400001|inspect_first",
-        "loop_second_check": "19UDE2F70GA500002|inspect_first"
+        "graph": "58ABK1GG5GU400001|negotiate",
+        "loop_second_check": "JTHBK1GG7E2500003|negotiate"
       },
-      "agree": false,
+      "agree": true,
       "attempts": [
         {
           "arm": "two_call",
@@ -983,13 +983,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 17584,
+          "latencyMs": 19668,
           "httpCalls": 2,
-          "tokens": 6746,
+          "tokens": 6942,
           "costUsd": null,
           "runIds": [
-            "66510b55-45f2-4759-9a0f-0b702fb609dd",
-            "c8e55a73-5d5b-41ea-9a00-1675bfd64779"
+            "1e962039-5ef8-4a47-884b-0e941e895381",
+            "66b53451-affe-4441-b9ee-8c45a112cf07"
           ],
           "failure": null
         },
@@ -1002,13 +1002,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 18731,
+          "latencyMs": 16057,
           "httpCalls": 2,
-          "tokens": 6802,
+          "tokens": 6579,
           "costUsd": null,
           "runIds": [
-            "d9f326eb-6f4d-4561-ab94-358022729872",
-            "386d7f34-3bf7-42e0-a41a-d932aa42e9d9"
+            "bbc0128b-4844-4bbc-8db4-467a72f7ffd7",
+            "e80f0801-3cf7-4495-9fbe-818a93fc0a39"
           ],
           "failure": null
         },
@@ -1018,15 +1018,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "58ABK1GG5GU400001",
-          "action": "inspect_first",
-          "confidence": "medium",
+          "action": "negotiate",
+          "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 11693,
+          "latencyMs": 14402,
           "httpCalls": 1,
-          "tokens": 25818,
+          "tokens": 21574,
           "costUsd": null,
           "runIds": [
-            "07ac7ac9-dc09-448a-9404-29a85110ed1f"
+            "9fd194d4-7b2c-4154-954c-4796ad4ed973"
           ],
           "failure": null
         },
@@ -1035,16 +1035,16 @@
           "repeat": 2,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "58ABK1GG5GU400001",
-          "action": "inspect_first",
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
           "confidence": "medium",
-          "secondPass": "agreed",
-          "latencyMs": 12065,
+          "secondPass": "disagreed",
+          "latencyMs": 14218,
           "httpCalls": 1,
-          "tokens": 25783,
+          "tokens": 21553,
           "costUsd": null,
           "runIds": [
-            "6c5ae4b4-a8fd-435f-8e62-ec2f96e42d13"
+            "4c23c17a-55ed-4d72-82d8-801f8108ec22"
           ],
           "failure": null
         },
@@ -1053,16 +1053,16 @@
           "repeat": 1,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "19UDE2F70GA500002",
-          "action": "inspect_first",
-          "confidence": "low",
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
+          "confidence": "medium",
           "secondPass": "disagreed",
-          "latencyMs": 10484,
+          "latencyMs": 12387,
           "httpCalls": 1,
-          "tokens": 24450,
+          "tokens": 20104,
           "costUsd": null,
           "runIds": [
-            "27a04138-83cf-417c-b6e7-30649593acfa"
+            "bcf02377-26cc-4e36-809c-13f1258841ed"
           ],
           "failure": null
         },
@@ -1071,16 +1071,16 @@
           "repeat": 2,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "58ABK1GG5GU400001",
-          "action": "inspect_first",
-          "confidence": "low",
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
+          "confidence": "medium",
           "secondPass": "disagreed",
-          "latencyMs": 12958,
+          "latencyMs": 12727,
           "httpCalls": 1,
-          "tokens": 25834,
+          "tokens": 19579,
           "costUsd": null,
           "runIds": [
-            "2a1e8ade-1f51-4bde-808d-ba8871d676b7"
+            "6673848a-de6e-4a8f-a97e-9d8ad67e2585"
           ],
           "failure": null
         }
@@ -1097,10 +1097,10 @@
       "loopPick": "JTMZF4DV5ED600001|negotiate",
       "modal": {
         "two_call": "JTMZF4DV5ED600001|negotiate",
-        "graph": "JM3TB2CA5D0800003|inspect_first",
-        "loop_second_check": "JM3TB2CA5D0800003|inspect_first"
+        "graph": "JTMZF4DV5ED600001|negotiate",
+        "loop_second_check": "JM3TB2CA5D0800003|pass"
       },
-      "agree": false,
+      "agree": true,
       "attempts": [
         {
           "arm": "two_call",
@@ -1111,13 +1111,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 16036,
+          "latencyMs": 17225,
           "httpCalls": 2,
-          "tokens": 6638,
+          "tokens": 6724,
           "costUsd": null,
           "runIds": [
-            "82ffbe1a-d143-4714-bc1a-2ae4057e2331",
-            "b50eb921-70d6-419a-a84f-bb60f3d18c84"
+            "80a4161d-92e5-446a-9bdc-54dfd8b3bca1",
+            "d37d7022-ccda-46ce-b6f7-4f9606588e03"
           ],
           "failure": null
         },
@@ -1130,13 +1130,13 @@
           "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 16159,
+          "latencyMs": 16576,
           "httpCalls": 2,
-          "tokens": 6586,
+          "tokens": 6661,
           "costUsd": null,
           "runIds": [
-            "74096465-cfc6-48de-bb7a-959a24db0809",
-            "3e499b93-f2a0-43b3-b9f5-503eac7aa8c7"
+            "741da905-1cfd-4c70-b7e0-fc44c456f240",
+            "f844731a-d5df-465e-8f75-e3afe7bde43a"
           ],
           "failure": null
         },
@@ -1145,16 +1145,16 @@
           "repeat": 1,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "JM3TB2CA5D0800003",
-          "action": "inspect_first",
-          "confidence": "low",
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "medium",
           "secondPass": "agreed",
-          "latencyMs": 11147,
+          "latencyMs": 12785,
           "httpCalls": 1,
-          "tokens": 25461,
+          "tokens": 30232,
           "costUsd": null,
           "runIds": [
-            "3c1070b8-500b-4d6c-a8ea-0b9aa2c37a86"
+            "0eafef72-ae23-404d-8bd6-f86531ce1d29"
           ],
           "failure": null
         },
@@ -1164,15 +1164,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JTMZF4DV5ED600001",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 13424,
+          "latencyMs": 13552,
           "httpCalls": 1,
-          "tokens": 28206,
+          "tokens": 30688,
           "costUsd": null,
           "runIds": [
-            "a2de2539-8cda-401d-9e79-42310a51cf74"
+            "8b0e3767-28ad-4024-98df-02d024c2fdc5"
           ],
           "failure": null
         },
@@ -1182,15 +1182,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JM3TB2CA5D0800003",
-          "action": "inspect_first",
+          "action": "pass",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 11806,
+          "latencyMs": 14610,
           "httpCalls": 1,
-          "tokens": 26685,
+          "tokens": 30231,
           "costUsd": null,
           "runIds": [
-            "7927fc35-806d-4f97-80c6-9aa04c5205fb"
+            "b780f96e-9613-4b9c-8019-e2104e33537a"
           ],
           "failure": null
         },
@@ -1200,15 +1200,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "JM3TB2CA5D0800003",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 11163,
+          "latencyMs": 12305,
           "httpCalls": 1,
-          "tokens": 24189,
+          "tokens": 28726,
           "costUsd": null,
           "runIds": [
-            "7559e0ed-9ee0-4d1a-8899-3d5a51d5bca0"
+            "6abc41cf-16b0-40ff-8d61-4dce38e4be37"
           ],
           "failure": null
         }
@@ -1225,7 +1225,7 @@
       "modal": {
         "two_call": "2HGFC2F59GH900002|inspect_first",
         "graph": "2HGFC2F59GH900002|inspect_first",
-        "loop_second_check": "2HGFC2F59GH900002|inspect_first"
+        "loop_second_check": "2HGFC2F59GH900002|negotiate"
       },
       "agree": true,
       "attempts": [
@@ -1238,34 +1238,33 @@
           "action": "inspect_first",
           "confidence": "low",
           "secondPass": "agreed",
-          "latencyMs": 17594,
+          "latencyMs": 16282,
           "httpCalls": 2,
-          "tokens": 5557,
+          "tokens": 5516,
           "costUsd": null,
           "runIds": [
-            "56366a6f-6bf6-4b2b-b069-a0bfb274fd0f",
-            "174c5fe8-501e-435b-a9ec-c8298f077661"
+            "48b465ce-ff62-4cb3-80ed-7e0dc2559596",
+            "dd3cb0e2-e228-4df3-85b4-ac96b5ef7b33"
           ],
           "failure": null
         },
         {
           "arm": "two_call",
           "repeat": 2,
-          "ok": true,
+          "ok": false,
           "usedGraph": false,
           "pickKey": "2HGFC2F59GH900002",
           "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 14591,
-          "httpCalls": 2,
-          "tokens": 5397,
+          "secondPass": "unavailable",
+          "latencyMs": 553407,
+          "httpCalls": 3,
+          "tokens": 2933,
           "costUsd": null,
           "runIds": [
-            "c3940910-098b-4e2f-a390-cd170bc13642",
-            "dab9d4d6-7081-4b77-9dc8-39478a082f60"
+            "c9c75d60-28ba-4b0f-b6cd-a9ab2296d480"
           ],
-          "failure": null
+          "failure": "no SERV decision"
         },
         {
           "arm": "graph",
@@ -1275,13 +1274,13 @@
           "pickKey": "2HGFC2F59GH900002",
           "action": "inspect_first",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 10394,
+          "secondPass": "disagreed",
+          "latencyMs": 12367,
           "httpCalls": 1,
-          "tokens": 19729,
+          "tokens": 27503,
           "costUsd": null,
           "runIds": [
-            "608b0d37-38ba-4289-8f62-faef80b09c2b"
+            "9d2b86a1-60ea-42c7-af41-7336171daa04"
           ],
           "failure": null
         },
@@ -1291,15 +1290,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HGFC2F59GH900002",
-          "action": "inspect_first",
+          "action": "pass",
           "confidence": "low",
-          "secondPass": "agreed",
-          "latencyMs": 10295,
+          "secondPass": "disagreed",
+          "latencyMs": 12734,
           "httpCalls": 1,
-          "tokens": 20232,
+          "tokens": 27328,
           "costUsd": null,
           "runIds": [
-            "f9c3c802-74b5-491b-b22a-97a469ec78ed"
+            "4c1eafdd-5b79-4033-99f4-4563ede650ea"
           ],
           "failure": null
         },
@@ -1309,15 +1308,15 @@
           "ok": true,
           "usedGraph": true,
           "pickKey": "2HGFC2F59GH900002",
-          "action": "inspect_first",
+          "action": "negotiate",
           "confidence": "low",
-          "secondPass": "disagreed",
-          "latencyMs": 12529,
+          "secondPass": "agreed",
+          "latencyMs": 9880,
           "httpCalls": 1,
-          "tokens": 19115,
+          "tokens": 16644,
           "costUsd": null,
           "runIds": [
-            "6271aa9f-7925-4f4d-b17e-553b16bb5822"
+            "fa05ddff-f6b3-4bb4-af9e-c808f79b8533"
           ],
           "failure": null
         },
@@ -1326,16 +1325,16 @@
           "repeat": 2,
           "ok": true,
           "usedGraph": true,
-          "pickKey": "2HGFC2F59GH900002",
-          "action": "inspect_first",
+          "pickKey": "1HGCM82633A800001",
+          "action": "buy",
           "confidence": "low",
           "secondPass": "disagreed",
-          "latencyMs": 10198,
+          "latencyMs": 12561,
           "httpCalls": 1,
-          "tokens": 19169,
+          "tokens": 17840,
           "costUsd": null,
           "runIds": [
-            "d80d8d08-9545-4d59-91d2-c01870c4e317"
+            "31ca22f0-989e-470a-8e19-c39c3ebadd82"
           ],
           "failure": null
         }
