@@ -37,6 +37,15 @@ export type DecisionProofStatusInput =
   | "skipped_time_budget"
   | "skipped_no_choice";
 
+/** SERV Graph Sharding run behind a decision (graph id, run id, step trail when returned). */
+export type DecisionProofGraphRun = {
+  graphId: string;
+  /** `x-openserv-request-id` of the graph run; opens the run in the OpenServ console Runs panel. */
+  runId: string | null;
+  /** Steps returned in the response body. Null when the response did not include them. */
+  steps: Array<{ id: string | null; kind: string | null; status: string | null }> | null;
+};
+
 export type DecisionProofClamp = {
   servChoice: string | null;
   finalAction: string | null;
@@ -79,6 +88,8 @@ export type DecisionProofRecord = {
    */
   searchId?: string | null;
   ownerId?: string | null;
+  /** Set when this decision came from a SERV graph run. */
+  graph?: DecisionProofGraphRun | null;
 };
 
 export function normalizeDecisionProofStatus(status: DecisionProofStatusInput): DecisionProofStatus {
@@ -118,6 +129,13 @@ export function isDecisionProofRecord(value: unknown): value is DecisionProofRec
   if (row.rawResponse != null && typeof row.rawResponse !== "string") return false;
   if (row.searchId != null && typeof row.searchId !== "string") return false;
   if (row.ownerId != null && typeof row.ownerId !== "string") return false;
+  if (row.graph != null) {
+    if (typeof row.graph !== "object") return false;
+    const graph = row.graph as Record<string, unknown>;
+    if (typeof graph.graphId !== "string" || !graph.graphId.trim()) return false;
+    if (graph.runId != null && typeof graph.runId !== "string") return false;
+    if (graph.steps != null && !Array.isArray(graph.steps)) return false;
+  }
   if (row.clampResult != null) {
     if (typeof row.clampResult !== "object") return false;
     const clamp = row.clampResult as Record<string, unknown>;
@@ -265,6 +283,11 @@ export function formatDecisionRecordLine(record: DecisionProofRecord): string {
       label,
       record.servResponseId ? `response ${record.servResponseId}` : null,
       record.model ? `model ${record.model}` : null,
+      record.graph
+        ? `graph ${record.graph.graphId}${record.graph.runId ? ` run ${record.graph.runId}` : ""}${
+            record.graph.steps?.length ? ` (${record.graph.steps.length} steps)` : ""
+          }`
+        : null,
       when,
       record.verdict ? `verdict ${record.verdict}` : null,
       changed,

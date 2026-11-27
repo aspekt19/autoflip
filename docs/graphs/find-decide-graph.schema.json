@@ -1,0 +1,457 @@
+{
+  "$comment": "Lemonless Find decide graph contract. input → run `instructions` (JSON string). output → graph final answer. Built from PROFILES.find_decide / find_challenge jsonSchema.",
+  "input": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "facts"
+    ],
+    "properties": {
+      "facts": {
+        "type": "object",
+        "required": [
+          "intent",
+          "shortlist",
+          "shortlistKeys",
+          "allowedEvidenceIds",
+          "codeRankedKey",
+          "guardrailRules"
+        ],
+        "properties": {
+          "intent": {
+            "type": "object",
+            "properties": {
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "budgetUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "yearMin": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "yearMax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "milesMax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "mustHaves": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "priorities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "awdPreference": {
+                "type": "boolean"
+              }
+            }
+          },
+          "shortlist": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "year",
+                "make",
+                "model",
+                "evidenceIds"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "year": {
+                  "type": "number"
+                },
+                "make": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "askUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "miles": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "drivetrain": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "drivetrainConfirmedAwd": {
+                  "type": "boolean"
+                },
+                "drivetrainSource": {
+                  "type": "string",
+                  "enum": [
+                    "listing_or_vpic",
+                    "unknown"
+                  ]
+                },
+                "fuel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bodyStyle": {
+                  "type": "null"
+                },
+                "accidentCount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "accidentCountReported": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "cpo": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "ownerCount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairValueUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairRangeLowUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairRangeHighUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "compCount": {
+                  "type": "number"
+                },
+                "recallsAvailable": {
+                  "type": "boolean"
+                },
+                "openParkIt": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "openParkOutside": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "score": {
+                  "type": "number"
+                },
+                "factors": {
+                  "type": "array"
+                },
+                "freeGov": {
+                  "type": "array"
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "shortlistKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedEvidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "codeRankedKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guardrailRules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "output": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "decide",
+      "challenge"
+    ],
+    "properties": {
+      "decide": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pickKey": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "buy",
+              "negotiate",
+              "inspect_first",
+              "pass"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "confidenceWhy": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "text",
+                "evidenceIds"
+              ]
+            }
+          },
+          "watchOuts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "text",
+                "evidenceIds"
+              ]
+            }
+          },
+          "askSeller": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "whyNot": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "whyNot"
+              ]
+            }
+          },
+          "offerUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "pickKey",
+          "action",
+          "confidence",
+          "confidenceWhy",
+          "reasons",
+          "watchOuts",
+          "askSeller",
+          "alternatives",
+          "offerUsd"
+        ]
+      },
+      "challenge": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agree": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "wrong_pick",
+                    "overconfident",
+                    "missed_risk",
+                    "unsupported_claim"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "text",
+                "evidenceIds"
+              ]
+            }
+          },
+          "revised": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pickKey": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "action": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "buy",
+                      "negotiate",
+                      "inspect_first",
+                      "pass"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confidence": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "pickKey",
+              "action",
+              "confidence"
+            ]
+          }
+        },
+        "required": [
+          "agree",
+          "issues",
+          "revised"
+        ]
+      }
+    }
+  }
+}

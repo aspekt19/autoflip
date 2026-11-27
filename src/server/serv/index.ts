@@ -1,6 +1,7 @@
 export {
   BASE_MODEL,
   DOCUMENTED_FEATURES,
+  GRAPH_CALLS,
   FLIP_SHADOW_HINT,
   PROFILES,
   REPORT_SHADOW_HINT,
@@ -128,3 +129,14 @@ export {
   type ServResponsesTurnBody,
   type ServResponsesTurnResult,
 } from "./agent-chat-turn";
+export {
+  GRAPH_REQUEST_ID_HEADER,
+  extractGraphTrail,
+  findDecideGraphId,
+  isGraphId,
+  runServGraph,
+  type GraphDeps,
+  type GraphRunMeta,
+  type GraphRunResult,
+  type GraphStepTrailItem,
+} from "./graph";

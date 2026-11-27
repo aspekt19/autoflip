@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { BASE_MODEL, DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, modelFor, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
+import { BASE_MODEL, DOCUMENTED_FEATURES, GRAPH_CALLS, PROFILES, featuresUsedBy, modelFor, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
@@ -147,7 +147,7 @@ describe("SERV layer", () => {
     }
   });
 
-  it("uses every documented feature on at least one profile (Graph excluded — hackathon ban)", () => {
+  it("uses every documented feature on at least one profile", () => {
     const used = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
@@ -155,8 +155,10 @@ describe("SERV layer", () => {
     // applicationTool profiles use /v1/responses → responses_reasoning is used.
     expect([...used].sort()).toEqual([...DOCUMENTED_FEATURES].sort());
     expect(used.has("responses_reasoning")).toBe(true);
-    // OpenServ Graph product must not appear (t257/t258). Kronos/Multipath are not Graph.
-    expect(used.has("graph")).toBe(false);
+    // Graph Sharding is a separate call path (GRAPH_CALLS), not a profile feature suffix.
+    for (const call of GRAPH_CALLS) {
+      for (const replaced of call.replaces) expect(Object.keys(PROFILES)).toContain(replaced);
+    }
     const hints = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       const entry = PROFILES[id] as ServProfile;

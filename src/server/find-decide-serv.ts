@@ -48,6 +48,12 @@ import {
   type ServResult,
 } from "@/server/serv";
 import {
+  findDecideGraphId,
+  runServGraph,
+  type GraphRunMeta,
+} from "@/server/serv/graph";
+import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
+import {
   callStep,
   DECIDE_STOP_MESSAGE,
   logRejectedServAnswer,
@@ -133,6 +139,21 @@ function parseDecidePayload(
   }
 }
 
+/**
+ * Graph output contract: `{ decide, challenge }`, each matching the find_decide /
+ * find_challenge JSON schemas. Returns null when the text is not that shape.
+ */
+export function parseFindDecideGraphOutput(
+  text: string | null | undefined,
+): { decide: unknown; challenge: unknown } | null {
+  const payload = tryExtractServJson(text);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const row = payload as Record<string, unknown>;
+  if (!row.decide || typeof row.decide !== "object") return null;
+  if (!row.challenge || typeof row.challenge !== "object") return null;
+  return { decide: row.decide, challenge: row.challenge };
+}
+
 function emptySecondPass(
   objection: string,
   status: AgentSecondPassResult["status"] = "not_run",
@@ -171,6 +192,11 @@ export async function runFindDecideServ(input: {
   timeoutMs?: number;
   /** Time left on the route, including this call. A retry runs only when this covers another full wait. */
   remainingMs?: number;
+  /**
+   * SERV graph id for the decide + challenge graph. `undefined` reads env
+   * SERV_GRAPH_FIND_DECIDE_ID; `null` forces the two-call path (eval baseline).
+   */
+  graphId?: string | null;
 }): Promise<FindDecideServResult> {
   const shortlistKeys = [...input.shortlistKeys];
   const rankedByKey = new Map(
@@ -350,7 +376,106 @@ export async function runFindDecideServ(input: {
     }
   };
 
-  if (servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
+  // Graph Sharding path: one graph run does decide → challenge → keep/revise.
+  // Same fact sheet in, same validators out. Any failure falls back to the two-call path below.
+  const graphId = input.graphId === undefined ? findDecideGraphId() : input.graphId;
+  let graphChallenge: { payload: unknown; meta: GraphRunMeta } | null = null;
+  let graphProof: DecisionProofGraphRun | null = null;
+  if (graphId && servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
+    const graphRun = await runServGraph({
+      graphId,
+      instructions: decideUser,
+      deps: {
+        fetch: input.fetchImpl,
+        apiKey: servKey,
+        baseUrl: input.servBaseUrl,
+        timeoutMs: decideTimeoutMs,
+      },
+    });
+    const proofGraph: DecisionProofGraphRun = {
+      graphId,
+      runId: graphRun.meta.runId,
+      steps: graphRun.meta.steps,
+    };
+    const graphModel = `graph:${graphId}`;
+    const graphResponseId = graphRun.meta.runId ?? graphRun.meta.responseId;
+    const parsedGraph = graphRun.ok ? parseFindDecideGraphOutput(graphRun.text) : null;
+    let graphIssues: FindDecideIssue[] = [];
+    if (!graphRun.ok) {
+      graphIssues = [{ field: "graph", message: graphRun.error }];
+    } else if (!parsedGraph) {
+      graphIssues = [{ field: "graph", message: "the graph answer was not { decide, challenge } JSON" }];
+    } else {
+      const pickRow = rankedByKey.get(
+        typeof (parsedGraph.decide as { pickKey?: unknown })?.pickKey === "string"
+          ? String((parsedGraph.decide as { pickKey: string }).pickKey).trim()
+          : "",
+      ) ?? codePick;
+      const decideChecked = validateFindDecide(parsedGraph.decide, decideValidateCtx(pickRow));
+      const challengeChecked = validateFindChallenge(parsedGraph.challenge, {
+        shortlistKeys,
+        allowedEvidenceIds,
+        shortlist: shortlistMeta,
+      });
+      if (decideChecked.ok && challengeChecked.ok) {
+        decide = decideChecked.decide;
+        source = "SERV";
+        decideModel = graphModel;
+        decideResponseId = providerResponseId(graphResponseId);
+        graphChallenge = { payload: parsedGraph.challenge, meta: graphRun.meta };
+        graphProof = proofGraph;
+        proofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "find_decide",
+            rubricId: VERDICT_RUBRIC_ID,
+            status: "ok",
+            recordedAt,
+            responseId: decideResponseId,
+            model: graphModel,
+            inputs: {
+              shortlistKeys,
+              pickKey: decide.pickKey,
+              dropped: decideChecked.dropped,
+              graph: { graphId, durationMs: graphRun.meta.durationMs },
+            },
+            verdict: decide.action,
+            detail: decide.confidenceWhy,
+            rawResponse: graphRun.text,
+            graph: proofGraph,
+          }),
+        );
+      } else {
+        graphIssues = [
+          ...(decideChecked.ok ? [] : decideChecked.issues),
+          ...(challengeChecked.ok ? [] : challengeChecked.issues),
+        ];
+      }
+    }
+    if (!decide) {
+      const detail = scrubDecideFailureDetail(
+        graphIssues[0]?.message ?? "the graph answer failed validation",
+      );
+      console.error(`[choose_car] graph fell back to two-call path: ${detail}`);
+      proofRecords.push(
+        buildDecisionProofRecord({
+          purpose: "find_decide_graph",
+          rubricId: VERDICT_RUBRIC_ID,
+          status: "failed",
+          recordedAt,
+          responseId: providerResponseId(graphResponseId),
+          model: graphModel,
+          inputs: { shortlistKeys, issues: graphIssues.slice(0, 8) },
+          detail: `Graph answer not used (${detail}); the two-step decision ran instead.`,
+          rawResponse: graphRun.ok ? graphRun.text : null,
+          graph: proofGraph,
+        }),
+      );
+    }
+  }
+
+  if (decide) {
+    // Decided by the graph above.
+  } else if (servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
     const servDeps: ServDeps = {
       fetch: input.fetchImpl,
       apiKey: servKey,
@@ -561,7 +686,10 @@ export async function runFindDecideServ(input: {
   let revisedConfidence: FindDecideConfidence | null = null;
 
   if (servKey && source === "SERV") {
-    const challengeStep = await callStep({
+    const fromGraph = graphChallenge !== null;
+    const challengeStep = graphChallenge
+      ? null
+      : await callStep({
       profileId: "find_challenge",
       critical: false,
       user: JSON.stringify({
@@ -582,12 +710,14 @@ export async function runFindDecideServ(input: {
         timeoutMs: profile("find_challenge").timeoutMs,
       },
     });
-    const challenged = challengeStep.result;
-    if (challengeStep.degraded) {
+    const challenged = challengeStep?.result ?? null;
+    if (challengeStep?.degraded) {
       decide = { ...decide, confidence: "low" };
     }
     let payload: unknown = null;
-    if (challenged.ok && challenged.text?.trim()) {
+    if (graphChallenge) {
+      payload = graphChallenge.payload;
+    } else if (challenged?.ok && challenged.text?.trim()) {
       payload = tryExtractServJson(challenged.text);
     }
     const validated = validateFindChallenge(payload, {
@@ -595,16 +725,20 @@ export async function runFindDecideServ(input: {
       allowedEvidenceIds,
       shortlist: shortlistMeta,
     });
-    const rawResponse =
-      chatCompletionContent(challenged.proof?.openserv) ??
-      (challenged.ok ? challenged.text : null) ??
-      null;
-    const challengeModel =
-      challenged.proof?.modelReported ?? challenged.proof?.modelRequested ?? input.model ?? null;
-    const challengeResponseId = providerResponseIdFromCall({
-      ok: challenged.ok && validated.ok,
-      id: typeof challenged.proof?.openserv?.id === "string" ? challenged.proof.openserv.id : null,
-    });
+    const rawResponse = fromGraph
+      ? JSON.stringify(payload)
+      : (challenged
+          ? chatCompletionContent(challenged.proof?.openserv) ?? (challenged.ok ? challenged.text : null)
+          : null) ?? null;
+    const challengeModel = fromGraph
+      ? decideModel
+      : challenged?.proof?.modelReported ?? challenged?.proof?.modelRequested ?? input.model ?? null;
+    const challengeResponseId = fromGraph
+      ? decideResponseId
+      : providerResponseIdFromCall({
+          ok: Boolean(challenged?.ok) && validated.ok,
+          id: typeof challenged?.proof?.openserv?.id === "string" ? challenged.proof.openserv.id : null,
+        });
     if (validated.ok) {
       decide = applyFindChallengeRevision(decide, validated.challenge);
       challengeAgree = validated.challenge.agree;
@@ -634,6 +768,7 @@ export async function runFindDecideServ(input: {
           verdict: decide.action,
           detail: secondPass.objection ?? "",
           rawResponse,
+          graph: fromGraph ? graphProof : null,
         }),
       );
     } else {
@@ -650,6 +785,7 @@ export async function runFindDecideServ(input: {
           inputs: { issues: validated.ok === false ? validated.issues : [] },
           detail: SECOND_CHECK_MISSED,
           rawResponse,
+          graph: fromGraph ? graphProof : null,
         }),
       );
     }

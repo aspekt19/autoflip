@@ -148,6 +148,14 @@ For agentic Find and Resale, Lemonless uses SERV's Responses function tools. Eac
 
 The Chat Completions path is used for profile-driven structured decisions and as a schema-only next-action path. Function tools are not attached to that fallback path for the production agent model. The transport rules are implemented in `agent-chat-turn.ts`, `agent-tool-loop-protocol.ts`, and the product loops.
 
+### SERV Graph Sharding (beta)
+
+The Find decide step can also run as one SERV graph instead of two calls. The graph is generated in the OpenServ console from `docs/graphs/find-decide-graph-prompt.md`: a decision step picks buy, negotiate, inspect first, or pass from the code-computed fact sheet, an agent step challenges it, and a second decision step keeps or revises it. The app calls the graph with its `gr_` id as the model on `/v1/responses` (`src/server/serv/graph.ts`), with the same fact sheet in `instructions` and no feature suffix.
+
+The graph does no arithmetic. Its answer must pass the same `validateFindDecide` and `validateFindChallenge` checks as the two-call path, and the guardrail caps are applied in code afterwards. If the graph errors, pauses for a tool, or returns an answer that fails validation, the two-call path runs and the proof journal records why (`find_decide_graph`, status failed). Accepted decisions carry the graph id and the `x-openserv-request-id` run id, which opens the step-by-step run in the console.
+
+The path is off until `SERV_GRAPH_FIND_DECIDE_ID` is set. The production Find chat uses the agent loop, which does not call this step today; the graph currently serves the classic decide path and the evaluation below.
+
 ### Production boundary
 
 The product calls SERV through the dedicated HTTP transport layer in `src/server/serv/`. The OpenServ SDK is a development dependency for tooling; it is not part of the production dependency tree or the deployed Next.js server bundle. CI checks both the production dependency graph and the built `.next/server` output for this boundary.
@@ -334,11 +342,13 @@ npm run eval:serv
 npm run eval:trace
 npm run eval:verdict
 npm run eval:comparison
+npm run eval:graph-vs-baseline
 ~~~
 
 - `eval:serv` runs the profile evaluation against SERV and requires `SERV_API_KEY`.
 - `eval:trace` runs a fixed SERV fixture and writes a redacted Proof of AI trace; it requires `SERV_API_KEY`.
 - `eval:verdict` measures the verdict decision fixture set against the SERV profile; it requires `SERV_API_KEY`.
+- `eval:graph-vs-baseline` runs the frozen Find cases through the two-call decide path and the SERV graph, and reports validator pass rate, decision agreement, repeat consistency, latency and provider-returned usage. It is a dry run by default; `--live` needs `EVAL_GRAPH_ALLOW_PAID=1`, `SERV_API_KEY` and `SERV_GRAPH_FIND_DECIDE_ID`.
 - `eval:comparison` runs the configured comparison harness. Review its safety and provider gates before enabling live runs.
 
 The committed evaluation artifacts are in `eval/results/`. A missing API key is never treated as a measured success.
@@ -353,6 +363,7 @@ See [.env.example](.env.example) for the complete list. Important variables:
 | `SERV_BASE_URL` | SERV API base URL; defaults to `https://inference-api.openserv.ai/v1`. |
 | `SERV_MODEL` | Optional base model override; production default is `gpt-6.1-sol`. |
 | `SERV_PROFILE_MODEL_<PROFILE>` | Optional profile-level model override; model allowlisting is enforced. |
+| `SERV_GRAPH_FIND_DECIDE_ID` | Optional SERV graph id (`gr_…`) for the Find decide + challenge graph. Unset keeps the two-call path. |
 | `AUTODEV_API_KEY` | Auto.dev inventory access. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Shared persistent state for deployed sessions, quotas, credits, watches, and checkpoints. |
 | `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js and Google sign-in. |
