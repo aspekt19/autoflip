@@ -155,6 +155,16 @@ describe("Find loop second check via SERV graph", () => {
     expect(out.timeoutMs).toBe(FIND_GRAPH_CHECK_MAX_MS);
   });
 
+  it("reads the v2 compact text reply", async () => {
+    const mapped = loopResult();
+    const { fetchImpl } = graphFetch({
+      output_text: `Pick: ${A}\nAction: negotiate\nConfidence: high\nReview: kept\nFewer miles than the Camry (car:${A}, car:${B}).`,
+    });
+    const out = await check(mapped, fetchImpl);
+    expect(out.secondPass.status).toBe("agreed");
+    expect(out.graphFinal).toEqual({ pickKey: A, action: "negotiate", confidence: "high" });
+  });
+
   it("records a disagreement but keeps the loop's pick", async () => {
     const mapped = loopResult("buy");
     const challenge = {

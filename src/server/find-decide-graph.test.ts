@@ -139,9 +139,25 @@ describe("Find decide via SERV graph", () => {
     expect(models.some((m) => m.startsWith("gr_"))).toBe(false);
   });
 
-  it("parses only the { decide, challenge } shape", () => {
+  it("reads the legacy object, a compact decide object and rejects prose", () => {
     expect(parseFindDecideGraphOutput(JSON.stringify({ decide, challenge }))).not.toBeNull();
-    expect(parseFindDecideGraphOutput(JSON.stringify(decide))).toBeNull();
+    expect(parseFindDecideGraphOutput(JSON.stringify(decide))).not.toBeNull();
     expect(parseFindDecideGraphOutput("not json")).toBeNull();
+  });
+
+  it("accepts the v2 compact text reply", async () => {
+    const { fetchImpl, models } = makeFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            output_text: `Pick: ${A}\nAction: inspect_first\nConfidence: medium\nReview: kept\nFewer miles and no reported accident (car:${A}, car:${B}).`,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json", "x-openserv-request-id": "run_v2" } },
+        ),
+    );
+    const out = await run(fetchImpl, "gr_finddecide");
+    expect(models).toEqual(["gr_finddecide"]);
+    expect(out.decide.pickKey).toBe(A);
+    expect(out.proofRecords.find((row) => row.purpose === "find_decide")?.graph?.runId).toBe("run_v2");
   });
 });

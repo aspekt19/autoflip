@@ -139,20 +139,8 @@ function parseDecidePayload(
   }
 }
 
-/**
- * Graph output contract: `{ decide, challenge }`, each matching the find_decide /
- * find_challenge JSON schemas. Returns null when the text is not that shape.
- */
-export function parseFindDecideGraphOutput(
-  text: string | null | undefined,
-): { decide: unknown; challenge: unknown } | null {
-  const payload = tryExtractServJson(text);
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const row = payload as Record<string, unknown>;
-  if (!row.decide || typeof row.decide !== "object") return null;
-  if (!row.challenge || typeof row.challenge !== "object") return null;
-  return { decide: row.decide, challenge: row.challenge };
-}
+export { parseFindDecideGraphOutput } from "@/domain/find-decide-graph-output";
+import { parseFindDecideGraphOutput } from "@/domain/find-decide-graph-output";
 
 function emptySecondPass(
   objection: string,
