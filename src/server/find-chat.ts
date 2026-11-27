@@ -20,6 +20,7 @@ import {
   summarizeFindAgentJournal,
   type FindAgentLoopResult,
 } from "@/server/find-agent/loop";
+import { runFindGraphSecondCheck } from "@/server/find-graph-second-check";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import {
   findSearchIdempotencyKey,
@@ -101,6 +102,9 @@ function progressFromJournal(agent: FindAgentLoopResult): string[] {
   return lines.slice(-6);
 }
 
+/** Find chat route maxDuration is 300s; keep 15s headroom for the session write. */
+const FIND_CHAT_ROUTE_CAP_MS = 285_000;
+
 function needFromChat(
   transcript: string,
   facts: { budgetUsd: number | null; zip: string | null; radiusMi: number | null },
@@ -132,7 +136,10 @@ export async function runFindChatTurn(input: {
   autodevKey: string;
   servBaseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** SERV graph id for the second check. `undefined` reads SERV_GRAPH_FIND_DECIDE_ID; `null` turns it off. */
+  graphId?: string | null;
 }): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const turnStartedAtMs = Date.now();
   const fetchImpl = input.fetchImpl ?? fetch;
   let session: FindChatSession | null =
     input.sessionId && input.sessionId.trim()
@@ -471,8 +478,27 @@ export async function runFindChatTurn(input: {
     };
   }
 
-  const mapped = mapFindAgentLoopToDecide({ agent });
+  const mappedLoop = mapFindAgentLoopToDecide({ agent });
   const need = needFromChat(transcript, agent.shopperFacts);
+  // Optional SERV graph second check (SERV_GRAPH_FIND_DECIDE_ID). Off → unchanged result.
+  // Not charged: the delivered Find result already carries its one credit (see find-graph-second-check).
+  const graphCheck = await runFindGraphSecondCheck({
+    need,
+    bestDeal: mappedLoop.bestDeal,
+    agentVerdict: mappedLoop.agentVerdict,
+    shortlistKeys: mappedLoop.shortlistKeys,
+    marketPool: mappedLoop.offerPool,
+    servKey: input.servKey,
+    servBaseUrl: input.servBaseUrl,
+    fetchImpl,
+    remainingRouteMs: FIND_CHAT_ROUTE_CAP_MS - (Date.now() - turnStartedAtMs),
+    graphId: input.graphId,
+  });
+  const mapped = {
+    ...mappedLoop,
+    bestDeal: graphCheck.bestDeal,
+    agentVerdict: graphCheck.agentVerdict,
+  };
   const journalMeta = summarizeFindAgentJournal(agent.journal);
   const chosenVin = mapped.bestDeal.pick?.vin ?? null;
   const nothingFits = !chosenVin && Boolean(agent.verdict.passReason?.trim());
@@ -595,6 +621,8 @@ export async function runFindChatTurn(input: {
     need,
     bestDeal: mapped.bestDeal,
     pickAgentVerdict: mapped.agentVerdict,
+    pickSecondPass: graphCheck.secondPass,
+    pickProofRecords: graphCheck.proofRecords,
     offerPool: mapped.offerPool,
     shortlistKeys: mapped.shortlistKeys,
     sourcesCheckedByVin: mapped.sourcesCheckedByVin,

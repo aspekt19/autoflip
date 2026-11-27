@@ -48,6 +48,21 @@ export const DOCUMENTED_FEATURES = [
 
 export type DocumentedFeature = (typeof DOCUMENTED_FEATURES)[number];
 
+/**
+ * SERV Graph Sharding calls. A graph is not a profile feature: it is called with its
+ * `gr_` id as the model on /v1/responses (see ./graph.ts). Each entry names the env var
+ * that turns it on and the profiles it stands in for. When the env var is unset or the
+ * graph answer fails validation, those profiles run exactly as before.
+ */
+export const GRAPH_CALLS = [
+  {
+    id: "find_decide_graph",
+    env: "SERV_GRAPH_FIND_DECIDE_ID",
+    replaces: ["find_decide", "find_challenge"],
+    promptDoc: "docs/graphs/find-decide-graph-prompt.md",
+  },
+] as const;
+
 export type ServProfile = {
   id: string;
   purpose: string;

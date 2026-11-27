@@ -148,6 +148,18 @@ For agentic Find and Resale, Lemonless uses SERV's Responses function tools. Eac
 
 The Chat Completions path is used for profile-driven structured decisions and as a schema-only next-action path. Function tools are not attached to that fallback path for the production agent model. The transport rules are implemented in `agent-chat-turn.ts`, `agent-tool-loop-protocol.ts`, and the product loops.
 
+### SERV Graph Sharding (beta)
+
+The Find decide step can also run as one SERV graph instead of two calls. The graph is generated in the OpenServ console from the short system prompt in `docs/graphs/find-decide-graph-prompt.txt`: it picks a car from the code-computed fact sheet, chooses buy, negotiate, inspect first, or pass with a confidence, challenges its own choice, and keeps or revises it. The console decides the steps. The app calls the graph with its `gr_` id as the model on `/v1/responses` (`src/server/serv/graph.ts`), with the same fact sheet in `instructions` and no feature suffix. The graph answers in four labelled lines plus a short reason with evidence ids (or JSON with the same fields), and `src/domain/find-decide-graph-output.ts` maps that onto the decide and challenge shapes.
+
+The graph does no arithmetic. Its answer must pass the same `validateFindDecide` and `validateFindChallenge` checks as the two-call path, and the guardrail caps are applied in code afterwards. If the graph errors, pauses for a tool, or returns an answer that fails validation, the two-call path runs and the proof journal records why (`find_decide_graph`, status failed). Accepted decisions carry the graph id and the `x-openserv-request-id` run id, which opens the step-by-step run in the console.
+
+In production the same graph is the second check after the agentic Find loop (`src/server/find-graph-second-check.ts`, used by the Find chat and `/api/find/decide`). The loop chooses first. The graph then decides again from the code-computed fact sheet of the loop's shortlist and challenges itself, and code compares its final answer with the loop's pick: the result records the second check as agreed or disagreed, the published pick and action stay the loop's, and the published confidence is never higher than the graph's. The decision journal adds a `find_graph_check` record with the graph id, the run id and the step trail when the provider returns it, and the run's SERV steps gain a line with the same run id.
+
+The graph run gets at most 90 seconds, the same budget as the `find_decide` and `find_challenge` calls it stands in for, and never runs into the last 15 seconds of the 300-second route. With less than 20 seconds left it is skipped. A skipped, failed, timed-out or invalid run leaves the result as before ("Second check not run", with the reason) and never blocks the answer. The second check does not cost the user an extra search credit; the delivered result keeps its one credit.
+
+The path is off until `SERV_GRAPH_FIND_DECIDE_ID` is set. The first live run of the graph is written up in `docs/graphs/graph-eval-2026-11-27.md`: the reply format works, but most runs failed early with HTTP 502, so production keeps the flag off for now.
+
 ### Production boundary
 
 The product calls SERV through the dedicated HTTP transport layer in `src/server/serv/`. The OpenServ SDK is a development dependency for tooling; it is not part of the production dependency tree or the deployed Next.js server bundle. CI checks both the production dependency graph and the built `.next/server` output for this boundary.
@@ -334,11 +346,13 @@ npm run eval:serv
 npm run eval:trace
 npm run eval:verdict
 npm run eval:comparison
+npm run eval:graph-vs-baseline
 ~~~
 
 - `eval:serv` runs the profile evaluation against SERV and requires `SERV_API_KEY`.
 - `eval:trace` runs a fixed SERV fixture and writes a redacted Proof of AI trace; it requires `SERV_API_KEY`.
 - `eval:verdict` measures the verdict decision fixture set against the SERV profile; it requires `SERV_API_KEY`.
+- `eval:graph-vs-baseline` runs the frozen Find cases through the two-call decide path, the SERV graph, and the production second check after the agent loop (`loop_second_check`, with a frozen stand-in for the loop's pick), and reports validator pass rate, decision agreement, repeat consistency, latency and provider-returned usage. It is a dry run by default; `--live` needs `EVAL_GRAPH_ALLOW_PAID=1`, `SERV_API_KEY` and `SERV_GRAPH_FIND_DECIDE_ID`.
 - `eval:comparison` runs the configured comparison harness. Review its safety and provider gates before enabling live runs.
 
 The committed evaluation artifacts are in `eval/results/`. A missing API key is never treated as a measured success.
@@ -353,6 +367,7 @@ See [.env.example](.env.example) for the complete list. Important variables:
 | `SERV_BASE_URL` | SERV API base URL; defaults to `https://inference-api.openserv.ai/v1`. |
 | `SERV_MODEL` | Optional base model override; production default is `gpt-6.1-sol`. |
 | `SERV_PROFILE_MODEL_<PROFILE>` | Optional profile-level model override; model allowlisting is enforced. |
+| `SERV_GRAPH_FIND_DECIDE_ID` | Optional SERV graph id (`gr_…`) for the Find decide + challenge graph and the second check after the Find agent loop. Unset keeps the two-call path and no second check. |
 | `AUTODEV_API_KEY` | Auto.dev inventory access. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Shared persistent state for deployed sessions, quotas, credits, watches, and checkpoints. |
 | `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js and Google sign-in. |

@@ -1,0 +1,290 @@
+{
+  "schemaVersion": "lemonless.graph_vs_baseline.v2",
+  "arms": [
+    "two_call",
+    "graph",
+    "loop_second_check"
+  ],
+  "generatedAt": "2026-11-27T19:32:19.859Z",
+  "dryRun": false,
+  "graphId": "gr_3d039bd8de63381a",
+  "fixture": "eval/comparison/fixtures/find-cases.json",
+  "repeats": 1,
+  "summary": {
+    "two_call": {
+      "attempts": 3,
+      "validatorPassRate": 1,
+      "repeatConsistency": 1,
+      "latencyP50Ms": 18144,
+      "latencyP95Ms": 18697,
+      "httpCalls": 6,
+      "tokens": 22515,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": null,
+      "secondCheckDisagreed": null
+    },
+    "graph": {
+      "attempts": 3,
+      "validatorPassRate": 0,
+      "repeatConsistency": null,
+      "latencyP50Ms": 21853,
+      "latencyP95Ms": 23369,
+      "httpCalls": 9,
+      "tokens": 22472,
+      "costUsd": null,
+      "graphFallbacks": 3,
+      "secondCheckAgreed": null,
+      "secondCheckDisagreed": null
+    },
+    "loop_second_check": {
+      "attempts": 3,
+      "validatorPassRate": 0,
+      "repeatConsistency": null,
+      "latencyP50Ms": 5592,
+      "latencyP95Ms": 5795,
+      "httpCalls": 3,
+      "tokens": null,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": 0,
+      "secondCheckDisagreed": 0
+    },
+    "decisionAgreement": null
+  },
+  "notes": [
+    "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
+    "Token and cost fields are copied from provider responses only; null means not returned.",
+    "Graph-arm attempts that fell back to the two-call path count as validator failures for the graph.",
+    "loop_second_check runs the prod second-check module; the loop pick is a frozen stand-in (code's top-ranked car)."
+  ],
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HKRM4H75FH123456",
+        "KM8J3CA46HU123456",
+        "KNDPBCAC6G7123456",
+        "5J6RM4H37EL123456"
+      ],
+      "loopPick": "2HKRM4H75FH123456|negotiate",
+      "modal": {
+        "two_call": "2HKRM4H75FH123456|negotiate",
+        "graph": null,
+        "loop_second_check": null
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18144,
+          "httpCalls": 2,
+          "tokens": 7833,
+          "costUsd": null,
+          "runIds": [
+            "b5b0f143-cb82-4a40-84c5-1bbcb934cef7",
+            "6f2035d9-8613-4fd1-922e-6825149086f7"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": false,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 21853,
+          "httpCalls": 3,
+          "tokens": 7749,
+          "costUsd": null,
+          "runIds": [
+            "647aa91e-be0e-47aa-a2a9-d696391e11d4",
+            "89c0e853-bcb3-4fd3-b52a-6a50df30eb5e",
+            "301ae4d4-3a2d-4fb3-b169-c900dc37716c"
+          ],
+          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": true,
+          "pickKey": null,
+          "action": null,
+          "confidence": null,
+          "secondPass": "not_run",
+          "latencyMs": 5172,
+          "httpCalls": 1,
+          "tokens": null,
+          "costUsd": null,
+          "runIds": [
+            "41e9fe3a-93f1-43fb-98c6-3668f07ff63b"
+          ],
+          "failure": "Second check not run: the graph check did not answer."
+        }
+      ]
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1BF1FK5EU100001",
+        "1HGCR2F30EA200002",
+        "1N4AL3AP3EC400004",
+        "4T1BF1FK8EU300003"
+      ],
+      "loopPick": "4T1BF1FK5EU100001|negotiate",
+      "modal": {
+        "two_call": "4T1BF1FK5EU100001|inspect_first",
+        "graph": null,
+        "loop_second_check": null
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 18697,
+          "httpCalls": 2,
+          "tokens": 7923,
+          "costUsd": null,
+          "runIds": [
+            "0e11fadb-aab2-4aa7-8419-6e7e7897326d",
+            "416294b9-c74e-4045-ad5b-7bd7228dec65"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": false,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 23369,
+          "httpCalls": 3,
+          "tokens": 7993,
+          "costUsd": null,
+          "runIds": [
+            "090ffa57-2c11-4ecc-afdb-bf8d72c11244",
+            "31a6a33a-76a2-403e-8a64-d799231bb103",
+            "ff114ca2-2341-4ed8-aad8-065a8f087d28"
+          ],
+          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": true,
+          "pickKey": null,
+          "action": null,
+          "confidence": null,
+          "secondPass": "not_run",
+          "latencyMs": 5592,
+          "httpCalls": 1,
+          "tokens": null,
+          "costUsd": null,
+          "runIds": [
+            "debf37fc-bcc4-4add-8570-688bea99493f"
+          ],
+          "failure": "Second check not run: the graph check did not answer."
+        }
+      ]
+    },
+    {
+      "caseId": "find-teen-first-car-8k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2T1BU4EE5DC500001",
+        "1HGCP2F37CA600002",
+        "KNAGM4A75D5700003"
+      ],
+      "loopPick": "2T1BU4EE5DC500001|negotiate",
+      "modal": {
+        "two_call": "2T1BU4EE5DC500001|inspect_first",
+        "graph": null,
+        "loop_second_check": null
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "two_call",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": false,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 16844,
+          "httpCalls": 2,
+          "tokens": 6759,
+          "costUsd": null,
+          "runIds": [
+            "c19552f8-9a23-483c-a896-6ddf2e0cd0e2",
+            "f80afd09-8ad1-48b2-a4c8-b3b2045bedcf"
+          ],
+          "failure": null
+        },
+        {
+          "arm": "graph",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": false,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 21826,
+          "httpCalls": 3,
+          "tokens": 6730,
+          "costUsd": null,
+          "runIds": [
+            "7504793c-97cc-4e02-81f8-b679188ac1c3",
+            "613a959b-fcb1-45d6-bc9d-50819846bf6a",
+            "9deae3a9-44ba-44e1-b5f9-ee5ca2267789"
+          ],
+          "failure": "Graph answer not used (server_error: Graph run failed. Please retry.); the two-step decision ran instead."
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": false,
+          "usedGraph": true,
+          "pickKey": null,
+          "action": null,
+          "confidence": null,
+          "secondPass": "not_run",
+          "latencyMs": 5795,
+          "httpCalls": 1,
+          "tokens": null,
+          "costUsd": null,
+          "runIds": [
+            "33b34cca-836a-4f52-b063-0ee0e2a17d5f"
+          ],
+          "failure": "Second check not run: the graph check did not answer."
+        }
+      ]
+    }
+  ]
+}

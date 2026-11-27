@@ -20,6 +20,7 @@ import {
   isDecisionProofRecord,
   normalizeDecisionProofStatus,
   type DecisionProofClamp,
+  type DecisionProofGraphRun,
   type DecisionProofRecord,
   type DecisionProofStatusInput,
 } from "./decision-proof-view";
@@ -36,6 +37,7 @@ export {
   isDecisionProofRecord,
   normalizeDecisionProofStatus,
   type DecisionProofClamp,
+  type DecisionProofGraphRun,
   type DecisionProofRecord,
   type DecisionProofStatus,
   type DecisionProofStatusInput,
@@ -68,6 +70,7 @@ export function buildDecisionProofRecord(input: {
   rawResponse?: string | null;
   searchId?: string | null;
   ownerId?: string | null;
+  graph?: DecisionProofGraphRun | null;
 }): DecisionProofRecord {
   const status = normalizeDecisionProofStatus(input.status);
   const rawId = input.servResponseId ?? input.responseId ?? null;
@@ -93,6 +96,7 @@ export function buildDecisionProofRecord(input: {
     rawResponse: raw,
     searchId: input.searchId?.trim() || null,
     ownerId: input.ownerId?.trim() || null,
+    ...(input.graph ? { graph: input.graph } : {}),
   };
 }
 

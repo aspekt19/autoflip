@@ -37,6 +37,15 @@ export type DecisionProofStatusInput =
   | "skipped_time_budget"
   | "skipped_no_choice";
 
+/** SERV Graph Sharding run behind a decision (graph id, run id, step trail when returned). */
+export type DecisionProofGraphRun = {
+  graphId: string;
+  /** `x-openserv-request-id` of the graph run; opens the run in the OpenServ console Runs panel. */
+  runId: string | null;
+  /** Steps returned in the response body. Null when the response did not include them. */
+  steps: Array<{ id: string | null; kind: string | null; status: string | null }> | null;
+};
+
 export type DecisionProofClamp = {
   servChoice: string | null;
   finalAction: string | null;
@@ -79,6 +88,8 @@ export type DecisionProofRecord = {
    */
   searchId?: string | null;
   ownerId?: string | null;
+  /** Set when this decision came from a SERV graph run. */
+  graph?: DecisionProofGraphRun | null;
 };
 
 export function normalizeDecisionProofStatus(status: DecisionProofStatusInput): DecisionProofStatus {
@@ -118,6 +129,13 @@ export function isDecisionProofRecord(value: unknown): value is DecisionProofRec
   if (row.rawResponse != null && typeof row.rawResponse !== "string") return false;
   if (row.searchId != null && typeof row.searchId !== "string") return false;
   if (row.ownerId != null && typeof row.ownerId !== "string") return false;
+  if (row.graph != null) {
+    if (typeof row.graph !== "object") return false;
+    const graph = row.graph as Record<string, unknown>;
+    if (typeof graph.graphId !== "string" || !graph.graphId.trim()) return false;
+    if (graph.runId != null && typeof graph.runId !== "string") return false;
+    if (graph.steps != null && !Array.isArray(graph.steps)) return false;
+  }
   if (row.clampResult != null) {
     if (typeof row.clampResult !== "object") return false;
     const clamp = row.clampResult as Record<string, unknown>;
@@ -154,6 +172,10 @@ export function decisionPurposeLabel(purpose: string): string {
       return "SERV agent decision";
     case "find_challenge":
       return "Second check";
+    case "find_graph_check":
+      return "Second check (graph)";
+    case "find_decide_graph":
+      return "SERV graph decision";
     case "resale_plan_search":
       return "Resale search plan";
     case "resale_triage":
@@ -214,6 +236,14 @@ export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): s
       if (verdict && /agree|confirm|same/i.test(verdict)) return "Second AI check agreed.";
       if (verdict) return `Second AI check: ${verdict}.`;
       return "A second AI check reviewed the first decision.";
+    case "find_graph_check":
+      if (failed) return "The second AI check did not finish.";
+      if (verdict === "agreed") return "Second AI check agreed.";
+      return verdict ? "Second AI check disagreed with the pick." : "A second AI check reviewed the pick.";
+    case "find_decide_graph":
+      return failed
+        ? "The step-by-step AI decision did not finish; the two-step decision ran instead."
+        : "Our AI decided step by step.";
     case "verdict_decide":
       if (failed) return "The first AI decision did not finish.";
       return verdict
@@ -265,6 +295,11 @@ export function formatDecisionRecordLine(record: DecisionProofRecord): string {
       label,
       record.servResponseId ? `response ${record.servResponseId}` : null,
       record.model ? `model ${record.model}` : null,
+      record.graph
+        ? `graph ${record.graph.graphId}${record.graph.runId ? ` run ${record.graph.runId}` : ""}${
+            record.graph.steps?.length ? ` (${record.graph.steps.length} steps)` : ""
+          }`
+        : null,
       when,
       record.verdict ? `verdict ${record.verdict}` : null,
       changed,

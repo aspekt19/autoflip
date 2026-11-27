@@ -26,6 +26,8 @@ import {
 } from "@/server/find-agent/loop";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
+import { runFindGraphSecondCheck } from "@/server/find-graph-second-check";
+import { findDecideGraphId } from "@/server/serv/graph";
 import {
   loadFindSearchContext,
   marketPoolFromListingFacts,
@@ -322,7 +324,26 @@ export async function runFindDecideOrchestrator(
       };
     }
     if (agent.ok) {
-      const mapped = mapFindAgentLoopToDecide({ agent });
+      const mappedLoop = mapFindAgentLoopToDecide({ agent });
+      // Optional SERV graph second check (SERV_GRAPH_FIND_DECIDE_ID). Off → unchanged result.
+      const graphCheck = await runFindGraphSecondCheck({
+        need: record.need,
+        bestDeal: mappedLoop.bestDeal,
+        agentVerdict: mappedLoop.agentVerdict,
+        shortlistKeys: mappedLoop.shortlistKeys,
+        marketPool: mappedLoop.offerPool.length > 0 ? mappedLoop.offerPool : marketPool,
+        receipts,
+        servKey: deps.servKey,
+        servBaseUrl: deps.servBaseUrl,
+        fetchImpl: deps.fetchImpl,
+        remainingRouteMs: remainingMs(),
+        graphId: findDecideGraphId(env),
+      });
+      const mapped = {
+        ...mappedLoop,
+        bestDeal: graphCheck.bestDeal,
+        agentVerdict: graphCheck.agentVerdict,
+      };
       record = await updateFindSearchContext(deps.kv, record, {
         loopSettled: true,
         triageShortlistKeys: mapped.shortlistKeys,
@@ -352,6 +373,7 @@ export async function runFindDecideOrchestrator(
           },
           verdict: mapped.agentVerdict.verdict,
         }),
+        ...graphCheck.proofRecords,
       ];
       return {
         ok: true,

@@ -1,0 +1,289 @@
+{
+  "$comment": "Lemonless Find decide graph contract (v2). input \u2192 run `instructions` (JSON string; the console maps it onto the graph's own input schema when it differs). output \u2192 the graph's final reply: four labelled lines (Pick / Action / Confidence / Review) and a short reason with evidence ids, or JSON with equivalent fields. Code maps it onto the find_decide / find_challenge shapes (src/domain/find-decide-graph-output.ts) and validates it.",
+  "input": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "facts"
+    ],
+    "properties": {
+      "facts": {
+        "type": "object",
+        "required": [
+          "intent",
+          "shortlist",
+          "shortlistKeys",
+          "allowedEvidenceIds",
+          "codeRankedKey",
+          "guardrailRules"
+        ],
+        "properties": {
+          "intent": {
+            "type": "object",
+            "properties": {
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "budgetUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "yearMin": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "yearMax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "milesMax": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "mustHaves": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "priorities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "awdPreference": {
+                "type": "boolean"
+              }
+            }
+          },
+          "shortlist": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "year",
+                "make",
+                "model",
+                "evidenceIds"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "year": {
+                  "type": "number"
+                },
+                "make": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "askUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "miles": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "drivetrain": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "drivetrainConfirmedAwd": {
+                  "type": "boolean"
+                },
+                "drivetrainSource": {
+                  "type": "string",
+                  "enum": [
+                    "listing_or_vpic",
+                    "unknown"
+                  ]
+                },
+                "fuel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bodyStyle": {
+                  "type": "null"
+                },
+                "accidentCount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "accidentCountReported": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "cpo": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "ownerCount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairValueUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairRangeLowUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "fairRangeHighUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "compCount": {
+                  "type": "number"
+                },
+                "recallsAvailable": {
+                  "type": "boolean"
+                },
+                "openParkIt": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "openParkOutside": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "score": {
+                  "type": "number"
+                },
+                "factors": {
+                  "type": "array"
+                },
+                "freeGov": {
+                  "type": "array"
+                },
+                "evidenceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "shortlistKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedEvidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "codeRankedKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guardrailRules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "output": {
+    "type": "object",
+    "description": "Compact reply, read by parseFindDecideGraphOutput. Text form: 'Pick: <key>\\nAction: <action>\\nConfidence: <confidence>\\nReview: kept|revised \u2014 note\\n<reason + evidence ids>'.",
+    "required": [
+      "pick",
+      "action",
+      "confidence"
+    ],
+    "properties": {
+      "pick": {
+        "type": "string",
+        "description": "A key from shortlistKeys."
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "buy",
+          "negotiate",
+          "inspect_first",
+          "pass"
+        ]
+      },
+      "confidence": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ]
+      },
+      "review": {
+        "type": "string",
+        "enum": [
+          "kept",
+          "revised"
+        ]
+      },
+      "reason": {
+        "type": "string"
+      },
+      "risk": {
+        "type": "string"
+      },
+      "evidenceIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
