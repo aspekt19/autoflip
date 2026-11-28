@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "lemonless.graph_vs_baseline.v3",
+  "arms": [
+    "loop_second_check",
+    "graph_primary"
+  ],
+  "generatedAt": "2026-11-28T04:24:20.067Z",
+  "dryRun": true,
+  "partial": false,
+  "graphId": null,
+  "fixture": "eval/comparison/fixtures/find-cases.json",
+  "repeats": 1,
+  "summary": {
+    "loop_second_check": {
+      "attempts": 0,
+      "validatorPassRate": null,
+      "repeatConsistency": null,
+      "latencyP50Ms": null,
+      "latencyP95Ms": null,
+      "httpCalls": 0,
+      "tokens": null,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": 0,
+      "secondCheckDisagreed": 0,
+      "graphDecided": null,
+      "fallbacks": null,
+      "actionCounts": {
+        "buy": 0,
+        "negotiate": 0,
+        "inspect_first": 0,
+        "pass": 0
+      }
+    },
+    "graph_primary": {
+      "attempts": 0,
+      "validatorPassRate": null,
+      "repeatConsistency": null,
+      "latencyP50Ms": null,
+      "latencyP95Ms": null,
+      "httpCalls": 0,
+      "tokens": null,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": null,
+      "secondCheckDisagreed": null,
+      "graphDecided": 0,
+      "fallbacks": 0,
+      "actionCounts": {
+        "buy": 0,
+        "negotiate": 0,
+        "inspect_first": 0,
+        "pass": 0
+      }
+    },
+    "decisionAgreement": null,
+    "graphPrimaryVsLoopStandIn": null
+  },
+  "notes": [
+    "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
+    "Token and cost fields are copied from provider responses only; null means not returned.",
+    "Graph-arm attempts that fell back to the two-call path count as validator failures for the graph.",
+    "loop_second_check is the previous production path (loop pick published, graph as second check).",
+    "graph_primary is the new production path (graph publishes the pick; loop pick is fallback).",
+    "The loop pick is a frozen stand-in (code's top-ranked car, negotiate, high)."
+  ],
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HKRM4H75FH123456",
+        "KM8J3CA46HU123456",
+        "KNDPBCAC6G7123456",
+        "5J6RM4H37EL123456"
+      ],
+      "loopPick": "2HKRM4H75FH123456|negotiate",
+      "plannedCalls": {
+        "two_call": 0,
+        "graph": 0,
+        "loop_second_check": 1,
+        "graph_primary": 1
+      },
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": null,
+        "graph_primary": null
+      },
+      "agree": null,
+      "attempts": []
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1BF1FK5EU100001",
+        "1HGCR2F30EA200002",
+        "1N4AL3AP3EC400004",
+        "4T1BF1FK8EU300003"
+      ],
+      "loopPick": "4T1BF1FK5EU100001|negotiate",
+      "plannedCalls": {
+        "two_call": 0,
+        "graph": 0,
+        "loop_second_check": 1,
+        "graph_primary": 1
+      },
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": null,
+        "graph_primary": null
+      },
+      "agree": null,
+      "attempts": []
+    }
+  ]
+}

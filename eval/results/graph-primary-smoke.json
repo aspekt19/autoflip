@@ -1,0 +1,257 @@
+{
+  "schemaVersion": "lemonless.graph_vs_baseline.v3",
+  "arms": [
+    "loop_second_check",
+    "graph_primary"
+  ],
+  "generatedAt": "2026-11-28T04:25:59.781Z",
+  "dryRun": false,
+  "partial": false,
+  "graphId": "gr_28beee6b8bffe5a9",
+  "fixture": "eval/comparison/fixtures/find-cases.json",
+  "repeats": 1,
+  "summary": {
+    "loop_second_check": {
+      "attempts": 3,
+      "validatorPassRate": 1,
+      "repeatConsistency": 1,
+      "latencyP50Ms": 13468,
+      "latencyP95Ms": 14411,
+      "httpCalls": 3,
+      "tokens": 79531,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": 2,
+      "secondCheckDisagreed": 1,
+      "graphDecided": null,
+      "fallbacks": null,
+      "actionCounts": {
+        "buy": 0,
+        "negotiate": 2,
+        "inspect_first": 0,
+        "pass": 1
+      }
+    },
+    "graph_primary": {
+      "attempts": 3,
+      "validatorPassRate": 1,
+      "repeatConsistency": 1,
+      "latencyP50Ms": 13564,
+      "latencyP95Ms": 14004,
+      "httpCalls": 3,
+      "tokens": 59759,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": null,
+      "secondCheckDisagreed": null,
+      "graphDecided": 3,
+      "fallbacks": 0,
+      "actionCounts": {
+        "buy": 1,
+        "negotiate": 2,
+        "inspect_first": 0,
+        "pass": 0
+      }
+    },
+    "decisionAgreement": null,
+    "graphPrimaryVsLoopStandIn": {
+      "sameCar": 0.6666666666666666,
+      "sameCarAndAction": 0.3333333333333333
+    }
+  },
+  "notes": [
+    "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
+    "Token and cost fields are copied from provider responses only; null means not returned.",
+    "Graph-arm attempts that fell back to the two-call path count as validator failures for the graph.",
+    "loop_second_check is the previous production path (loop pick published, graph as second check).",
+    "graph_primary is the new production path (graph publishes the pick; loop pick is fallback).",
+    "The loop pick is a frozen stand-in (code's top-ranked car, negotiate, high)."
+  ],
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HKRM4H75FH123456",
+        "KM8J3CA46HU123456",
+        "KNDPBCAC6G7123456",
+        "5J6RM4H37EL123456"
+      ],
+      "loopPick": "2HKRM4H75FH123456|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "2HKRM4H75FH123456|negotiate",
+        "graph_primary": "2HKRM4H75FH123456|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 13189,
+          "httpCalls": 1,
+          "tokens": 19960,
+          "costUsd": null,
+          "runIds": [
+            "331abba5-e253-4284-b576-a850368081f2"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 13564,
+          "httpCalls": 1,
+          "tokens": 20190,
+          "costUsd": null,
+          "runIds": [
+            "feacc5f3-286f-4a9c-bf2e-a7816b8632e3"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1BF1FK5EU100001",
+        "1HGCR2F30EA200002",
+        "1N4AL3AP3EC400004",
+        "4T1BF1FK8EU300003"
+      ],
+      "loopPick": "4T1BF1FK5EU100001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "4T1BF1FK5EU100001|pass",
+        "graph_primary": "4T1BF1FK5EU100001|buy"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14411,
+          "httpCalls": 1,
+          "tokens": 30136,
+          "costUsd": null,
+          "runIds": [
+            "c5cafdcd-967b-4895-801e-fc18b9218420"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 14004,
+          "httpCalls": 1,
+          "tokens": 20113,
+          "costUsd": null,
+          "runIds": [
+            "7734ed9a-39fe-4ccf-95a8-92706691baff"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "buy"
+        }
+      ]
+    },
+    {
+      "caseId": "find-teen-first-car-8k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2T1BU4EE5DC500001",
+        "1HGCP2F37CA600002",
+        "KNAGM4A75D5700003"
+      ],
+      "loopPick": "2T1BU4EE5DC500001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "2T1BU4EE5DC500001|negotiate",
+        "graph_primary": "1HGCP2F37CA600002|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13468,
+          "httpCalls": 1,
+          "tokens": 29435,
+          "costUsd": null,
+          "runIds": [
+            "ac396324-8ce4-4845-acf6-71a5a965db3c"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2T1BU4EE5DC500001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCP2F37CA600002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12355,
+          "httpCalls": 1,
+          "tokens": 19456,
+          "costUsd": null,
+          "runIds": [
+            "57fbdae4-b4d6-4943-bb5f-70d36d94e378"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "1HGCP2F37CA600002",
+          "publishedAction": "negotiate"
+        }
+      ]
+    }
+  ]
+}

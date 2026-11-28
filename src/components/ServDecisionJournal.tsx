@@ -49,6 +49,7 @@ export function ServDecisionJournal({
   const stepViews = journalStepViews(journal.steps);
   const shownSteps = collapseRepeatedStepViews(stepViews);
   const secondSentences = formatJournalSecondCheckSentences(journal.secondCheck);
+  const noCar = journal.secondCheck.noCar === true;
   const unknowns = agentVerdict?.unknowns ?? [];
   const spendNote = agentVerdict ? agentSpend(agentVerdict)?.costNote ?? "" : "";
   const examplePending =
@@ -125,7 +126,7 @@ export function ServDecisionJournal({
             })}
           </ol>
         )}
-        {journal.secondCheck.runId || journal.secondCheck.modelId ? (
+        {!noCar && (journal.secondCheck.runId || journal.secondCheck.modelId) ? (
           <p className="hint">
             {journal.secondCheck.role === "graph_decide" || journal.secondCheck.role === "graph_fallback"
               ? "Final decision"
@@ -138,7 +139,7 @@ export function ServDecisionJournal({
             Report hash <span className="mono">{reportHash.slice(0, 16)}…</span>
           </p>
         ) : null}
-        {verifyId ? (
+        {noCar ? null : verifyId ? (
           <p className="hint">
             <a href={`/verify?id=${encodeURIComponent(verifyId)}`}>Check this saved decision</a>
           </p>

@@ -154,7 +154,7 @@ describe("dedupe, seen VINs, and budget", () => {
     expect(url).toContain("vehicle.model=RAV4");
     expect(url).not.toContain("bodyStyle");
     expect(url).toContain("vehicle.year=2012-2020");
-    expect(url).toContain("retailListing.price=1-24000");
+    expect(url).toContain("retailListing.price=1000-24000");
     expect(url).toContain("retailListing.miles=0-150000");
     expect(url).toContain("zip=33101");
     expect(url).toContain("distance=100");
