@@ -84,3 +84,23 @@ describe("decision proof record", () => {
     expect(() => assertServStepProof([record], "verdict_decide")).toThrow(/response id/);
   });
 });
+
+describe("formatDecisionRecordLine graph ids", () => {
+  it("labels the graph id and the run id, and does not repeat the run as a response", () => {
+    const runId = "a5c7d2ef-867b-418e-b8d1-e854e90f04be";
+    const record = buildDecisionProofRecord({
+      purpose: "find_graph_decide",
+      rubricId: VERDICT_RUBRIC_ID,
+      status: "ok",
+      responseId: runId,
+      model: "graph:gr_28beee6b8bffe5a9",
+      inputs: { vin: "x" },
+      verdict: "needs_inspection",
+      graph: { graphId: "gr_28beee6b8bffe5a9", runId, steps: null },
+    });
+    const line = formatDecisionRecordLine(record);
+    expect(line).toContain(`graph id gr_28beee6b8bffe5a9 · run id ${runId}`);
+    expect(line).not.toMatch(/\bresponse\b/);
+    expect(line).not.toMatch(/graph run id gr_/i);
+  });
+});

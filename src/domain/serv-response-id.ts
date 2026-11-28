@@ -97,3 +97,25 @@ export function journalProviderRunId(
 ): string | null {
   return isGraphModelId(modelId) ? providerGraphRunId(raw) : providerResponseId(raw);
 }
+
+/** "graph:gr_28beee6b8bffe5a9" → "gr_28beee6b8bffe5a9". Null when the model is not a graph. */
+export function graphIdFromModel(modelId: string | null | undefined): string | null {
+  if (typeof modelId !== "string") return null;
+  const id = modelId.trim().replace(/^graph:/i, "");
+  return /^gr_[a-z0-9]+$/i.test(id) ? id : null;
+}
+
+/**
+ * One line naming the model and the provider id behind a step. A graph step shows two different ids,
+ * each with its own label: the graph (gr_…, the same for every run) and this run (the response/run id).
+ */
+export function journalModelRunText(modelId: string | null | undefined, rawId: string | null | undefined): string {
+  const graphId = graphIdFromModel(modelId);
+  if (graphId) {
+    const runId = providerGraphRunId(rawId);
+    return `Graph id ${graphId}${runId ? ` · run id ${runId}` : " · no run id"}`;
+  }
+  const model = typeof modelId === "string" && modelId.trim() ? `Model ${modelId.trim()}` : "Model not recorded";
+  const responseId = journalProviderRunId(rawId, modelId);
+  return `${model}${responseId ? ` · response ${responseId}` : " · no response id"}`;
+}

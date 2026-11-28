@@ -32,21 +32,25 @@ import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage, plainPublicCheckProgress } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
+import { hasImplausiblePrice, PLACEHOLDER_PRICE_BELOW_USD } from "./find-hard-eligibility";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import { type StructuredNeed } from "./need";
 import { median as statsMedian } from "./stats";
 import type { Listing } from "./types";
 
 /**
- * Asking prices below this floor are treated as data errors / placeholders
- * (e.g. $10–$59 Autodev stubs), not real deals. Hard-excluded before SERV.
+ * Placeholder / bogus asks ($1, $220, "call for price") are data errors, not real deals.
+ * One rule for the whole product: see `implausiblePriceReason` in find-hard-eligibility.
  */
-export const IMPLAUSIBLE_ASK_USD_BELOW = 500;
+export const IMPLAUSIBLE_ASK_USD_BELOW = PLACEHOLDER_PRICE_BELOW_USD;
 
-/** True when a finite asking price is too low to be a believable used-car ask. */
-export function isImplausibleAskUsd(priceUsd: number | null | undefined): boolean {
-  if (typeof priceUsd !== "number" || !Number.isFinite(priceUsd)) return false;
-  return priceUsd < IMPLAUSIBLE_ASK_USD_BELOW;
+/** True when a finite asking price cannot be a believable used-car ask (year-aware when the year is known). */
+export function isImplausibleAskUsd(
+  priceUsd: number | null | undefined,
+  year?: number | null,
+  nowYear?: number,
+): boolean {
+  return hasImplausiblePrice({ priceUsd: priceUsd ?? null, year: year ?? null }, nowYear);
 }
 
 /**
@@ -1261,7 +1265,7 @@ function scoreOne(
   const stopExclude = stopSale;
   // Hard guardrail: absurdly low asks ($10–$59 style feed errors) never reach SERV or the pick.
   const priceExclude =
-    typeof row.priceUsd === "number" && Number.isFinite(row.priceUsd) && isImplausibleAskUsd(row.priceUsd);
+    typeof row.priceUsd === "number" && Number.isFinite(row.priceUsd) && isImplausibleAskUsd(row.priceUsd, row.year, ctx.nowYear);
   if (priceExclude && typeof row.priceUsd === "number") {
     unknowns.push(implausibleAskReason(row.priceUsd));
   }

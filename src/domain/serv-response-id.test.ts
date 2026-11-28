@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  graphIdFromModel,
   isGraphModelId,
   isLocalCallUuid,
   isSyntheticTestId,
+  journalModelRunText,
   journalProviderRunId,
   providerGraphRunId,
   providerResponseId,
@@ -84,5 +86,22 @@ describe("providerGraphRunId", () => {
     expect(journalProviderRunId("run_chk1", "graph:gr_check")).toBe("run_chk1");
     expect(isGraphModelId("find_graph_decide")).toBe(true);
     expect(journalProviderRunId(graphUuid, "find_graph_decide")).toBe(graphUuid);
+  });
+});
+
+describe("journalModelRunText", () => {
+  const graphUuid = "a5c7d2ef-867b-418e-b8d1-e854e90f04be";
+  it("labels the graph id and the run id separately for a graph step", () => {
+    expect(journalModelRunText("graph:gr_28beee6b8bffe5a9", graphUuid)).toBe(
+      `Graph id gr_28beee6b8bffe5a9 · run id ${graphUuid}`,
+    );
+    expect(journalModelRunText("graph:gr_28beee6b8bffe5a9", null)).toBe("Graph id gr_28beee6b8bffe5a9 · no run id");
+    expect(graphIdFromModel("graph:gr_28beee6b8bffe5a9")).toBe("gr_28beee6b8bffe5a9");
+    expect(graphIdFromModel("gpt-6-luna")).toBeNull();
+  });
+
+  it("keeps the model and response wording for non-graph steps", () => {
+    expect(journalModelRunText("gpt-6-luna", "resp_abc123")).toBe("Model gpt-6-luna · response resp_abc123");
+    expect(journalModelRunText(null, null)).toBe("Model not recorded · no response id");
   });
 });

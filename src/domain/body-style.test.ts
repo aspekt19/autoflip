@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "./body-style";
+import { bodyFamily, bodyStyleMatches, providerBodyStyleParam,
+  buyerBodyLabel,
+} from "./body-style";
 import { listingsSearchUrl } from "@/io/autodev";
 
 describe("providerBodyStyleParam", () => {
@@ -83,5 +85,20 @@ describe("bodyStyleMatches car family", () => {
     expect(bodyFamily("Sedan")).toBe("car");
     expect(bodyFamily("Car")).toBe("car");
     expect(bodyStyleMatches("Sedan", { bodyStyle: "Car", style: "Sedan" })).toBe(true);
+  });
+});
+
+describe("buyerBodyLabel", () => {
+  it("shows Sedan when the feed tags Car but the style says Sedan", () => {
+    expect(buyerBodyLabel("Car", "4D Sedan LE")).toBe("Sedan");
+    expect(buyerBodyLabel("Car", "Sedan")).toBe("Sedan");
+    expect(buyerBodyLabel("Car", "Hatchback")).toBe("Hatchback");
+    expect(buyerBodyLabel("Sport Utility", null)).toBe("SUV");
+  });
+
+  it("leaves the feed value as it is when nothing more specific is listed, and never guesses", () => {
+    expect(buyerBodyLabel("Car", null)).toBe("Car");
+    expect(buyerBodyLabel("Car", "")).toBe("Car");
+    expect(buyerBodyLabel(null, null)).toBeNull();
   });
 });

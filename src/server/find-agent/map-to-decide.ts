@@ -13,6 +13,7 @@ import {
 } from "@/domain/serv-evidence-gate";
 import { clipBuyerText, normalizedListingUrl } from "@/domain/normalized-vehicle";
 import type { FindAgentLoopResult } from "./loop";
+import { hasImplausiblePrice } from "@/domain/find-hard-eligibility";
 import type { Listing } from "@/domain/types";
 import { BASE_MODEL } from "@/server/serv";
 
@@ -88,7 +89,10 @@ export function mapFindAgentLoopToDecide(input: {
   offerPool: Listing[];
   sourcesCheckedByVin: Record<string, EvidenceSourceRow[]>;
 } {
-  const listingsByVin = input.agent.listingsByVin;
+  // Placeholder-priced rows (checkpoints, seeds) are excluded here too, on top of the provider boundary.
+  const listingsByVin = new Map(
+    [...input.agent.listingsByVin].filter(([, listing]) => !hasImplausiblePrice(listing)),
+  );
   const ranked: BestDealCandidate[] = [];
   const shortlistKeys: string[] = [];
   const offerPool: Listing[] = [];

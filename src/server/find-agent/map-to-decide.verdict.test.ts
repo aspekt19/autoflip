@@ -145,3 +145,39 @@ describe("mapFindAgentLoopToDecide chosen vs pass", () => {
     expect(mapped.offerPool.map((row) => row.vin)).toEqual([pick, alt, rejected]);
   });
 });
+
+describe("mapFindAgentLoopToDecide placeholder prices", () => {
+  it("leaves a $1 Charger and a $220 Legacy out of ranked, allRanked and the offer pool", () => {
+    const charger = { ...listing("2C3CDXBG5LH000001"), year: 2020, make: "Dodge", model: "Charger", priceUsd: 1 };
+    const legacy = { ...listing("4S3BWAN67P3000002"), year: 2023, make: "Subaru", model: "Legacy", priceUsd: 220 };
+    const real = listing(VIN);
+    const agent = {
+      ok: true as const,
+      agentMode: "tools" as const,
+      toolRounds: 2,
+      verdictReached: true,
+      verdict: {
+        summary: "Camry.",
+        confidence: "medium" as const,
+        picks: [
+          { vin: charger.vin, label: "Charger", action: "buy" as const, offerUsd: null, why: "cheap" },
+          { vin: VIN, label: "Camry", action: "buy" as const, offerUsd: null, why: "clean" },
+        ],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      droppedPicks: [],
+      listingsByVin: new Map([charger, legacy, real].map((l) => [l.vin, l] as const)),
+      knownVins: [charger.vin, legacy.vin, VIN],
+      journal: [],
+      relaxedConditions: [],
+    } as unknown as Extract<FindAgentLoopResult, { ok: true }>;
+
+    const mapped = mapFindAgentLoopToDecide({ agent });
+    const keys = (rows: ReadonlyArray<{ key?: string; vin?: string | null }>) => rows.map((r) => r.key ?? r.vin);
+    expect(keys(mapped.bestDeal.ranked)).toEqual([VIN]);
+    expect(keys(mapped.bestDeal.allRanked)).toEqual([VIN]);
+    expect(keys(mapped.offerPool)).toEqual([VIN]);
+    expect(mapped.shortlistKeys).toEqual([VIN]);
+  });
+});
