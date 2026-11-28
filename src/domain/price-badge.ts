@@ -61,7 +61,6 @@ export function priceBadge(
   },
 ): PriceBadge {
   const evaluation = evaluateListingPrice(subject, pool, options);
-  const model = subject.model?.trim() || "car";
   if (!evaluation.priced || evaluation.fairValueUsd == null || evaluation.deltaUsd == null) {
     const prefix = `${NOT_ENOUGH_SIMILAR_CARS}. `;
     const detail = evaluation.methodNote.startsWith(prefix)
@@ -77,7 +76,8 @@ export function priceBadge(
       sampleNote: withFeedHistoryNote(detail, subject),
     };
   }
-  const lead = `Compared with ${evaluation.sampleSize} similar ${model} listings.`;
+  // deltaLabel already states the sample size ("based on N similar … listings").
+  const lead = null;
   const rough =
     comparisonIsRough(evaluation.sampleSize) && evaluation.fairLowUsd != null && evaluation.fairHighUsd != null
       ? `Only ${evaluation.sampleSize} similar cars, so treat this as a rough range of ${formatUsd(evaluation.fairLowUsd)} to ${formatUsd(evaluation.fairHighUsd)}.`

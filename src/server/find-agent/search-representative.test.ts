@@ -82,13 +82,12 @@ describe("search_listings: distance (cards showed 'unverified' for dealer-ZIP-on
     const calls: Calls = { listings: [], zip: [] };
     const state = createFindAgentToolState();
     await search(state, calls);
-    const firstZipCalls = calls.zip.filter((z) => z === "75229").length;
-    expect(firstZipCalls).toBe(1);
-    // Second search: the ZIP service is now down for dealer ZIPs.
+    // Local Census centroids fill Dallas-area ZIPs; the live ZIP service is not needed.
+    expect(calls.zip.filter((z) => z === "75229")).toHaveLength(0);
     let down = true;
     const second = await search(state, calls, { zipDown: () => down });
     down = false;
-    expect(calls.zip.filter((z) => z === "75229")).toHaveLength(1);
+    expect(calls.zip.filter((z) => z === "75229")).toHaveLength(0);
     const vin = (second.result.cars as Array<{ vin: string; price: number; model: string }>).find(
       (c) => c.model === "Corolla" && c.price === 2_495,
     )!.vin;

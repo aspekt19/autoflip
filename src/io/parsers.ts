@@ -26,6 +26,18 @@ function bool(value: unknown): boolean | null {
   return null;
 }
 
+
+function zipStr(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const zip = String(Math.trunc(Math.abs(value))).padStart(5, "0");
+    return /^\d{5}$/.test(zip) ? zip : null;
+  }
+  const raw = str(value);
+  if (!raw) return null;
+  const zip = raw.replace(/\D/g, "").slice(0, 5);
+  return /^\d{5}$/.test(zip) ? zip : null;
+}
+
 function positivePrice(value: unknown): number | null {
   const parsed = num(value);
   if (parsed === null || parsed <= 0) return null;
@@ -81,9 +93,9 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     trim: str(vehicle.trim),
     miles: num(retail.miles) ?? num(retail.mileage) ?? num(record.miles) ?? num(record.mileage),
     priceUsd,
-    city: str(retail.city),
-    state: str(retail.state),
-    zip: str(retail.zip),
+    city: str(retail.city) ?? str(record.city),
+    state: str(retail.state) ?? str(record.state),
+    zip: zipStr(retail.zip) ?? zipStr(retail.postalCode) ?? zipStr(retail.zipCode) ?? zipStr(record.zip) ?? zipStr(record.postalCode),
     dealer: str(retail.dealer),
     vdp,
     dealerUrl,

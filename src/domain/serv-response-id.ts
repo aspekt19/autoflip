@@ -115,7 +115,21 @@ export function journalModelRunText(modelId: string | null | undefined, rawId: s
     const runId = providerGraphRunId(rawId);
     return `Graph id ${graphId}${runId ? ` · run id ${runId}` : " · no run id"}`;
   }
-  const model = typeof modelId === "string" && modelId.trim() ? `Model ${modelId.trim()}` : "Model not recorded";
+  const model = buyerFacingModelLabel(modelId);
   const responseId = journalProviderRunId(rawId, modelId);
   return `${model}${responseId ? ` · response ${responseId}` : " · no response id"}`;
+}
+
+/** Hide provider-internal model ids (gpt-6.1-sol, gpt-6-luna, …) from buyer-facing details. */
+export function buyerFacingModelLabel(modelId: string | null | undefined): string {
+  if (typeof modelId !== "string" || !modelId.trim()) return "Model not recorded";
+  const id = modelId.trim();
+  if (graphIdFromModel(id)) return `Graph id ${graphIdFromModel(id)}`;
+  if (
+    /^(gpt-|o[1-9]|claude-|gemini-|grok-|llama)/i.test(id) ||
+    /(?:^|-)(sol|luna|kronos|multipath)(?:-|$)/i.test(id)
+  ) {
+    return "SERV";
+  }
+  return `Model ${id}`;
 }

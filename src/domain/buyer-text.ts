@@ -117,3 +117,35 @@ export function visibleHtmlText(html: string): string {
       .replace(/&#39;/g, "'"),
   );
 }
+
+/** Safety cap for stored buyer text. Typical graph reasons are a few sentences and fit easily. */
+export const BUYER_TEXT_STORE_MAX = 2000;
+
+/**
+ * Clip at the last complete sentence that fits. Never cut mid-word.
+ * When clipped, the preview ends with an ellipsis; the caller should keep the full text available.
+ * Returns the original string when it already fits.
+ */
+export function clipAtSentenceBoundary(value: string, max: number): { text: string; clipped: boolean } {
+  const text = normalizeBuyerSpace(value);
+  if (!text) return { text: "", clipped: false };
+  if (text.length <= max) return { text, clipped: false };
+  const window = text.slice(0, Math.max(1, max));
+  const sentenceEnd = /[.!?…](?:["”')\]]+)?/g;
+  let last = -1;
+  let match: RegExpExecArray | null;
+  while ((match = sentenceEnd.exec(window))) {
+    last = match.index + match[0].length;
+  }
+  if (last >= Math.floor(max * 0.4)) {
+    return { text: `${window.slice(0, last).trim()}…`, clipped: true };
+  }
+  const boundary = window.lastIndexOf(" ");
+  const base = (boundary > Math.floor(max * 0.6) ? window.slice(0, boundary) : window).trim();
+  return { text: `${base.replace(/[.!?…]+$/, "")}…`, clipped: true };
+}
+
+/** Store the full string when it fits; otherwise clip at a sentence (never mid-word). */
+export function limitBuyerText(value: string, max = BUYER_TEXT_STORE_MAX): string {
+  return clipAtSentenceBoundary(value, max).text;
+}

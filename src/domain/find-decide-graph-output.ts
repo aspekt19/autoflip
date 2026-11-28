@@ -16,6 +16,7 @@
  * confidence the reply is unreadable (null) and the caller treats the graph run as failed.
  */
 import { tryExtractServJson } from "@/domain/serv-json";
+import { limitBuyerText } from "@/domain/buyer-text";
 
 export type FindDecideGraphPayload = { decide: unknown; challenge: unknown };
 
@@ -163,14 +164,14 @@ function fromJson(payload: Record<string, unknown>): Compact | null {
 
 function toPayload(c: Compact): FindDecideGraphPayload {
   const evidenceIds = c.evidenceIds.length > 0 ? c.evidenceIds : [`car:${c.pick}`];
-  const reason = c.reason ? c.reason.slice(0, 400) : null;
+  const reason = c.reason ? limitBuyerText(c.reason) : null;
   const decide = {
     pickKey: c.pick,
     action: c.action,
     confidence: c.confidence,
-    confidenceWhy: reason ? reason.slice(0, 280) : "",
+    confidenceWhy: reason ?? "",
     reasons: reason ? [{ text: reason, evidenceIds }] : [],
-    watchOuts: c.risk ? [{ text: c.risk.slice(0, 400), evidenceIds }] : [],
+    watchOuts: c.risk ? [{ text: limitBuyerText(c.risk), evidenceIds }] : [],
     askSeller: [],
     alternatives: [],
     offerUsd: null,

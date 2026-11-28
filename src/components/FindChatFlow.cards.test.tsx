@@ -7,7 +7,7 @@ import type { ServChatDonePayload } from "./ServChat";
 
 const WINNER_VIN = "JTDS4MCE8NJ098790";
 const CAMRY_VIN = "4T1BF1FK5HU644745";
-const DECISION = "Best choice on current data: 2022 Toyota Corolla. Medium: fewer miles than the alternative.";
+const DECISION = "Fewer miles than the alternative and no reported accident.";
 
 function car(vin: string, year: number, model: string, priceUsd: number, miles: number) {
   return {
@@ -41,8 +41,8 @@ const payload: ServChatDonePayload = {
   messages: [],
   charged: true,
   result: {
-    bestDeal: { ranked: [winner, camry], pick: winner, why: DECISION },
-    pickAgentVerdict: { verdict: "needs_inspection", confidence: "medium", pick: { key: WINNER_VIN, label: "2022 Toyota Corolla" }, reasons: [] },
+    bestDeal: { ranked: [winner, camry], pick: winner, why: "Best choice on current data: 2022 Toyota Corolla.", choice: { label: "2022 Toyota Corolla", runnerUpLabel: null, reasons: [DECISION], confidence: "medium", confidenceLine: "Medium", confirmBeforeBuying: [] } },
+    pickAgentVerdict: { verdict: "needs_inspection", confidence: "medium", pick: { key: WINNER_VIN, label: "2022 Toyota Corolla" }, reasons: [{ evidenceId: `car:${WINNER_VIN}`, text: DECISION }] },
     offerPool: [],
   },
 };
@@ -65,8 +65,9 @@ describe("Find result cards", () => {
     expect(cards).toHaveLength(2);
     const [first, second] = cards as [HTMLElement, HTMLElement];
 
-    expect(within(first).getByText(/Best choice on current data: 2022 Toyota Corolla/)).toBeInTheDocument();
-    expect(within(second).queryByText(/Best choice on current data/)).toBeNull();
+    expect(within(first).getByText(/Fewer miles than the alternative and no reported accident/)).toBeInTheDocument();
+    expect(within(second).queryByText(/Fewer miles than the alternative/)).toBeNull();
+    expect(within(first).queryByText(/Best choice on current data/)).toBeNull();
     expect(within(second).getByText(/Compared with the pick \(2022 Toyota Corolla\): asks \$4,000 less/)).toBeInTheDocument();
 
     expect(within(first).getByText(/Sedan · FWD/)).toBeInTheDocument();

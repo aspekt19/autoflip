@@ -1550,6 +1550,13 @@ code, .sheet-page a, .prose a {
   text-transform: none;
   font-variant-numeric: tabular-nums;
 }
+.price-badge span,
+.price-badge .hint {
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: inherit;
+  font-weight: 400;
+}
 .price-badge.good strong { color: var(--brand-yellow); }
 .price-badge.fair strong { color: var(--ink); }
 .price-badge.high strong { color: #ff8d73; }

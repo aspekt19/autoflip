@@ -417,7 +417,8 @@ describe("search_listings funnel", () => {
       createFindAgentToolState(),
     );
     expect(executed.ok).toBe(true);
-    expect(zipCalls).toEqual(expect.arrayContaining(["43215", "44101"]));
+    expect(zipCalls).toEqual(expect.arrayContaining(["43215"]));
+    expect(zipCalls).not.toContain("44101");
     const cars = executed.result.cars as Array<{ vin: string; distanceMiles: number | null }>;
     expect(cars).toHaveLength(1);
     expect(cars[0]?.distanceMiles).toEqual(expect.any(Number));
