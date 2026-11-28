@@ -455,7 +455,7 @@ export const JOURNAL_INTRO =
 
 /** Intro when the Find review graph is the final decider (not a second check). */
 export const JOURNAL_INTRO_GRAPH_DECIDE =
-  "The search loop gathered the listings and facts. The review graph makes the final decision. If the graph cannot run, we publish the search loop's tentative pick and say so.";
+  "If the graph cannot run, we publish the search loop's tentative pick and say so.";
 
 /** Intro when the search found no car: nothing was decided or published. */
 export const JOURNAL_INTRO_NO_CAR =

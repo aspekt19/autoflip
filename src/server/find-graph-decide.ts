@@ -373,7 +373,12 @@ export async function executeValidatedFindDecideGraph(
     return fail("the graph did not answer", [{ field: "graph", message: graphRun.error }]);
   }
   const labelByKey = new Map(capped.peers.map((row) => [row.key.toUpperCase(), graphCarLabel(row)] as const));
-  const parsed = resolveFindDecideGraphSlots(parseFindDecideGraphOutput(graphRun.text), prepared.slotToKey, labelByKey);
+  const parsed = resolveFindDecideGraphSlots(
+    parseFindDecideGraphOutput(graphRun.text),
+    prepared.slotToKey,
+    labelByKey,
+    capped.peers,
+  );
   if (!parsed) return fail("the graph answer could not be read");
 
   const rankedByKey = new Map(
@@ -685,7 +690,7 @@ export async function runFindGraphDecide(input: {
       : "";
   const shortlistSent = capNote.trim();
   const provenanceNotes = [
-    { label: "Decided by", text: who },
+    { label: "Decided by", text: "review graph" },
     shortlistSent ? { label: "Shortlist", text: ensureSentenceEnd(shortlistSent) } : null,
     loopTentative ? { label: "Search loop's tentative pick", text: ensureSentenceEnd(loopTentative) } : null,
     codeOverride ? { label: "Code rule", text: ensureSentenceEnd(codeOverride) } : null,

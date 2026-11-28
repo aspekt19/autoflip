@@ -32,6 +32,14 @@ export function compareWithPickNote(car: FindCardCar, pick: FindCardCar | null |
   return `Compared with the pick (${pick.year} ${pick.make} ${pick.model}): ${bits.join(", ")}.`;
 }
 
+/** First sentence only — the full reason belongs in the decision panel, not on the card. */
+export function firstSentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const match = trimmed.match(/^.+?[.!?…](?=\s|$)/);
+  return (match ? match[0] : trimmed).trim();
+}
+
 export function findCardNote(input: {
   car: FindCardCar;
   pick: FindCardCar | null | undefined;
@@ -41,7 +49,10 @@ export function findCardNote(input: {
   carReason: string | null;
 }): { note: string | null; isWinner: boolean } {
   const isWinner = Boolean(input.pick && input.pick.key.toUpperCase() === input.car.key.toUpperCase());
-  if (isWinner) return { note: input.decisionText?.trim() || input.carReason?.trim() || null, isWinner };
+  if (isWinner) {
+    const full = input.decisionText?.trim() || input.carReason?.trim() || null;
+    return { note: full ? firstSentence(full) : null, isWinner };
+  }
   return {
     note: input.carReason?.trim() || compareWithPickNote(input.car, input.pick),
     isWinner,

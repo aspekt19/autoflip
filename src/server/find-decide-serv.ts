@@ -210,6 +210,8 @@ export function buildFindDecideFacts(input: {
       accidentCountReported: accidents,
       cpo: row.cpo ?? null,
       ownerCount: row.ownerCount ?? null,
+      distanceMiles: row.distanceMiles ?? null,
+      radiusCheck: row.radiusCheck ?? null,
       fairValueUsd: report.fairValueUsd,
       fairRangeLowUsd: report.fairRangeLowUsd,
       fairRangeHighUsd: report.fairRangeHighUsd,
