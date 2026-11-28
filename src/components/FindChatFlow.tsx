@@ -12,6 +12,8 @@ import { buyerDistanceText } from "@/domain/geo";
 import { clipBuyerText } from "@/domain/normalized-vehicle";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
 import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
+import { PriceBadgeView } from "@/components/PriceBadge";
+import { findCardPriceBadge } from "@/domain/find-card-price-badge";
 
 /**
  * Find intake is one SERV chat window. Results reuse existing card/report shapes
@@ -42,6 +44,12 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
   const runId = typeof result.runId === "string" ? result.runId : null;
   const offerPool = (Array.isArray(result.offerPool) ? result.offerPool : []) as Array<{
     vin?: string | null;
+    year: number;
+    make: string;
+    model: string;
+    trim?: string | null;
+    priceUsd?: number | null;
+    miles?: number | null;
     bodyStyle?: string | null;
     drivetrain?: string | null;
     distanceMiles?: number | null;
@@ -110,6 +118,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
             const vdp =
               (typeof car.vdp === "string" && car.vdp.trim() ? car.vdp.trim() : null) ||
               (typeof pool?.vdp === "string" && pool.vdp.trim() ? pool.vdp.trim() : null);
+            const badge = findCardPriceBadge(car, offerPool.length > 0 ? offerPool : ranked);
             return (
               <article key={car.key} className="listing-card">
                 <div className="listing-body">
@@ -135,6 +144,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     </p>
                   ) : null}
                   {why ? <p>{why}</p> : null}
+                  <PriceBadgeView badge={badge} />
                   <SourcesCheckedLine items={vin ? sourcesByVin[vin] : null} />
                   {vdp && /^https?:\/\//i.test(vdp) ? (
                     <p>

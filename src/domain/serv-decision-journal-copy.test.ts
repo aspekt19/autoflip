@@ -329,4 +329,42 @@ describe("serv-decision-journal-copy", () => {
     expect(text).toMatch(/second independent SERV check/i);
     expect(text).not.toMatch(/recall|government recall database/i);
   });
+
+  it("describes the search loop and the review graph without Fair price or Our review graph", () => {
+    const loop = formatJournalStepSentences(
+      emptyServDecisionStep({
+        step: "find_agent_loop",
+        by: "SERV",
+        status: "ran",
+        output: "Agentic Find loop — mode=tools; toolRounds=6",
+      }),
+    );
+    expect(loop).toBe("The search loop gathered the listings and facts (6 rounds).");
+    expect(journalMainTextViolations(loop)).toEqual([]);
+
+    const graph = formatJournalStepSentences(
+      emptyServDecisionStep({
+        step: "find_graph_decide",
+        by: "SERV",
+        status: "ran",
+        output: "Decided negotiate",
+        modelId: "graph:gr_28beee6b8bffe5a9",
+        runId: "d5e38f1b-fd4c-4401-aa06-e92c7b350f72",
+      }),
+    );
+    expect(graph).toBe("The review graph made the final decision and chose Negotiate.");
+    expect(graph).not.toMatch(/Fair price/i);
+    expect(journalMainTextViolations(graph)).toEqual([]);
+
+    const second = formatJournalSecondCheckSentences({
+      status: "disagreed",
+      answersAgree: false,
+      detail: "Decided by the SERV graph. The search loop's tentative pick was the 2016 Ford Focus.",
+      modelId: "graph:gr_28beee6b8bffe5a9",
+      runId: "d5e38f1b-fd4c-4401-aa06-e92c7b350f72",
+      role: "graph_decide",
+    });
+    expect(second).toMatch(/Decided by the SERV graph/);
+    expect(second).not.toMatch(/Our review graph/);
+  });
 });

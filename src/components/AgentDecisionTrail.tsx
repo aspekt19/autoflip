@@ -7,7 +7,7 @@ import {
   agentSpend,
   agentTrailSteps,
 } from "@/domain/agent-verdict-view";
-import { providerResponseId } from "@/domain/serv-response-id";
+import { journalProviderRunId, providerGraphRunId } from "@/domain/serv-response-id";
 
 type Props = {
   verdict: AgentVerdict | null | undefined;
@@ -54,16 +54,19 @@ export function AgentDecisionTrail({
     : null;
   const secondCite = (() => {
     if (!second || mode !== "proof") return "";
-    const secondId = providerResponseId(second.responseId);
+    const secondIsGraph = typeof second.profile === "string" && /graph/i.test(second.profile);
+    const secondId = secondIsGraph
+      ? providerGraphRunId(second.responseId)
+      : journalProviderRunId(second.responseId);
     if (second.profile || secondId) {
       return ` (${[second.profile, secondId ? `response ${secondId}` : null]
         .filter(Boolean)
         .join(" · ")})`;
     }
     const trailHit = steps.find(
-      (step) => /challenge agreed|Second check agreed/i.test(step.decided) && providerResponseId(step.responseId),
+      (step) => /challenge agreed|Second check agreed/i.test(step.decided) && journalProviderRunId(step.responseId, step.model),
     );
-    const trailId = trailHit ? providerResponseId(trailHit.responseId) : null;
+    const trailId = trailHit ? journalProviderRunId(trailHit.responseId, trailHit.model) : null;
     return trailId ? ` (response ${trailId})` : "";
   })();
 
@@ -187,7 +190,7 @@ export function AgentDecisionTrail({
       {steps.length > 0 ? (
         <ol className="steps-3 story-steps">
           {steps.map((step, index) => {
-            const responseId = providerResponseId(step.responseId);
+            const responseId = journalProviderRunId(step.responseId, step.model);
             return (
               <li key={`trail-${index}`}>
                 <strong>{step.decided}</strong>

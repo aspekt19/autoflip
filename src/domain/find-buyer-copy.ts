@@ -279,6 +279,11 @@ export function plainShopperText(text: string): string {
 /** Shopper wording for the review step. The name SERV stays on Where SERV runs, Proof, and Developers. */
 export function plainDecisionEngineText(text: string): string {
   return plainShopperText(text)
+    .replace(/\bThe SERV graph\b/g, "The review graph")
+    .replace(/\bthe SERV graph\b/g, "the review graph")
+    .replace(/\bSERV graph\b/g, "review graph")
+    .replace(/\bSERV agentic Find loop\b/gi, "The search loop")
+    .replace(/\bAgentic Find loop\b/gi, "The search loop")
     .replace(/\bA second independent SERV check\b/g, "A second independent review")
     .replace(/\bDecided by SERV\b/g, "Decided by our review")
     .replace(/\bin this SERV response\b/g, "in this review")
@@ -326,7 +331,8 @@ export function plainGateStatus(status: string): string {
 }
 
 export function plainDecisionAction(action: string): string {
-  if (action === "fair" || action === "negotiate") return "Fair price";
+  if (action === "fair") return "Fair price";
+  if (action === "negotiate") return "Negotiate";
   if (action === "good_deal" || action === "buy") return "Buy";
   return plainBuyerPhrase(action.replaceAll("_", " "));
 }

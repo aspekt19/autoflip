@@ -15,7 +15,7 @@ import {
   type ServDecisionJournalView,
 } from "@/domain/serv-decision-step";
 import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
-import { providerResponseId } from "@/domain/serv-response-id";
+import { journalProviderRunId } from "@/domain/serv-response-id";
 
 type Props = {
   proofRecords?: readonly DecisionProofRecord[] | null;
@@ -105,7 +105,7 @@ export function ServDecisionJournal({
         ) : (
           <ol className="steps-3 story-steps">
             {stepViews.map((view, index) => {
-              const runId = providerResponseId(view.tech.runId);
+              const runId = journalProviderRunId(view.tech.runId, view.tech.modelId);
               return (
                 <li key={`tech-${view.tech.step}-${index}`}>
                   <strong>
@@ -137,7 +137,7 @@ export function ServDecisionJournal({
               : "Second check"}
             {journal.secondCheck.modelId ? ` · ${journal.secondCheck.modelId}` : ""}
             {journal.secondCheck.runId
-              ? ` · response ${providerResponseId(journal.secondCheck.runId)}`
+              ? ` · response ${journalProviderRunId(journal.secondCheck.runId, journal.secondCheck.modelId)}`
               : ""}
           </p>
         ) : null}

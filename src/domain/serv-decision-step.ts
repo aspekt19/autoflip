@@ -162,7 +162,7 @@ export function stepFromDecisionProof(record: DecisionProofRecord): ServDecision
     origin,
     originReason,
     modelId: record.model,
-    runId: record.servResponseId ?? null,
+    runId: record.servResponseId ?? record.graph?.runId ?? null,
     timestamp: record.timestamp,
     inputSummary: `inputs digest ${record.inputsDigest.slice(0, 12)}…`,
     output,
@@ -206,7 +206,11 @@ export function stepFromAgentTrailStep(step: AgentTrailStep, index: number): Ser
   const notRun = /not run|skipped|did not finish|unavailable|nothing usable/i.test(step.decided);
   return {
     schemaVersion: SERV_DECISION_STEP_SCHEMA,
-    step: `trail_${index + 1}`,
+    step: /agentic find loop/i.test(step.decided)
+      ? "find_agent_loop"
+      : /decided by the SERV graph/i.test(step.decided) || /(?:^|\b)graph:/i.test(step.model ?? "")
+        ? "find_graph_decide"
+        : `trail_${index + 1}`,
     by,
     origin: defaultOrigin(by),
     originReason: null,
@@ -244,7 +248,7 @@ export function summarizeSecondCheck(
       detail:
         second.objection?.trim() ||
         (decided
-          ? "The SERV graph made the final decision."
+          ? "The review graph made the final decision."
           : "Decided by fallback: the graph did not run."),
       modelId: second.profile,
       runId: second.responseId ?? null,

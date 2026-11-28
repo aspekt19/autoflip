@@ -6,9 +6,15 @@ import { validateFindDecideGraphInputFor } from "@/server/find-decide-graph-inpu
 import {
   FIND_GRAPH_CHECK_MAX_MS,
   FIND_GRAPH_DECIDE_PROFILE,
+  capFindDecideGraphPeers,
+  ensureHonestUnknownFairValueReason,
   findGraphCheckTimeoutMs,
   runFindGraphDecide,
 } from "./find-graph-decide";
+import { journalProviderRunId } from "@/domain/serv-response-id";
+import { buildServDecisionJournal } from "@/domain/serv-decision-step";
+import { journalStepViews, formatJournalSecondCheckSentences } from "@/domain/serv-decision-journal-copy";
+import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
 
 const A = "1HGCV1F30LA000001";
 const B = "4T1B11HK5KU000002";
@@ -304,5 +310,187 @@ describe("Find graph as the primary final decider", () => {
     expect(findGraphCheckTimeoutMs(285_000)).toBe(90_000);
     expect(findGraphCheckTimeoutMs(60_000)).toBe(45_000);
     expect(findGraphCheckTimeoutMs(5_000)).toBe(0);
+  });
+
+  it("fills the graph shortlist from the market pool when the loop only named one pick", () => {
+    const pickVin = "1FADP3F20GL219352";
+    const others = [
+      "1FADP3F21GL200001",
+      "1FADP3F22GL200002",
+      "1FADP3F23GL200003",
+      "1FADP3F24GL200004",
+    ];
+    const listings = [
+      row(pickVin, { year: 2016, make: "Ford", model: "Focus", priceUsd: 6999, miles: 90439 }),
+      ...others.map((vin, i) =>
+        row(vin, { year: 2015 + (i % 3), make: "Ford", model: "Focus", priceUsd: 7500 + i * 400, miles: 80_000 + i * 2000 }),
+      ),
+    ];
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 6,
+        verdictReached: true,
+        verdict: {
+          summary: "Focus is in budget.",
+          confidence: "medium",
+          picks: [{ vin: pickVin, label: "2016 Ford Focus", action: "inspect_first", offerUsd: null, why: "thin comps" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(listings.map((l) => [l.vin, l])),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    expect(mapped.shortlistKeys).toEqual([pickVin]);
+    expect(mapped.bestDeal.ranked).toHaveLength(1);
+    expect(mapped.bestDeal.allRanked.length).toBeGreaterThan(1);
+    expect(mapped.offerPool.length).toBe(listings.length);
+
+    const capped = capFindDecideGraphPeers({
+      shortlistKeys: mapped.shortlistKeys,
+      bestDeal: mapped.bestDeal,
+      preferredKey: pickVin,
+      maxCars: 5,
+      need,
+      marketPool: mapped.offerPool,
+    });
+    expect(capped.peers.length).toBeGreaterThan(1);
+    expect(capped.peers.length).toBeLessThanOrEqual(5);
+    expect(capped.shortlistKeys[0]).toBe(pickVin);
+    expect(capped.shortlistKeys).toEqual(expect.arrayContaining([pickVin]));
+  });
+
+  it("sends several pool cars to the graph, publishes them, and keeps a UUID run id", async () => {
+    const pickVin = "1FADP3F20GL219352";
+    const alt = "1FADP3F21GL200001";
+    const listings = [
+      row(pickVin, { year: 2016, make: "Ford", model: "Focus", priceUsd: 6999, miles: 90439 }),
+      row(alt, { year: 2015, make: "Ford", model: "Focus", priceUsd: 7900, miles: 82000 }),
+      row("1FADP3F22GL200002", { year: 2017, make: "Ford", model: "Focus", priceUsd: 8500, miles: 70000 }),
+    ];
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 6,
+        verdictReached: true,
+        verdict: {
+          summary: "Focus is in budget.",
+          confidence: "medium",
+          picks: [{ vin: pickVin, label: "2016 Ford Focus", action: "inspect_first", offerUsd: null, why: "thin comps" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(listings.map((l) => [l.vin, l])),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const graphUuid = "d5e38f1b-fd4c-4401-aa06-e92c7b350f72";
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const parsed = JSON.parse(String(init?.body ?? "{}"));
+      expect(parsed.instructions).toBeTruthy();
+      const sent = JSON.parse(parsed.instructions);
+      expect(sent.permitted_car_keys.length).toBeGreaterThan(1);
+      expect(sent.permitted_car_keys[0]).toBe(pickVin);
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            decide: {
+              ...decide,
+              pickKey: pickVin,
+              action: "negotiate",
+              confidenceWhy: "The asking price is $6,999, but fair value is unavailable, so its relationship to fair value cannot be judged.",
+              reasons: [
+                {
+                  text: "The asking price is $6,999, but fair value is unavailable, so its relationship to fair value cannot be judged. No other permitted car was supplied as an alternative.",
+                  evidenceIds: [`car:${pickVin}`],
+                },
+              ],
+            },
+            challenge: challengeAgree,
+          }),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json", "x-openserv-request-id": graphUuid } },
+      );
+    }) as unknown as typeof fetch;
+    const out = await runFindGraphDecide({
+      need,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: mapped.offerPool,
+      servKey: "test-key",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_28beee6b8bffe5a9",
+    });
+    expect(out.decidedBy).toBe("graph");
+    expect(out.bestDeal.ranked.length).toBeGreaterThan(1);
+    expect(out.secondPass.responseId).toBe(graphUuid);
+    expect(out.proofRecords[0]?.servResponseId).toBe(graphUuid);
+    expect(out.proofRecords[0]?.graph?.runId).toBe(graphUuid);
+    expect(out.agentVerdict.serv_steps.at(-1)?.responseId).toBe(graphUuid);
+    expect(journalProviderRunId(out.secondPass.responseId, "graph:gr_28beee6b8bffe5a9")).toBe(graphUuid);
+
+    const journal = buildServDecisionJournal({
+      proofRecords: out.proofRecords,
+      agentVerdict: out.agentVerdict,
+    });
+    const tech = journalStepViews(journal.steps).find((view) => view.tech.modelId?.startsWith("graph:"));
+    expect(tech?.tech.runId).toBe(graphUuid);
+    const second = formatJournalSecondCheckSentences(journal.secondCheck);
+    const shown = plainDecisionEngineText(second);
+    expect(shown).toMatch(/review graph/i);
+    expect(shown).not.toMatch(/Our review graph/i);
+    expect(shown).not.toMatch(/the Our review/i);
+  });
+});
+
+describe("ensureHonestUnknownFairValueReason", () => {
+  it("does not rewrite a reason that already says fair value is unavailable", () => {
+    const original = {
+      pickKey: "VIN1",
+      action: "negotiate" as const,
+      confidence: "medium" as const,
+      confidenceWhy: "ok",
+      reasons: [
+        {
+          text: "The asking price is $6,999, but fair value is unavailable, so its relationship to fair value cannot be judged.",
+          evidenceIds: ["car:VIN1"],
+        },
+      ],
+      watchOuts: [],
+      askSeller: [],
+      alternatives: [],
+      offerUsd: null,
+    };
+    const out = ensureHonestUnknownFairValueReason(original, null, 1);
+    expect(out.reasons).toEqual(original.reasons);
+  });
+
+  it("adds an honest sentence when the graph negotiates without saying fair value is unknown", () => {
+    const out = ensureHonestUnknownFairValueReason(
+      {
+        pickKey: "VIN1",
+        action: "negotiate",
+        confidence: "medium",
+        confidenceWhy: "Clean history.",
+        reasons: [{ text: "Facts look clean enough to talk about the price.", evidenceIds: ["car:VIN1"] }],
+        watchOuts: [],
+        askSeller: [],
+        alternatives: [],
+        offerUsd: null,
+      },
+      null,
+      1,
+    );
+    expect(out.reasons.some((row) => /fair value is unavailable/i.test(row.text))).toBe(true);
   });
 });
