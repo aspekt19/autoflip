@@ -6,7 +6,8 @@ import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import {
   formatJournalSecondCheckSentences,
-  JOURNAL_INTRO,
+  journalIntroFor,
+  journalServUsedLabel,
   collapseRepeatedStepViews,
   journalStepViews,
 } from "@/domain/serv-decision-journal-copy";
@@ -60,14 +61,10 @@ export function ServDecisionJournal({
     <details className="agent-decision-trail onboarding-note serv-decision-journal" open={defaultOpen}>
       <summary>
         <strong>{journal.title}</strong>
-        {journal.servUsed ? (
-          <span className="hint"> · a review step ran</span>
-        ) : (
-          <span className="hint"> · calculated checks only</span>
-        )}
+        <span className="hint"> · {journalServUsedLabel(journal)}</span>
       </summary>
 
-      <p className="hint">{plainDecisionEngineText(JOURNAL_INTRO)}</p>
+      <p className="hint">{plainDecisionEngineText(journalIntroFor(journal))}</p>
 
       {agentVerdict?.no_serv_step ? (
         <p className="lead">

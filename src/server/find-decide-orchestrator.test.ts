@@ -306,7 +306,7 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(graphProof?.graph?.runId).toBe("run_orch");
     expect(graphProof?.status).toBe("ok");
     expect(result.pickSecondPass?.status).toBe("agreed");
-    expect(result.pickSecondPass?.objection).toMatch(/^Decided by the SERV graph/);
+    expect(result.pickSecondPass?.objection).toMatch(/^Decided by the review graph/);
     expect(result.pickAgentVerdict?.serv_steps.at(-1)?.model).toBe("graph:gr_orch");
     expect(result.pickAgentVerdict?.verdict).toBe("negotiate");
     expect(result.honesty).toMatch(/SERV graph made the final choice/);

@@ -27,6 +27,7 @@ import {
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
 import { runFindGraphDecide } from "@/server/find-graph-decide";
+import { findEligibilityContextFrom } from "@/domain/find-hard-eligibility";
 import { findDecideGraphId } from "@/server/serv/graph";
 import {
   loadFindSearchContext,
@@ -332,6 +333,7 @@ export async function runFindDecideOrchestrator(
         agentVerdict: mappedLoop.agentVerdict,
         shortlistKeys: mappedLoop.shortlistKeys,
         marketPool: mappedLoop.offerPool.length > 0 ? mappedLoop.offerPool : marketPool,
+        eligibility: findEligibilityContextFrom({ need: record.need }),
         receipts,
         servKey: deps.servKey,
         servBaseUrl: deps.servBaseUrl,

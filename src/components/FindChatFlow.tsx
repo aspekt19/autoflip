@@ -7,6 +7,7 @@ import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatUsd } from "@/domain/format";
+import { plainDecisionAction } from "@/domain/find-buyer-copy";
 import { accidentHistoryBuyerLine } from "@/domain/accident-hard-constraint";
 import { buyerDistanceText } from "@/domain/geo";
 import { clipBuyerText } from "@/domain/normalized-vehicle";
@@ -144,6 +145,12 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     </p>
                   ) : null}
                   {why ? <p>{why}</p> : null}
+                  {vin && verdict?.pick?.key && vin === String(verdict.pick.key).toUpperCase() && verdict.verdict ? (
+                    <p>
+                      <strong>{plainDecisionAction(verdict.verdict)}</strong>
+                      {verdict.confidence ? ` · ${verdict.confidence} confidence` : ""}
+                    </p>
+                  ) : null}
                   <PriceBadgeView badge={badge} />
                   <SourcesCheckedLine items={vin ? sourcesByVin[vin] : null} />
                   {vdp && /^https?:\/\//i.test(vdp) ? (

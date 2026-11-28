@@ -51,6 +51,9 @@ function candidateFromListing(listing: Listing, key: string): BestDealCandidate 
       (listing.distanceMiles != null && Number.isFinite(listing.distanceMiles))
         ? "known"
         : "unverified",
+    bodyStyle: listing.bodyStyle ?? null,
+    style: listing.style ?? null,
+    titleBrand: listing.titleBrand ?? null,
   };
 }
 
