@@ -313,6 +313,12 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
 }
 
 export function formatJournalSecondCheckSentences(second: ServSecondCheckSummary): string {
+  if (second.role === "graph_decide" || second.role === "graph_fallback") {
+    const detail = second.detail.trim();
+    return detail || (second.role === "graph_decide"
+      ? "The SERV graph made the final decision."
+      : "Decided by fallback: the graph did not run.");
+  }
   if (second.answersAgree === true) {
     return "A second independent SERV check agreed.";
   }

@@ -1,6 +1,6 @@
 # Find decide graph — live runs (Nov 27, 2026)
 
-Two graphs were evaluated: v2 (`gr_3d039bd8de63381a`) and v3 (`gr_28beee6b8bffe5a9`, production since Nov 28). v2 results: `eval/results/graph-vs-baseline-v2.json`; v3 results: `eval/results/graph-vs-baseline.json`.
+Two graphs were evaluated: v2 (`gr_3d039bd8de63381a`) and v3 (`gr_28beee6b8bffe5a9`, production since Nov 28). v2 results: `eval/results/graph-vs-baseline-v2.json`; v3 results: `eval/results/graph-vs-baseline.json`. After v3 shipped as a second check, the same graph became the primary final Find decider; that comparison is `eval/results/graph-primary-vs-second-check.json`.
 
 Graph: `gr_3d039bd8de63381a` ("Lemonless Find decide v2"), generated from `find-decide-graph-prompt.txt`: 15 nodes (4 agents, 7 decisions, 4 scripts). Results: `eval/results/graph-vs-baseline-v2.json` (10 frozen cases × 2 repeats × 3 arms).
 
@@ -53,3 +53,23 @@ The two-call path in the v3 run: 19/20 valid (one run gave no decision), `inspec
 `buy` appeared 8 times out of 40 v3 answers, always on cars whose frozen listings report no accident or recall (these fixtures carry no accident or recall data), and with low or medium confidence. A separate check with a synthetic shortlist where the cheapest car had 2 reported accidents (2 runs) moved the pick to the clean car with `negotiate` both times. v3 is less consistent across repeats than v2 (0.80 vs 0.90): with the action no longer pinned to `inspect_first`, it varies between `negotiate` and `buy` on borderline prices.
 
 The reply's trailing `Evidence:` line is now parsed for ids and removed from the shopper-facing reason.
+
+
+## Graph as the primary Find decider (Nov 28, 2026)
+
+The agentic Find loop still gathers listings, public-record facts and a shortlist, and it still produces a tentative pick. The published pick, action and confidence now come from graph v3, validated and capped in code. The loop's pick is the fallback when the graph cannot run, with "Decided by fallback:" and the reason in the journal and the trail. No extra search credit is charged. Implementation: `src/server/find-graph-decide.ts`, used by the Find chat and `/api/find/decide`.
+
+Same 10 frozen cases × 2 repeats, compared with the previous production path (loop pick published, graph as second check). The loop pick is a frozen stand-in (code's top-ranked car, `negotiate`, high). A 3-case smoke run was 3/3 graph-decided with 0 fallbacks before this table. Results: `eval/results/graph-primary-vs-second-check.json`.
+
+| | Previous path (loop + second check) | Graph as the final decider |
+| --- | --- | --- |
+| Valid (graph answer accepted) | 20/20 | 20/20 |
+| Fallbacks (loop pick published) | — | 0/20 |
+| inspect_first / negotiate / buy / pass | 2 / 12 / 4 / 2 | 2 / 12 / 4 / 2 |
+| Same car as the loop stand-in | 8/10 (graph's own pick) | 9/10 (published pick) |
+| Same car + action as the loop stand-in | 8/20 | 10/20 |
+| Repeat consistency | 0.85 | 0.90 |
+| Latency p50 / p95 | 13.6 s / 15.1 s | 13.0 s / 17.4 s |
+| Tokens (provider) | 453,545 | 415,081 |
+
+`buy` appeared 4 times out of 20 graph-as-decider answers, on two cars whose frozen listings report no accident or recall (these fixtures carry no accident or recall data), with low or medium confidence: a 2014 Camry with 118,000 miles (low) and a 2018 Camry with 18,000 miles (medium). Latency stays well inside the 90-second graph budget and the 300-second route. The graph run id and step count are recorded on the decision step and in the proof record; the main shopper trail says "Decided by the SERV graph."
