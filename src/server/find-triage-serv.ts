@@ -134,7 +134,7 @@ export async function runFindTriageServ(input: {
   });
   // Never hand SERV implausible asks or hard-excluded cars — code already flagged them.
   const poolRows = (bestDeal.allRanked.length > 0 ? bestDeal.allRanked : bestDeal.ranked).filter(
-    (row) => !row.excludedFromPick && !isImplausibleAskUsd(row.priceUsd),
+    (row) => !row.excludedFromPick && !isImplausibleAskUsd(row.priceUsd, row.year),
   );
   const poolKeys = poolRows.map((row) => row.key);
   const poolKeySet = new Set(poolKeys);

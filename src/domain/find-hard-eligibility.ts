@@ -19,6 +19,8 @@ export type FindEligibilityListing = {
   bodyStyle?: string | null;
   style?: string | null;
   priceUsd?: number | null;
+  /** Comp-based fair value when known; lets the price-sanity rule compare against the market. */
+  fairValueUsd?: number | null;
   miles?: number | null;
   distanceMiles?: number | null;
   accidentCount?: number | null;
@@ -29,6 +31,8 @@ export type FindEligibilityListing = {
 };
 
 export type FindEligibilityContext = {
+  /** Override the clock for the price-sanity age floor (tests). */
+  nowYear?: number;
   bodyStyle?: string | null;
   budgetUsd?: number | null;
   milesMax?: number | null;
@@ -126,11 +130,63 @@ export function findEligibilityContextFrom(input: {
   };
 }
 
+/** Asking prices below this are feed placeholders ($1, $220, "call for price"), never real offers. */
+export const PLACEHOLDER_PRICE_BELOW_USD = 1_000;
+/** A real ask under this fraction of the comp fair value is a placeholder or a data error. */
+export const FAIR_VALUE_PRICE_FLOOR_RATIO = 0.2;
+
+/** Lowest believable dealer ask for a model year. Conservative on purpose: only obvious junk falls below. */
+export function plausiblePriceFloorUsd(year: number | null | undefined, nowYear: number): number {
+  if (year == null || !Number.isFinite(year)) return PLACEHOLDER_PRICE_BELOW_USD;
+  const age = nowYear - year;
+  if (age <= 5) return 5_000;
+  if (age <= 12) return 2_000;
+  return PLACEHOLDER_PRICE_BELOW_USD;
+}
+
+/**
+ * Price-sanity rule. An unknown price is never rejected (the card is shown as unpriced);
+ * a known price that cannot be a real ask for this car is. Never replaces the price.
+ */
+export function implausiblePriceReason(
+  listing: Pick<FindEligibilityListing, "priceUsd" | "year" | "fairValueUsd">,
+  nowYear: number = new Date().getFullYear(),
+): "placeholder" | "below_floor" | "below_comps" | null {
+  const price = listing.priceUsd;
+  if (price == null || !Number.isFinite(price)) return null;
+  if (price < PLACEHOLDER_PRICE_BELOW_USD) return "placeholder";
+  if (price < plausiblePriceFloorUsd(listing.year, nowYear)) return "below_floor";
+  const fair = listing.fairValueUsd;
+  if (fair != null && Number.isFinite(fair) && fair > 0 && price < fair * FAIR_VALUE_PRICE_FLOOR_RATIO) {
+    return "below_comps";
+  }
+  return null;
+}
+
+export function hasImplausiblePrice(
+  listing: Pick<FindEligibilityListing, "priceUsd" | "year" | "fairValueUsd">,
+  nowYear?: number,
+): boolean {
+  return implausiblePriceReason(listing, nowYear) != null;
+}
+
+/**
+ * Data-quality pass for provider rows: listings whose ask cannot be real ($1, $220, "call for price")
+ * are left out. A missing price is kept (the card shows "Price unknown"); a price is never replaced.
+ */
+export function excludeImplausiblyPriced<T extends Pick<FindEligibilityListing, "priceUsd" | "year">>(
+  listings: readonly T[],
+  nowYear?: number,
+): T[] {
+  return listings.filter((row) => !hasImplausiblePrice(row, nowYear));
+}
+
 /** Why this listing fails a hard constraint, or null when it may be shown / sent. */
 export function findHardConstraintRejection(
   listing: FindEligibilityListing,
   ctx: FindEligibilityContext,
 ): string | null {
+  if (implausiblePriceReason(listing, ctx.nowYear) != null) return "price_implausible";
   const body = ctx.bodyStyle?.trim() || null;
   if (body && !bodyStyleMatches(body, { bodyStyle: listing.bodyStyle ?? null, style: listing.style ?? null })) {
     return "body";

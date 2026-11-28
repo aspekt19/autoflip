@@ -15,6 +15,8 @@ import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brie
 import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 import { PriceBadgeView } from "@/components/PriceBadge";
 import { findCardPriceBadge } from "@/domain/find-card-price-badge";
+import { findCardNote } from "@/domain/find-card-note";
+import { buyerBodyLabel } from "@/domain/body-style";
 
 /**
  * Find intake is one SERV chat window. Results reuse existing card/report shapes
@@ -52,6 +54,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
     priceUsd?: number | null;
     miles?: number | null;
     bodyStyle?: string | null;
+    style?: string | null;
     drivetrain?: string | null;
     distanceMiles?: number | null;
     radiusCheck?: "unverified" | "known" | null;
@@ -108,13 +111,19 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
         <div className="find-results-grid listing-grid">
           {ranked.slice(0, 8).map((car) => {
             const vin = car.vin?.toUpperCase() ?? "";
-            const whyRaw = (vin && whyByVin.get(vin)) || summaryWhy;
+            // Only the winning card carries the decision; every other card gets its own note.
+            const { note: whyRaw, isWinner } = findCardNote({
+              car,
+              pick: bestDeal?.pick ?? ranked[0] ?? null,
+              decisionText: summaryWhy,
+              carReason: (vin && whyByVin.get(vin)) || null,
+            });
             // Clip only at display — SERV why is stored untruncated (word boundary).
             const why = whyRaw ? clipBuyerText(whyRaw, 400) : null;
             const pool = vin ? poolByVin.get(vin) : null;
             const distance = car.distanceMiles ?? pool?.distanceMiles ?? null;
             const historyLine = accidentHistoryBuyerLine(car.accidentCount ?? pool?.accidentCount);
-            const body = pool?.bodyStyle ?? null;
+            const body = buyerBodyLabel(car.bodyStyle ?? pool?.bodyStyle ?? null, car.style ?? pool?.style ?? null);
             const drivetrain = car.drivetrain ?? pool?.drivetrain ?? null;
             const vdp =
               (typeof car.vdp === "string" && car.vdp.trim() ? car.vdp.trim() : null) ||
@@ -145,7 +154,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     </p>
                   ) : null}
                   {why ? <p>{why}</p> : null}
-                  {vin && verdict?.pick?.key && vin === String(verdict.pick.key).toUpperCase() && verdict.verdict ? (
+                  {isWinner && verdict?.verdict ? (
                     <p>
                       <strong>{plainDecisionAction(verdict.verdict)}</strong>
                       {verdict.confidence ? ` · ${verdict.confidence} confidence` : ""}

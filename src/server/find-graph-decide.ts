@@ -61,6 +61,7 @@ import {
   findDecideGraphInputVersion,
   findDecideGraphMaxCars,
   prepareFindDecideGraphRun,
+  graphCarLabel,
   resolveFindDecideGraphSlots,
 } from "@/server/find-decide-graph-input";
 import { buildFindPickComputedReport, publishBestDeal } from "@/server/find-settle-serv";
@@ -337,7 +338,8 @@ export async function executeValidatedFindDecideGraph(
     }
     return fail("the graph did not answer", [{ field: "graph", message: graphRun.error }]);
   }
-  const parsed = resolveFindDecideGraphSlots(parseFindDecideGraphOutput(graphRun.text), prepared.slotToKey);
+  const labelByKey = new Map(capped.peers.map((row) => [row.key.toUpperCase(), graphCarLabel(row)] as const));
+  const parsed = resolveFindDecideGraphSlots(parseFindDecideGraphOutput(graphRun.text), prepared.slotToKey, labelByKey);
   if (!parsed) return fail("the graph answer could not be read");
 
   const rankedByKey = new Map(

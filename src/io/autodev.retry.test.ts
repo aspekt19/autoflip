@@ -135,3 +135,33 @@ describe("autodev backoff helper wiring", () => {
 
 // Keep vi import used when assertions evolve.
 void vi;
+
+describe("autodevSearch placeholder prices", () => {
+  const row = (vin: string, price: number | null, year = 2022) => ({
+    vin,
+    vehicle: { year, make: "Dodge", model: "Charger" },
+    retailListing: { price, miles: 30_000 },
+  });
+
+  it("leaves $1 and $220 asks out of the pool and keeps real and unpriced rows", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            row("2C3CDXBG5LH000001", 1, 2020),
+            row("4S3BWAN67P3000002", 220, 2023),
+            row("2C3CDXBG5LH000003", 21_500, 2022),
+            row("2C3CDXBG5LH000004", null, 2022),
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    const result = await autodevSearch({ make: "Dodge" }, deps({ fetch: fetchImpl }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listings.map((l) => [l.vin, l.priceUsd])).toEqual([
+      ["2C3CDXBG5LH000003", 21_500],
+      ["2C3CDXBG5LH000004", null],
+    ]);
+  });
+});

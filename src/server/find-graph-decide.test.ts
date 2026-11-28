@@ -306,6 +306,51 @@ describe("Find graph as the primary final decider", () => {
     expect(out.agentVerdict.serv_steps.at(-1)?.why).toMatch(/top \d+ of \d+/);
   });
 
+  it("never sends a placeholder-priced pool car to the graph, even when the loop shortlisted it", () => {
+    const pickVin = "1FADP3F20GL219352";
+    const junkVin = "2C3CDXBG5LH000001";
+    const listings = [
+      row(pickVin, { year: 2016, make: "Ford", model: "Focus", priceUsd: 6999, miles: 90439 }),
+      row("1FADP3F21GL200001", { year: 2016, make: "Ford", model: "Focus", priceUsd: 7400, miles: 82000 }),
+      row(junkVin, { year: 2020, make: "Dodge", model: "Charger", priceUsd: 1, miles: 30000 }),
+      row("4S3BWAN67P3000002", { year: 2023, make: "Subaru", model: "Legacy", priceUsd: 220, miles: 12000 }),
+    ];
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 3,
+        verdictReached: true,
+        verdict: {
+          summary: "Focus.",
+          confidence: "medium",
+          picks: [{ vin: pickVin, label: "2016 Ford Focus", action: "inspect_first", offerUsd: null, why: "ok" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(listings.map((l) => [l.vin, l])),
+        knownVins: listings.map((l) => l.vin),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const poolNeed = { ...need, yearMin: null, milesMax: 120_000 } as typeof need;
+    const capped = capFindDecideGraphPeers({
+      // Even if a stale shortlist names the junk VIN, the shared eligibility rule removes it.
+      shortlistKeys: [pickVin, junkVin],
+      bestDeal: mapped.bestDeal,
+      preferredKey: pickVin,
+      maxCars: 5,
+      need: poolNeed,
+      marketPool: [...mapped.offerPool, ...mapped.offerPool.filter((l) => l.priceUsd != null && l.priceUsd < 1000)],
+    });
+    const sent = capped.peers.map((peer) => peer.vin);
+    expect(sent).toContain(pickVin);
+    expect(sent).not.toContain(junkVin);
+    expect(sent).not.toContain("4S3BWAN67P3000002");
+  });
+
   it("caps the timeout at 90s and leaves 15s headroom", () => {
     expect(findGraphCheckTimeoutMs(285_000)).toBe(90_000);
     expect(findGraphCheckTimeoutMs(60_000)).toBe(45_000);

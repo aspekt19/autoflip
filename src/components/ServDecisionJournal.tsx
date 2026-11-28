@@ -16,7 +16,7 @@ import {
   type ServDecisionJournalView,
 } from "@/domain/serv-decision-step";
 import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
-import { journalProviderRunId } from "@/domain/serv-response-id";
+import { journalModelRunText } from "@/domain/serv-response-id";
 
 type Props = {
   proofRecords?: readonly DecisionProofRecord[] | null;
@@ -102,7 +102,6 @@ export function ServDecisionJournal({
         ) : (
           <ol className="steps-3 story-steps">
             {stepViews.map((view, index) => {
-              const runId = journalProviderRunId(view.tech.runId, view.tech.modelId);
               return (
                 <li key={`tech-${view.tech.step}-${index}`}>
                   <strong>
@@ -114,8 +113,7 @@ export function ServDecisionJournal({
                     <span className="hint">Origin reason: {view.tech.originReason}</span>
                   ) : null}
                   <span className="hint">
-                    {view.tech.modelId ? `Model ${view.tech.modelId}` : "Model not recorded"}
-                    {runId ? ` · response ${runId}` : " · no response id"}
+                    {journalModelRunText(view.tech.modelId, view.tech.runId)}
                     {view.tech.timestamp
                       ? ` · ${new Date(view.tech.timestamp).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
                       : ""}
@@ -132,10 +130,7 @@ export function ServDecisionJournal({
             {journal.secondCheck.role === "graph_decide" || journal.secondCheck.role === "graph_fallback"
               ? "Final decision"
               : "Second check"}
-            {journal.secondCheck.modelId ? ` · ${journal.secondCheck.modelId}` : ""}
-            {journal.secondCheck.runId
-              ? ` · response ${journalProviderRunId(journal.secondCheck.runId, journal.secondCheck.modelId)}`
-              : ""}
+            {` · ${journalModelRunText(journal.secondCheck.modelId, journal.secondCheck.runId)}`}
           </p>
         ) : null}
         {reportHash ? (

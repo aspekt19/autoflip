@@ -369,17 +369,37 @@ export function prepareFindDecideGraphRun(
 }
 
 const SLOT_TOKEN = /\bcar_[1-9]\b/g;
+const VIN_TOKEN = /\b[A-HJ-NPR-Z0-9]{17}\b/g;
+
+/** "2017 Toyota Camry ($10,449, 83,000 mi)" — how shopper-facing text names a car instead of a slot or a bare VIN. */
+export function graphCarLabel(row: {
+  year: number;
+  make: string;
+  model: string;
+  priceUsd?: number | null;
+  miles?: number | null;
+}): string {
+  const base = `${row.year} ${row.make} ${row.model}`.replace(/\s+/g, " ").trim();
+  const facts = [
+    row.priceUsd != null && Number.isFinite(row.priceUsd) ? `$${Math.round(row.priceUsd).toLocaleString("en-US")}` : null,
+    row.miles != null && Number.isFinite(row.miles) ? `${Math.round(row.miles).toLocaleString("en-US")} mi` : null,
+  ].filter(Boolean);
+  return facts.length ? `${base} (${facts.join(", ")})` : base;
+}
 
 /**
  * Map a graph answer that names a slot (car_1..car_5) back to the permitted key, from our own map.
  * A key is kept as is. An unknown slot returns null (the answer is invalid; nothing is guessed).
- * Slot mentions in the shopper-facing text are replaced with the key they stand for.
+ * Slot mentions (and bare VINs) in the shopper-facing text are replaced with the car they stand for,
+ * named by year, make, model and price, so a reason never points at a VIN the card does not show.
+ * Without a label the slot falls back to its key.
  */
 export function resolveFindDecideGraphSlots<T extends { decide: unknown; challenge: unknown }>(
   payload: T | null,
   slotToKey: ReadonlyMap<string, string>,
+  labelByKey: ReadonlyMap<string, string> = new Map(),
 ): T | null {
-  if (!payload || slotToKey.size === 0) return payload;
+  if (!payload || (slotToKey.size === 0 && labelByKey.size === 0)) return payload;
   const decide = payload.decide as Record<string, unknown>;
   const pick = typeof decide?.pickKey === "string" ? decide.pickKey.trim() : "";
   let pickKey = pick;
@@ -388,8 +408,16 @@ export function resolveFindDecideGraphSlots<T extends { decide: unknown; challen
     if (!mapped) return null;
     pickKey = mapped;
   }
+  const nameOf = (key: string) => labelByKey.get(key) ?? labelByKey.get(key.toUpperCase()) ?? key;
   const swap = (text: unknown) =>
-    typeof text === "string" ? text.replace(SLOT_TOKEN, (slot) => slotToKey.get(slot) ?? slot) : text;
+    typeof text === "string"
+      ? text
+          .replace(SLOT_TOKEN, (slot) => {
+            const key = slotToKey.get(slot);
+            return key ? nameOf(key) : slot;
+          })
+          .replace(VIN_TOKEN, (vin) => labelByKey.get(vin.toUpperCase()) ?? vin)
+      : text;
   const swapLines = (lines: unknown) =>
     Array.isArray(lines)
       ? lines.map((line) =>

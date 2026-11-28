@@ -3,6 +3,7 @@ import { TtlCache } from "./cache";
 import { monthKey, reserveCall, type MonthlyCounter, type QuotaDecision } from "./quota";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { providerBodyStyleParam } from "@/domain/body-style";
+import { excludeImplausiblyPriced } from "@/domain/find-hard-eligibility";
 import type { Listing, ListingSource } from "@/domain/types";
 import type { ListingQuery } from "./marketcheck";
 import { combineAbortSignals } from "./abort-signal";
@@ -499,7 +500,11 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
 export async function autodevSearch(query: ListingQuery, deps: AutodevDeps): Promise<AutodevResult> {
   const url = listingsSearchUrl(query);
   console.info(`[autodev] listings_search url=${url}`);
-  const result = await cachedGet(url, deps);
+  const fetched = await cachedGet(url, deps);
+  // Placeholder asks ($1, $220) never enter the shopping pool: one choke point for Find, Resale, Radar and MCP.
+  const result = fetched.ok
+    ? { ...fetched, listings: excludeImplausiblyPriced(fetched.listings) }
+    : fetched;
   if (result.ok) {
     console.info(
       `[autodev] listings_search ok cached=${result.cached} count=${result.listings.length} url=${url}`,

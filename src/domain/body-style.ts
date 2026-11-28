@@ -76,3 +76,32 @@ export function modelBodyFamily(model: string | null | undefined): "suv" | "truc
   if (CAR_MODELS.has(key) || CAR_MODELS.has(compact)) return "car";
   return null;
 }
+
+const BODY_LABELS: ReadonlyArray<[RegExp, string]> = [
+  [/\bsedan\b/i, "Sedan"],
+  [/\bcoupe\b|\bcoupé\b/i, "Coupe"],
+  [/\bhatch(?:back)?\b/i, "Hatchback"],
+  [/\bconvertible\b|\bcabriolet\b|\broadster\b/i, "Convertible"],
+  [/\bwagon\b/i, "Wagon"],
+  [/\bminivan\b/i, "Minivan"],
+  [/\bsuv\b|sport utility|\bcrossover\b|\bcuv\b/i, "SUV"],
+  [/\bpick-?up\b|\btruck\b/i, "Pickup"],
+  [/\bvan\b/i, "Van"],
+];
+
+/**
+ * Buyer-facing body label. The feed often tags a sedan `bodyStyle: "Car"` while `style` says "4D Sedan":
+ * show the specific word when either field has it, otherwise the feed's own value. Never guessed from the model.
+ */
+export function buyerBodyLabel(
+  bodyStyle: string | null | undefined,
+  style?: string | null,
+): string | null {
+  for (const raw of [style, bodyStyle]) {
+    const text = raw?.trim();
+    if (!text) continue;
+    for (const [pattern, label] of BODY_LABELS) if (pattern.test(text)) return label;
+  }
+  const own = bodyStyle?.trim() || style?.trim();
+  return own ? own : null;
+}

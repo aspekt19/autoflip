@@ -120,7 +120,7 @@ describe("find prod defects (timeouts + ranking)", () => {
     );
   });
 
-  it("excludes implausible asks under $500 from the pick and surfaces a plain reason", () => {
+  it("excludes implausible asks (placeholder prices) from the pick and surfaces a plain reason", () => {
     const need = explicitNeedFromText("Toyota SUV under 25000", "personal");
     const listings: BestDealListing[] = [
       listing({
@@ -152,7 +152,9 @@ describe("find prod defects (timeouts + ranking)", () => {
       }),
     ];
     expect(isImplausibleAskUsd(59)).toBe(true);
-    expect(isImplausibleAskUsd(500)).toBe(false);
+    expect(isImplausibleAskUsd(999)).toBe(true);
+    expect(isImplausibleAskUsd(1_000)).toBe(false);
+    expect(isImplausibleAskUsd(1_500, 2024, 2026)).toBe(true);
     const result = selectBestDealOnEvidence({ need, listings, receipts: [], nowYear: 2026 });
     const cheap = result.allRanked.find((row) => row.vin === "JTMRWRFV0MD000010");
     expect(cheap?.excludedFromPick).toBe(true);

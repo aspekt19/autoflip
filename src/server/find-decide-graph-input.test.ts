@@ -10,6 +10,7 @@ import {
   findDecideGraphInputVersion,
   findDecideGraphMaxCars,
   prepareFindDecideGraphRun,
+  graphCarLabel,
   resolveFindDecideGraphSlots,
   FIND_DECIDE_GRAPH_INPUT_SCHEMA,
   buildFindDecideGraphInput,
@@ -137,5 +138,37 @@ describe("Find decide graph input", () => {
     expect((out.decide as { reasons: Array<{ text: string }> }).reasons[0]!.text).toBe(`${B} asks less`);
     expect(resolveFindDecideGraphSlots({ ...payload, decide: { pickKey: "car_4" } }, map)).toBeNull();
     expect((resolveFindDecideGraphSlots({ ...payload, decide: { pickKey: A } }, map)!.decide as { pickKey: string }).pickKey).toBe(A);
+  });
+});
+
+describe("graph text names cars, not slots or bare VINs", () => {
+  it("replaces slots and VINs in reasons with year make model, price and miles", () => {
+    const map = new Map([["car_1", A], ["car_2", B]]);
+    const labels = new Map([
+      [A, graphCarLabel({ year: 2022, make: "Toyota", model: "Corolla", priceUsd: 14_449, miles: 42_923 })],
+      [B, graphCarLabel({ year: 2022, make: "Toyota", model: "Corolla", priceUsd: 12_499, miles: 63_334 })],
+    ]);
+    const payload = {
+      decide: {
+        pickKey: "car_1",
+        confidenceWhy: "car_1 has fewer miles than car_2",
+        reasons: [{ text: `Fewer miles than ${B}; the alternative asks less.`, evidenceIds: [] }],
+      },
+      challenge: { agree: true, issues: [] },
+    };
+    const out = resolveFindDecideGraphSlots(payload, map, labels)!;
+    const decide = out.decide as { pickKey: string; confidenceWhy: string; reasons: Array<{ text: string }> };
+    expect(decide.pickKey).toBe(A);
+    expect(decide.confidenceWhy).toBe(
+      "2022 Toyota Corolla ($14,449, 42,923 mi) has fewer miles than 2022 Toyota Corolla ($12,499, 63,334 mi)",
+    );
+    expect(decide.reasons[0]!.text).toBe(
+      "Fewer miles than 2022 Toyota Corolla ($12,499, 63,334 mi); the alternative asks less.",
+    );
+    expect(decide.reasons[0]!.text).not.toContain(B);
+  });
+
+  it("labels a car without price or miles by year make model only", () => {
+    expect(graphCarLabel({ year: 2017, make: "Toyota", model: "Camry" })).toBe("2017 Toyota Camry");
   });
 });

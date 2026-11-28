@@ -298,12 +298,13 @@ export function formatDecisionRecordLine(record: DecisionProofRecord): string {
         }`
       : null;
   if (record.status === "ok") {
+    // A graph decision has two ids: the graph (gr_…, same for every run) and this run. Label both.
     const bits = [
       label,
-      record.servResponseId ? `response ${record.servResponseId}` : null,
-      record.model ? `model ${record.model}` : null,
+      record.graph ? null : record.servResponseId ? `response ${record.servResponseId}` : null,
+      record.graph ? null : record.model ? `model ${record.model}` : null,
       record.graph
-        ? `graph ${record.graph.graphId}${record.graph.runId ? ` run ${record.graph.runId}` : ""}${
+        ? `graph id ${record.graph.graphId} · run id ${record.graph.runId ?? record.servResponseId ?? "not recorded"}${
             record.graph.steps?.length ? ` (${record.graph.steps.length} steps)` : ""
           }`
         : null,

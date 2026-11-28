@@ -7,7 +7,7 @@ import {
   agentSpend,
   agentTrailSteps,
 } from "@/domain/agent-verdict-view";
-import { journalProviderRunId, providerGraphRunId } from "@/domain/serv-response-id";
+import { journalModelRunText, journalProviderRunId, providerGraphRunId } from "@/domain/serv-response-id";
 
 type Props = {
   verdict: AgentVerdict | null | undefined;
@@ -59,7 +59,7 @@ export function AgentDecisionTrail({
       ? providerGraphRunId(second.responseId)
       : journalProviderRunId(second.responseId);
     if (second.profile || secondId) {
-      return ` (${[second.profile, secondId ? `response ${secondId}` : null]
+      return ` (${[second.profile, secondId ? (secondIsGraph ? `run id ${secondId}` : `response ${secondId}`) : null]
         .filter(Boolean)
         .join(" · ")})`;
     }
@@ -200,8 +200,7 @@ export function AgentDecisionTrail({
                 </span>
                 {step.model || responseId || step.recordedAt ? (
                   <p className="hint">
-                    {step.model ? `Model ${step.model}` : "Model not recorded"}
-                    {responseId ? ` · response ${responseId}` : " · no response id"}
+                    {journalModelRunText(step.model, step.responseId)}
                     {step.recordedAt
                       ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
                       : ""}

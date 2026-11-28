@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  excludeImplausiblyPriced,
   filterByFindHardConstraints,
   findEligibilityContextFrom,
+  findHardConstraintRejection,
+  implausiblePriceReason,
   listingMeetsFindHardConstraints,
 } from "./find-hard-eligibility";
 
@@ -75,5 +78,37 @@ describe("listingMeetsFindHardConstraints", () => {
     expect(listingMeetsFindHardConstraints({ ...sedan, priceUsd: null }, ctx)).toBe(true);
     expect(listingMeetsFindHardConstraints({ ...sedan, miles: null }, ctx)).toBe(true);
     expect(listingMeetsFindHardConstraints({ ...sedan, distanceMiles: null }, ctx)).toBe(true);
+  });
+});
+
+describe("price sanity (placeholder asks)", () => {
+  const ctx = findEligibilityContextFrom({ brief });
+  const charger = { ...sedan, vin: "2C3CDXBG5LH000001", year: 2020, make: "Dodge", model: "Charger", priceUsd: 1 };
+  const legacy = { ...sedan, vin: "4S3BWAN67P3000002", year: 2023, make: "Subaru", model: "Legacy", priceUsd: 220 };
+
+  it("rejects a $1 Charger and a $220 2023 Legacy through the one shared rule", () => {
+    expect(findHardConstraintRejection(charger, ctx)).toBe("price_implausible");
+    expect(findHardConstraintRejection(legacy, ctx)).toBe("price_implausible");
+    expect(filterByFindHardConstraints([sedan, charger, legacy], ctx).map((row) => row.vin)).toEqual([sedan.vin]);
+    // Even with no brief at all (no budget, no body): the rule is not tied to a confirmed constraint.
+    expect(findHardConstraintRejection(charger, findEligibilityContextFrom({}))).toBe("price_implausible");
+  });
+
+  it("uses the model year: a recent car under the floor is out, an old cheap car is a real ask", () => {
+    expect(implausiblePriceReason({ priceUsd: 3_000, year: 2024 }, 2026)).toBe("below_floor");
+    expect(implausiblePriceReason({ priceUsd: 1_500, year: 2008 }, 2026)).toBeNull();
+    expect(implausiblePriceReason({ priceUsd: 999, year: 2008 }, 2026)).toBe("placeholder");
+  });
+
+  it("compares with the comp fair value when it is known", () => {
+    expect(implausiblePriceReason({ priceUsd: 2_500, year: 2018, fairValueUsd: 20_000 }, 2026)).toBe("below_comps");
+    expect(implausiblePriceReason({ priceUsd: 14_000, year: 2018, fairValueUsd: 20_000 }, 2026)).toBeNull();
+  });
+
+  it("never rejects an unknown price and never rewrites a price", () => {
+    expect(findHardConstraintRejection({ ...sedan, priceUsd: null }, ctx)).toBeNull();
+    const rows = [sedan, { ...sedan, vin: "X", priceUsd: null }, charger];
+    const kept = excludeImplausiblyPriced(rows);
+    expect(kept.map((row) => row.priceUsd)).toEqual([12_499, null]);
   });
 });
