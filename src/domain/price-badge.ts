@@ -1,6 +1,7 @@
 import { formatUsd } from "./format";
 import { buyerSampleBasis, buyerScopePhrase, listingFeedHistoryNotes } from "./market-comps";
 import { evaluateListingPrice, NOT_ENOUGH_SIMILAR_CARS, type PriceLabel, type PriceTone } from "./price-evaluation";
+import { comparisonIsRough } from "./price-risk";
 import type { Listing, Mode } from "./types";
 
 export type PriceBadge = {
@@ -77,8 +78,14 @@ export function priceBadge(
     };
   }
   const lead = `Compared with ${evaluation.sampleSize} similar ${model} listings.`;
+  const rough =
+    comparisonIsRough(evaluation.sampleSize) && evaluation.fairLowUsd != null && evaluation.fairHighUsd != null
+      ? `Only ${evaluation.sampleSize} similar cars, so treat this as a rough range of ${formatUsd(evaluation.fairLowUsd)} to ${formatUsd(evaluation.fairHighUsd)}.`
+      : null;
   const sampleNote = withFeedHistoryNote(
-    [lead, evaluation.methodNote].filter((part) => part && part.trim()).join(" "),
+    [lead, evaluation.methodNote, rough, evaluation.priceRisk?.text]
+      .filter((part): part is string => Boolean(part && part.trim()))
+      .join(" "),
     subject,
   );
   const peers = buyerScopePhrase("adjusted-similar", subject);

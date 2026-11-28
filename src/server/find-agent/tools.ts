@@ -29,6 +29,7 @@ import {
 } from "@/domain/agent-loop-deadline";
 import {
   autodevSearch,
+  autodevSearchRepresentative,
   autodevZipLookup,
   listingsSearchUrl,
   type AutodevDeps,
@@ -201,6 +202,8 @@ export type FindAgentToolState = {
   searchCenter: { latitude: number; longitude: number; zip: string } | null;
   /** VINs that received a successful vPIC decode this run (strict fuel match). */
   vpicEnrichedVins: Set<string>;
+  /** Dealer ZIP → point, resolved once per run so later searches never lose a distance. */
+  zipPoints: Map<string, Promise<{ latitude: number; longitude: number } | null>>;
 };
 
 export type FindAgentToolDeps = {
@@ -452,7 +455,11 @@ export function findAgentChatTools(): Array<{
       transmission: { type: ["string", "null"] },
       fuel: { type: ["string", "null"] },
       drivetrain: { type: ["string", "null"] },
-      sort: { type: ["string", "null"] },
+      sort: {
+        type: ["string", "null"],
+        description:
+          "Optional: newest | price_high. Omit it for the default, which covers both newest model years and the highest asks within budget. Cheapest-first is not available: that end of the feed is placeholder, down-payment and bait prices.",
+      },
       limit: {
         type: ["number", "null"],
         description: `Page size for this call (max ${LIMIT_MAX}). Omit for default ${LISTING_DEFAULT}.`,
@@ -787,7 +794,17 @@ function rememberListings(state: FindAgentToolState, listings: readonly Listing[
     const vin = row.vin?.trim().toUpperCase();
     if (!vin) continue;
     state.knownVins.add(vin);
-    state.listingsByVin.set(vin, row);
+    const prior = state.listingsByVin.get(vin);
+    // A later search that could not place the car must not erase a distance an earlier one computed.
+    const keepPriorDistance =
+      prior != null &&
+      prior.distanceMiles != null &&
+      Number.isFinite(prior.distanceMiles) &&
+      (row.distanceMiles == null || !Number.isFinite(row.distanceMiles));
+    state.listingsByVin.set(
+      vin,
+      keepPriorDistance ? { ...row, distanceMiles: prior.distanceMiles, radiusCheck: "known" as const } : row,
+    );
   }
 }
 
@@ -1023,6 +1040,7 @@ export function createFindAgentToolState(
     zipGeocodeFailed: false,
     searchCenter: null,
     vpicEnrichedVins: new Set(),
+    zipPoints: new Map(),
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -1329,7 +1347,8 @@ export async function executeFindAgentTool(
 
     const query = toListingQuery({ ...parsed.value, zip: resolvedZip });
     const providerUrl = listingsSearchUrl(query);
-    const search = await autodevSearch(query, autodevDeps);
+    // Representative slice of the market, never the cheapest end alone (see representativeSortsFor).
+    const search = await autodevSearchRepresentative(query, autodevDeps);
     if (!search.ok) {
       if (search.error === "upstream") {
         return {
@@ -1362,13 +1381,19 @@ export async function executeFindAgentTool(
           afterLatLon,
           center,
           async (zip) => {
+            const cached = state.zipPoints.get(zip);
+            if (cached) return cached;
             if (!agentLoopMayStartAutodevCall(deps.deadline)) return null;
-            const dealerLookup = await autodevZipLookup(zip, autodevDeps);
-            if (!dealerLookup.ok) return null;
-            return {
-              latitude: dealerLookup.location.latitude,
-              longitude: dealerLookup.location.longitude,
-            };
+            const pending = autodevZipLookup(zip, autodevDeps).then((dealerLookup) =>
+              dealerLookup.ok
+                ? { latitude: dealerLookup.location.latitude, longitude: dealerLookup.location.longitude }
+                : null,
+            );
+            state.zipPoints.set(zip, pending);
+            const point = await pending;
+            // A failed lookup is not remembered: a later search may try again.
+            if (!point) state.zipPoints.delete(zip);
+            return point;
           },
         ),
         resolvedZip ?? state.shopperFacts.zip,
@@ -1441,6 +1466,11 @@ export async function executeFindAgentTool(
         totalReturned,
         /** Provider rows with a placeholder ask ($1, $220) that were left out; not real offers. */
         placeholderPriceRowsIgnored: search.placeholderPricesDropped ?? 0,
+        /** Which slices of the market this search covered; cheapest-first is never used. */
+        searchStrategy: {
+          sorts: search.searchedSorts ?? [],
+          note: "Rows come from two views of the market inside the budget: newest model years and highest asks still within budget. Cheapest-first is not used because the cheap end is placeholder, down-payment and bait asks.",
+        },
         funnel,
         funnelWouldKeep: funnelKeptCount,
         productFiltersWouldDrop: proxy.productFiltersWouldDrop,

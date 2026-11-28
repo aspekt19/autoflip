@@ -706,3 +706,120 @@ describe("no shortlist (no car) wording", () => {
     expect(journalServUsedLabel(journal)).toBe("no car to decide on");
   });
 });
+
+describe("far-below-market pick and run-on notes (prod check 5)", () => {
+  const vins = ["1NXBR32E15Z100001", "1NXBR32E15Z100002", "1NXBR32E15Z100003", "1NXBR32E15Z100004", "1NXBR32E15Z100005", "1NXBR32E15Z100006"];
+  const BAIT = "2T1BURHE0FC100009";
+  const cheapRows = [
+    ...vins.map((vin, i) =>
+      row(vin, { year: 2020, make: "Toyota", model: "Corolla", priceUsd: 11_400 + i * 60, miles: 40_000 + i * 900, accidentCount: 0 }),
+    ),
+    row(BAIT, { year: 2020, make: "Toyota", model: "Corolla", priceUsd: 2_495, miles: 41_000, accidentCount: null }),
+  ];
+  const mappedBait = (action: "buy" | "negotiate" = "buy") =>
+    mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 3,
+        verdictReached: true,
+        verdict: {
+          summary: "Corolla.",
+          confidence: "high",
+          picks: [{ vin: BAIT, label: "2020 Toyota Corolla", action, offerUsd: 2_300, why: "cheapest" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(cheapRows.map((l) => [l.vin, l])),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+
+  /** A graph that always picks the BAIT car with Buy / High, whatever slot it was given. */
+  function baitPickingFetch() {
+    let sent: { cars: Array<{ slot: string; key: string; listing_text: string | null }>; evidence_records: Array<{ id: string; content: string }> } | null = null;
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      sent = JSON.parse(body.instructions);
+      const slot = sent!.cars.find((c) => c.key === BAIT)!.slot;
+      return new Response(
+        JSON.stringify({
+          output_text: `Pick: ${slot}\nAction: buy\nConfidence: high\nReview: kept\nCheapest by far with miles in range\nEvidence: car:${BAIT}`,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json", "x-openserv-request-id": "run_bait" } },
+      );
+    });
+    return { fetchImpl: fetchImpl as unknown as typeof fetch, sent: () => sent };
+  }
+
+  it("shows the graph the named price risk, then caps the graph's Buy at inspect first / Low", async () => {
+    const mapped = mappedBait();
+    const { fetchImpl, sent } = baitPickingFetch();
+    const out = await runFindGraphDecide({
+      need,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: [...mapped.offerPool, ...cheapRows.filter((l) => l.vin !== BAIT)] as never,
+      servKey: "k",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    const input = sent()!;
+    const baitCar = input.cars.find((c) => c.key === BAIT)!;
+    expect(baitCar.listing_text).toMatch(/PRICE RISK: .*salvage or rebuilt title/);
+    expect(input.evidence_records.find((r) => r.id === `ask:${BAIT}`)?.content).toMatch(/PRICE RISK/);
+    // The graph still chose the car; code made it unsafe to read as a buy.
+    expect(out.decidedBy).toBe("graph");
+    expect(out.agentVerdict.pick?.key).toBe(BAIT);
+    expect(out.agentVerdict.verdict).toBe("needs_inspection");
+    expect(out.agentVerdict.confidence).toBe("low");
+    expect(out.graphFinal?.action).toBe("inspect_first");
+    expect(out.graphFinal?.confidence).toBe("low");
+  });
+
+  it("separates the cap note from the reason with an end mark", async () => {
+    const mapped = mappedBait();
+    const { fetchImpl } = baitPickingFetch();
+    const out = await runFindGraphDecide({
+      need,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: [...mapped.offerPool, ...cheapRows.filter((l) => l.vin !== BAIT)] as never,
+      servKey: "k",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    const why = out.agentVerdict.serv_steps.at(-1)!.why ?? "";
+    expect(why).toMatch(/Sent the top 5 of 7 shortlisted cars\./);
+    expect(why).not.toMatch(/[^.!?)] Sent the top/);
+    expect(why).not.toMatch(/[^.!?)] The search loop|[^.!?)] Code /);
+  });
+
+  it("the loop's own pick passes the same guard when the graph cannot decide", async () => {
+    const mapped = mappedBait();
+    const { fetchImpl } = graphFetch({ output_text: "garbage" });
+    const out = await runFindGraphDecide({
+      need,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: [...mapped.offerPool, ...cheapRows.filter((l) => l.vin !== BAIT)] as never,
+      servKey: "k",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    expect(out.decidedBy).toBe("fallback");
+    expect(out.agentVerdict.verdict).toBe("needs_inspection");
+    expect(out.agentVerdict.confidence).toBe("low");
+  });
+});

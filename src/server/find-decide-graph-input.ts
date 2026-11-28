@@ -77,6 +77,7 @@ function fairRange(row: Row): string | null {
 function listingText(row: Row): string | null {
   const bits: string[] = [];
   const label = carLabel(row);
+  if (row.priceRisk) bits.push(`PRICE RISK: ${row.priceRisk}`);
   if (label) bits.push(label);
   if (row.fuel) bits.push(`fuel ${row.fuel}`);
   if (row.cpo === true) bits.push("certified pre-owned");
@@ -104,10 +105,12 @@ function evidenceContent(id: string, rows: Map<string, Row>): string {
         return `${facts.join("; ")}.`;
       }
       case "ask":
-        return usd(row.askUsd) ? `${label} asks ${usd(row.askUsd)}.` : `${label}: asking price unknown.`;
+        return usd(row.askUsd)
+          ? `${label} asks ${usd(row.askUsd)}.${row.priceRisk ? ` PRICE RISK: ${row.priceRisk}` : ""}`
+          : `${label}: asking price unknown.`;
       case "fair":
         return usd(row.fairValueUsd)
-          ? `${label}: fair value ${usd(row.fairValueUsd)}${fairRange(row) ? `, fair range ${fairRange(row)}` : ""}.`
+          ? `${label}: fair value ${usd(row.fairValueUsd)}${fairRange(row) ? `, fair range ${fairRange(row)}` : ""}${num(row.compCount) != null && (row.compCount as number) < 5 ? `, from only ${row.compCount} similar cars (rough)` : ""}.`
           : `${label}: no fair value; the price could not be compared with enough similar cars.`;
       case "comps":
         return num(row.compCount) != null

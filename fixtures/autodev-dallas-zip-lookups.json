@@ -1,0 +1,51 @@
+{
+ "75069": {
+  "zip": "75069",
+  "city": "Mckinney",
+  "state": "TX",
+  "latitude": 33.17928,
+  "longitude": -96.61507
+ },
+ "75201": {
+  "zip": "75201",
+  "city": "Dallas",
+  "state": "TX",
+  "latitude": 32.787773,
+  "longitude": -96.800865
+ },
+ "75216": {
+  "zip": "75216",
+  "city": "Dallas",
+  "state": "TX",
+  "latitude": 32.70948,
+  "longitude": -96.796776
+ },
+ "75229": {
+  "zip": "75229",
+  "city": "Dallas",
+  "state": "TX",
+  "latitude": 32.89699,
+  "longitude": -96.86188
+ },
+ "75243": {
+  "zip": "75243",
+  "city": "Dallas",
+  "state": "TX",
+  "latitude": 32.91057,
+  "longitude": -96.72765
+ },
+ "76051": {
+  "zip": "76051",
+  "city": "Grapevine",
+  "state": "TX",
+  "latitude": 32.930664,
+  "longitude": -97.09403
+ },
+ "76103": {
+  "zip": "76103",
+  "city": "Fort Worth",
+  "state": "TX",
+  "latitude": 32.746178,
+  "longitude": -97.26243
+ }
+}

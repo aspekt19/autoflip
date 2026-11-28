@@ -205,7 +205,8 @@ describe("synthetic deals", () => {
   it("calls a cheap low-mile car a good deal and an expensive one a walk-away", () => {
     const cheap = buildComputedReport({
       mode: "personal",
-      subject: car({ vin: "SUBJCHEAP00000000", priceUsd: 12_000, miles: 20_000 }),
+      // 75% of the $20k comparison: a real discount. 60% or less is flagged as too good to be true (see price-risk.ts).
+      subject: car({ vin: "SUBJCHEAP00000000", priceUsd: 15_000, miles: 20_000 }),
       candidates: peers,
       recalls: [],
       recallsAvailable: true,

@@ -161,9 +161,9 @@ export function buyerDistanceText(input: {
   distanceMiles?: number | null;
   radiusCheck?: RadiusCheck | null;
 }): string {
-  if (input.radiusCheck === "unverified") return "unverified";
+  if (input.radiusCheck === "unverified") return "distance unknown";
   if (typeof input.distanceMiles === "number" && Number.isFinite(input.distanceMiles)) {
     return `${Math.round(input.distanceMiles)} mi away`;
   }
-  return "unverified";
+  return "distance unknown";
 }

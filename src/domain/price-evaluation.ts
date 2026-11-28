@@ -20,6 +20,7 @@ import { priceGap, rankAgainstAdjusted } from "./comparables";
 import { roundDollars } from "./stats";
 import type { Listing, Mode, Verdict } from "./types";
 import { verdictFromPriceGap } from "./verdict";
+import { priceRiskFor, type PriceRisk } from "./price-risk";
 
 export const NOT_ENOUGH_SIMILAR_CARS = "Not enough similar cars" as const;
 
@@ -27,6 +28,8 @@ export type PriceLabel =
   | "Good price"
   | "Fair price"
   | "High price"
+  /** Ask far below the comparison: never badged as a good price (possible salvage, down payment or bait). */
+  | "Unusually low price"
   /** Ranking held price neutral — card figure must not read as a scored GOOD PRICE. */
   | "Good price (ranking provisional)"
   | "Fair price (ranking provisional)"
@@ -50,6 +53,8 @@ export type PriceEvaluation = {
   deltaUsd: number | null;
   sampleSize: number;
   methodNote: string;
+  /** Set when the ask is too far below the comparison to be a normal discount. */
+  priceRisk?: PriceRisk | null;
   blockReason: AdjustedComparableSet["blockReason"];
   /** 0–1 rank of the asking price among adjusted similar listings. */
   percentile01: number | null;
@@ -107,8 +112,21 @@ export function evaluateAdjustedPrice(input: {
   const gap = priceGap(asking, set.fairMidUsd);
   if (gap === null) return withheld(NOT_ENOUGH_SIMILAR_CARS, set.blockReason ?? "count");
   const verdict = verdictFromPriceGap(gap);
-  const label: PriceLabel = verdict === "good_deal" ? "Good price" : verdict === "fair" ? "Fair price" : "High price";
-  const tone: PriceTone = verdict === "good_deal" ? "good" : verdict === "fair" ? "fair" : "high";
+  const priceRisk = priceRiskFor({ priceUsd: asking, fairValueUsd: set.fairMidUsd, compCount: sampleSize });
+  const label: PriceLabel = priceRisk
+    ? "Unusually low price"
+    : verdict === "good_deal"
+      ? "Good price"
+      : verdict === "fair"
+        ? "Fair price"
+        : "High price";
+  const tone: PriceTone = priceRisk
+    ? "unknown"
+    : verdict === "good_deal"
+      ? "good"
+      : verdict === "fair"
+        ? "fair"
+        : "high";
   const pct = rankAgainstAdjusted(
     asking,
     set.cars.map((car) => car.adjustedUsd),
@@ -125,6 +143,7 @@ export function evaluateAdjustedPrice(input: {
     deltaUsd: roundDollars(asking - set.fairMidUsd),
     sampleSize,
     methodNote: set.methodNote,
+    priceRisk,
     blockReason: null,
     percentile01: pct == null ? null : pct / 100,
     set,
