@@ -83,7 +83,8 @@ export function providerGraphRunId(raw: string | null | undefined): string | nul
 /** True when this model/step is a SERV graph run (run ids may be UUIDs). */
 export function isGraphModelId(modelId: string | null | undefined): boolean {
   if (typeof modelId !== "string") return false;
-  return /(?:^|\b)graph:/i.test(modelId.trim()) || /^graph$/i.test(modelId.trim());
+  const id = modelId.trim();
+  return /(?:^|\b)graph:/i.test(id) || /^graph$/i.test(id) || /^find_graph_/i.test(id);
 }
 
 /**

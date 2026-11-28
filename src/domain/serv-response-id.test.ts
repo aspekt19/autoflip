@@ -82,5 +82,7 @@ describe("providerGraphRunId", () => {
     expect(journalProviderRunId(graphUuid, "graph:gr_28beee6b8bffe5a9")).toBe(graphUuid);
     expect(journalProviderRunId(graphUuid, "gpt-6-luna")).toBeNull();
     expect(journalProviderRunId("run_chk1", "graph:gr_check")).toBe("run_chk1");
+    expect(isGraphModelId("find_graph_decide")).toBe(true);
+    expect(journalProviderRunId(graphUuid, "find_graph_decide")).toBe(graphUuid);
   });
 });

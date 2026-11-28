@@ -7,6 +7,8 @@ import {
   formatJournalOriginMarker,
   formatJournalSecondCheckSentences,
   formatJournalStepSentences,
+  journalIntroFor,
+  journalServUsedLabel,
   JOURNAL_BANNED_JARGON,
   journalMainText,
   journalMainTextViolations,
@@ -366,5 +368,17 @@ describe("serv-decision-journal-copy", () => {
     });
     expect(second).toMatch(/Decided by the SERV graph/);
     expect(second).not.toMatch(/Our review graph/);
+  });
+
+  it("uses the graph-decide intro and labels instead of second-check leftovers", () => {
+    const intro = journalIntroFor({ secondCheck: { role: "graph_decide" } });
+    expect(intro).toMatch(/review graph makes the final decision/i);
+    expect(intro).not.toMatch(/second review has to agree/i);
+    expect(journalServUsedLabel({ servUsed: true, secondCheck: { role: "graph_decide" } })).toBe(
+      "the review graph decided",
+    );
+    expect(journalServUsedLabel({ servUsed: true, secondCheck: { role: "graph_fallback" } })).toBe(
+      "the search loop's pick was published",
+    );
   });
 });

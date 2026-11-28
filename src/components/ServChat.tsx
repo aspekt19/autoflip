@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ServChatMessage } from "@/domain/serv-chat";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
+import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 
 export type ServChatDonePayload = {
   sessionId: string;
@@ -83,6 +84,9 @@ export function ServChat({
       };
       if (typeof body.sessionId === "string") setSessionId(body.sessionId);
       if (Array.isArray(body.messages)) setMessages(body.messages);
+      if (typeof body.balance === "number" && Number.isFinite(body.balance)) {
+        publishCreditBalance(body.balance);
+      }
       if (body.status === "brief" && body.brief) setBrief(body.brief);
       else if (body.status !== "ask") setBrief(null);
 
@@ -100,6 +104,7 @@ export function ServChat({
 
       if (body.status === "done" && body.result) {
         setBrief(null);
+        void refreshPublishedCreditBalance();
         onDone({
           sessionId: body.sessionId || sessionId || "",
           messages: Array.isArray(body.messages) ? body.messages : messages,

@@ -143,6 +143,9 @@ export type BestDealCandidate = {
   ncapOverall?: number | null;
   distanceMiles?: number | null;
   radiusCheck?: "unverified" | "known" | null;
+  bodyStyle?: string | null;
+  style?: string | null;
+  titleBrand?: string | null;
   /** Present only when the pick came from submit_picks structured fields. */
   structuredOffer?: { openingOffer: number | null; walkAway: number | null } | null;
 };
@@ -1311,6 +1314,8 @@ function scoreOne(
       : null,
     ncapOverall,
     distanceMiles: typeof row.distanceMiles === "number" ? row.distanceMiles : null,
+    bodyStyle: row.bodyStyle ?? null,
+    style: row.style ?? null,
   };
 }
 

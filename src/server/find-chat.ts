@@ -41,6 +41,7 @@ import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
 import { formatShopperBriefCard } from "@/domain/shopper-brief";
 import { sourceAttemptsFromEvidenceRows } from "@/domain/normalized-vehicle";
 import { clipBuyerText } from "@/domain/normalized-vehicle";
+import { findEligibilityContextFrom } from "@/domain/find-hard-eligibility";
 
 export type FindChatSession = {
   sessionId: string;
@@ -108,15 +109,22 @@ const FIND_CHAT_ROUTE_CAP_MS = 285_000;
 function needFromChat(
   transcript: string,
   facts: { budgetUsd: number | null; zip: string | null; radiusMi: number | null },
+  brief?: import("@/domain/shopper-brief").ShopperBrief | null,
 ): StructuredNeed {
   const need = emptyNeed("personal");
+  const eligibility = findEligibilityContextFrom({ need: null, brief: brief ?? null });
+  const budget = facts.budgetUsd ?? eligibility.budgetUsd ?? null;
   return {
     ...need,
     note: transcript,
-    budgetUsd: facts.budgetUsd,
-    budgetKnown: facts.budgetUsd != null,
-    zip: facts.zip,
-    distanceMiles: facts.radiusMi,
+    budgetUsd: budget,
+    budgetKnown: budget != null,
+    zip: facts.zip ?? brief?.zip ?? null,
+    distanceMiles: facts.radiusMi ?? brief?.radiusMi ?? eligibility.maxRadiusMi ?? null,
+    bodyStyle: (eligibility.bodyStyle as StructuredNeed["bodyStyle"]) ?? null,
+    milesMax: eligibility.milesMax ?? null,
+    yearMin: eligibility.yearMin ?? null,
+    yearMax: eligibility.yearMax ?? null,
   };
 }
 
@@ -479,7 +487,7 @@ export async function runFindChatTurn(input: {
   }
 
   const mappedLoop = mapFindAgentLoopToDecide({ agent });
-  const need = needFromChat(transcript, agent.shopperFacts);
+  const need = needFromChat(transcript, agent.shopperFacts, session.confirmedBrief);
   // SERV graph is the primary final decider (SERV_GRAPH_FIND_DECIDE_ID). Off or failed → loop pick, with an honest fallback reason.
   // Not charged: the delivered Find result already carries its one credit (see find-graph-decide).
   const graphCheck = await runFindGraphDecide({
@@ -488,6 +496,8 @@ export async function runFindChatTurn(input: {
     agentVerdict: mappedLoop.agentVerdict,
     shortlistKeys: mappedLoop.shortlistKeys,
     marketPool: mappedLoop.offerPool,
+    brief: session.confirmedBrief,
+    eligibility: findEligibilityContextFrom({ need, brief: session.confirmedBrief }),
     servKey: input.servKey,
     servBaseUrl: input.servBaseUrl,
     fetchImpl,

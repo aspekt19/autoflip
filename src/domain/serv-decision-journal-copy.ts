@@ -453,6 +453,27 @@ export function journalStepViews(steps: readonly ServDecisionStep[]): JournalSte
 export const JOURNAL_INTRO =
   "The prices come from the listings in this search. A second review has to agree, or we say so.";
 
+/** Intro when the Find review graph is the final decider (not a second check). */
+export const JOURNAL_INTRO_GRAPH_DECIDE =
+  "The search loop gathered the listings and facts. The review graph makes the final decision. If the graph cannot run, we publish the search loop's tentative pick and say so.";
+
+export function journalIntroFor(journal: { secondCheck?: { role?: string | null } | null }): string {
+  const role = journal.secondCheck?.role;
+  if (role === "graph_decide" || role === "graph_fallback") return JOURNAL_INTRO_GRAPH_DECIDE;
+  return JOURNAL_INTRO;
+}
+
+export function journalServUsedLabel(journal: {
+  servUsed: boolean;
+  secondCheck?: { role?: string | null } | null;
+}): string | null {
+  if (!journal.servUsed) return "calculated checks only";
+  const role = journal.secondCheck?.role;
+  if (role === "graph_decide") return "the review graph decided";
+  if (role === "graph_fallback") return "the search loop's pick was published";
+  return "a review step ran";
+}
+
 /** Concatenated main-view text for tests and scrubbing (includes origin markers). */
 export function journalMainText(journal: ServDecisionJournalView): string {
   const parts = [

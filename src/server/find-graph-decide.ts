@@ -40,6 +40,12 @@ import {
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import type { StructuredNeed } from "@/domain/need";
 import type { Listing } from "@/domain/types";
+import type { ShopperBrief } from "@/domain/shopper-brief";
+import {
+  findEligibilityContextFrom,
+  listingMeetsFindHardConstraints,
+  type FindEligibilityContext,
+} from "@/domain/find-hard-eligibility";
 import {
   buildDecisionProofRecord,
   VERDICT_RUBRIC_ID,
@@ -134,6 +140,8 @@ export type ExecuteFindDecideGraphInput = {
   shortlistKeys: readonly string[];
   marketPool: readonly Listing[];
   receipts?: readonly FindFreeGovReceipt[];
+  brief?: ShopperBrief | null;
+  eligibility?: FindEligibilityContext | null;
   /** Prefer this key when capping the shortlist (the loop's tentative pick). */
   preferredKey?: string | null;
   servKey: string | null | undefined;
@@ -158,17 +166,47 @@ export function capFindDecideGraphPeers(input: {
   maxCars: number;
   need?: StructuredNeed;
   marketPool?: readonly Listing[];
+  brief?: ShopperBrief | null;
+  eligibility?: FindEligibilityContext | null;
 }): { peers: BestDealCandidate[]; shortlistKeys: string[]; shortlistCapped: GraphShortlistCap | null } {
   const preferred = input.preferredKey?.trim().toUpperCase() || null;
+  const eligibility =
+    input.eligibility ??
+    findEligibilityContextFrom({ need: input.need ?? null, brief: input.brief ?? null });
+  const poolByVin = new Map(
+    (input.marketPool ?? [])
+      .filter((row) => row.vin?.trim())
+      .map((row) => [row.vin!.trim().toUpperCase(), row] as const),
+  );
+  const eligibleRow = (row: BestDealCandidate | undefined): BestDealCandidate | undefined => {
+    if (!row || row.excludedFromPick) return undefined;
+    const listing = poolByVin.get(row.key.toUpperCase()) ?? poolByVin.get((row.vin ?? "").toUpperCase());
+    const facts = {
+      vin: row.vin,
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      bodyStyle: row.bodyStyle ?? listing?.bodyStyle ?? null,
+      style: row.style ?? listing?.style ?? null,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      distanceMiles: row.distanceMiles ?? listing?.distanceMiles ?? null,
+      accidentCount: row.accidentCount ?? listing?.accidentCount ?? null,
+      titleBrand: row.titleBrand ?? listing?.titleBrand ?? null,
+      usageType: row.usageType ?? listing?.usageType ?? null,
+    };
+    return listingMeetsFindHardConstraints(facts, eligibility) ? row : undefined;
+  };
   const rankedByKey = new Map(
     [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked].map((row) => [row.key, row]),
   );
   const seen = new Set<string>();
   const all: BestDealCandidate[] = [];
   const push = (row: BestDealCandidate | undefined) => {
-    if (!row || seen.has(row.key)) return;
-    seen.add(row.key);
-    all.push(row);
+    const eligible = eligibleRow(row);
+    if (!eligible || seen.has(eligible.key)) return;
+    seen.add(eligible.key);
+    all.push(eligible);
   };
   if (preferred) push(rankedByKey.get(preferred) ?? rankedByKey.get(preferred.toUpperCase()));
   for (const key of input.shortlistKeys) {
@@ -176,34 +214,34 @@ export function capFindDecideGraphPeers(input: {
     push(rankedByKey.get(key) ?? rankedByKey.get(normalized));
   }
   const codeRank = new Map(input.bestDeal.ranked.map((row, index) => [row.key, index]));
-  for (const row of input.bestDeal.ranked) {
-    if (row.excludedFromPick) continue;
-    push(row);
-  }
-  for (const row of input.bestDeal.allRanked ?? []) {
-    if (row.excludedFromPick) continue;
-    push(row);
-  }
-  if (all.length < input.maxCars && input.need && input.marketPool && input.marketPool.length > 0) {
+  for (const row of input.bestDeal.ranked) push(row);
+  for (const row of input.bestDeal.allRanked ?? []) push(row);
+  const eligiblePool = (input.marketPool ?? []).filter((row) => listingMeetsFindHardConstraints(row, eligibility));
+  if (all.length < input.maxCars && input.need && eligiblePool.length > 0) {
     const fromPool = selectBestDealOnEvidence({
       need: input.need,
-      listings: input.marketPool,
-      marketPool: input.marketPool,
+      listings: eligiblePool,
+      marketPool: eligiblePool,
       nowYear: new Date().getFullYear(),
       shortlistMax: Math.max(input.maxCars, 5),
     });
-    for (const row of [...fromPool.ranked, ...(fromPool.allRanked ?? [])]) {
-      if (row.excludedFromPick) continue;
-      push(row);
-    }
+    for (const row of [...fromPool.ranked, ...(fromPool.allRanked ?? [])]) push(row);
   }
   const rankOf = (row: BestDealCandidate) =>
     preferred && row.key.toUpperCase() === preferred ? -1 : (codeRank.get(row.key) ?? Number.MAX_SAFE_INTEGER);
   const ordered = [...all].sort((a, b) => rankOf(a) - rankOf(b) || a.key.localeCompare(b.key));
   const peers = ordered.slice(0, input.maxCars);
   const cutKeys = ordered.slice(input.maxCars).map((row) => row.key);
+  const eligibleCount = new Set([
+    ...ordered.map((row) => row.key.toUpperCase()),
+    ...eligiblePool.map((row) => (row.vin ?? "").trim().toUpperCase()).filter(Boolean),
+  ]).size;
   const shortlistCapped =
-    cutKeys.length > 0 ? { from: ordered.length, to: peers.length, cutKeys } : null;
+    eligibleCount > peers.length
+      ? { from: eligibleCount, to: peers.length, cutKeys }
+      : cutKeys.length > 0
+        ? { from: ordered.length, to: peers.length, cutKeys }
+        : null;
   return { peers, shortlistKeys: peers.map((row) => row.key), shortlistCapped };
 }
 
@@ -241,6 +279,8 @@ export async function executeValidatedFindDecideGraph(
     maxCars,
     need: input.need,
     marketPool: input.marketPool,
+    brief: input.brief,
+    eligibility: input.eligibility,
   });
   if (capped.peers.length === 0) return empty("no shortlist to decide on", { ...capped });
 
@@ -378,6 +418,8 @@ export async function runFindGraphDecide(input: {
   shortlistKeys: readonly string[];
   marketPool: readonly Listing[];
   receipts?: readonly FindFreeGovReceipt[];
+  brief?: ShopperBrief | null;
+  eligibility?: FindEligibilityContext | null;
   servKey: string | null | undefined;
   servBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -392,6 +434,8 @@ export async function runFindGraphDecide(input: {
     shortlistKeys: input.shortlistKeys,
     marketPool: input.marketPool,
     receipts: input.receipts,
+    brief: input.brief,
+    eligibility: input.eligibility,
     preferredKey: loopPickKey,
     servKey: input.servKey,
     servBaseUrl: input.servBaseUrl,
@@ -461,21 +505,23 @@ export async function runFindGraphDecide(input: {
         second_pass: secondPass,
         serv_steps: [...input.agentVerdict.serv_steps, trailStep],
       },
-      bestDeal: executed.peers.length
-        ? {
-            ...input.bestDeal,
-            ranked: uniqueByKey([
-              ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
-              ...executed.peers,
-              ...input.bestDeal.ranked,
-            ]),
-            allRanked: uniqueByKey([
-              ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
-              ...executed.peers,
-              ...(input.bestDeal.allRanked ?? input.bestDeal.ranked),
-            ]),
-          }
-        : input.bestDeal,
+      bestDeal: (() => {
+        const { ctx, pool } = eligibilityFor(input);
+        const keep = (rows: BestDealCandidate[]) =>
+          uniqueByKey(rows.filter((row) => candidateMeetsHardConstraints(row, ctx, pool)));
+        const next = keep([
+          ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
+          ...executed.peers,
+          ...input.bestDeal.ranked,
+        ]);
+        const nextAll = keep([
+          ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
+          ...executed.peers,
+          ...(input.bestDeal.allRanked ?? input.bestDeal.ranked),
+        ]);
+        if (next.length === 0 && nextAll.length === 0) return input.bestDeal;
+        return { ...input.bestDeal, ranked: next.length ? next : input.bestDeal.ranked, allRanked: nextAll.length ? nextAll : input.bestDeal.allRanked };
+      })(),
       secondPass,
       proofRecords,
       graph: executed.meta,
@@ -514,15 +560,35 @@ export async function runFindGraphDecide(input: {
     secondCheckMissed: false,
   });
   decide = { ...decide, confidence: published.confidence, action: published.action };
+  if (
+    (decide.action === "buy" || decide.action === "negotiate") &&
+    typeof chosen.accidentCount === "number" &&
+    chosen.accidentCount > 0
+  ) {
+    decide = {
+      ...decide,
+      action: "inspect_first",
+      reasons: [
+        ...decide.reasons,
+        {
+          text: "Code capped the action at inspect first because this listing reports an accident.",
+          evidenceIds: [`car:${chosen.key}`],
+        },
+      ],
+    };
+  }
   decide = ensureHonestUnknownFairValueReason(
     decide,
     pickReport.fairValueUsd ?? null,
     pickReport.compSampleSize ?? pickReport.comps.length,
   );
+  const { ctx: eligibilityCtx, pool: eligibilityPool } = eligibilityFor(input);
+  const keepEligible = (rows: BestDealCandidate[]) =>
+    uniqueByKey(rows.filter((row) => row.key === chosen.key || candidateMeetsHardConstraints(row, eligibilityCtx, eligibilityPool)));
   const withPick: BestDealResult = {
     ...input.bestDeal,
-    ranked: uniqueByKey([chosen, ...executed.peers, ...input.bestDeal.ranked]),
-    allRanked: uniqueByKey([chosen, ...executed.peers, ...(input.bestDeal.allRanked ?? input.bestDeal.ranked)]),
+    ranked: keepEligible([chosen, ...executed.peers, ...input.bestDeal.ranked]),
+    allRanked: keepEligible([chosen, ...executed.peers, ...(input.bestDeal.allRanked ?? input.bestDeal.ranked)]),
     evidenceSettled: true,
     settlementNote: "Public checks and the decision are finished.",
   };
@@ -546,7 +612,7 @@ export async function runFindGraphDecide(input: {
   const pickLabel = carLabel(chosen, decide.pickKey);
   const stepCount = executed.meta.steps?.length ?? null;
   const runId = providerGraphRunId(executed.meta.runId ?? executed.meta.responseId);
-  const who = "Decided by the SERV graph.";
+  const who = "Decided by the review graph.";
   const comparison =
     loopPickKey && !(samePick && sameAction)
       ? ` The search loop's tentative pick was the ${loopLabel}${
@@ -660,6 +726,44 @@ export function ensureHonestUnknownFairValueReason(
     ...decide,
     reasons: [...decide.reasons, { text: sentence, evidenceIds: [`car:${decide.pickKey}`] }],
   };
+}
+
+
+function eligibilityFor(input: {
+  need?: StructuredNeed;
+  brief?: ShopperBrief | null;
+  eligibility?: FindEligibilityContext | null;
+  marketPool?: readonly Listing[];
+}): { ctx: FindEligibilityContext; pool: readonly Listing[] } {
+  return {
+    ctx: input.eligibility ?? findEligibilityContextFrom({ need: input.need ?? null, brief: input.brief ?? null }),
+    pool: input.marketPool ?? [],
+  };
+}
+
+function candidateMeetsHardConstraints(
+  row: BestDealCandidate,
+  ctx: FindEligibilityContext,
+  pool: readonly Listing[],
+): boolean {
+  const listing = pool.find((item) => (item.vin ?? "").toUpperCase() === row.key.toUpperCase() || item.vin === row.vin);
+  return listingMeetsFindHardConstraints(
+    {
+      vin: row.vin,
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      bodyStyle: row.bodyStyle ?? listing?.bodyStyle ?? null,
+      style: row.style ?? listing?.style ?? null,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      distanceMiles: row.distanceMiles ?? listing?.distanceMiles ?? null,
+      accidentCount: row.accidentCount ?? listing?.accidentCount ?? null,
+      titleBrand: row.titleBrand ?? listing?.titleBrand ?? null,
+      usageType: row.usageType ?? listing?.usageType ?? null,
+    },
+    ctx,
+  );
 }
 
 function uniqueByKey(rows: BestDealCandidate[]): BestDealCandidate[] {

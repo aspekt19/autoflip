@@ -156,11 +156,11 @@ describe("Find graph as the primary final decider", () => {
     expect(out.agentVerdict.confidence).toBe("medium");
     expect(out.bestDeal.pick?.key).toBe(A);
     expect(out.secondPass.profile).toBe(FIND_GRAPH_DECIDE_PROFILE);
-    expect(out.secondPass.objection).toMatch(/^Decided by the SERV graph/);
+    expect(out.secondPass.objection).toMatch(/^Decided by the review graph/);
     expect(out.secondPass.objection).toMatch(/tentative pick/);
     expect(out.secondPass.responseId).toBe("run_chk1");
     const last = out.agentVerdict.serv_steps.at(-1)!;
-    expect(last.decided).toBe("Decided by the SERV graph.");
+    expect(last.decided).toBe("Decided by the review graph.");
     expect(last.why).toMatch(/3 steps/);
     expect(last.model).toBe("graph:gr_check");
     expect(last.responseId).toBe("run_chk1");
@@ -350,12 +350,13 @@ describe("Find graph as the primary final decider", () => {
     expect(mapped.bestDeal.allRanked.length).toBeGreaterThan(1);
     expect(mapped.offerPool.length).toBe(listings.length);
 
+    const poolNeed = { ...need, yearMin: null, milesMax: 120_000 } as typeof need;
     const capped = capFindDecideGraphPeers({
       shortlistKeys: mapped.shortlistKeys,
       bestDeal: mapped.bestDeal,
       preferredKey: pickVin,
       maxCars: 5,
-      need,
+      need: poolNeed,
       marketPool: mapped.offerPool,
     });
     expect(capped.peers.length).toBeGreaterThan(1);
@@ -420,7 +421,7 @@ describe("Find graph as the primary final decider", () => {
       );
     }) as unknown as typeof fetch;
     const out = await runFindGraphDecide({
-      need,
+      need: { ...need, yearMin: null, milesMax: 120_000 } as typeof need,
       bestDeal: mapped.bestDeal,
       agentVerdict: mapped.agentVerdict,
       shortlistKeys: mapped.shortlistKeys,
@@ -492,5 +493,135 @@ describe("ensureHonestUnknownFairValueReason", () => {
       1,
     );
     expect(out.reasons.some((row) => /fair value is unavailable/i.test(row.text))).toBe(true);
+  });
+});
+
+describe("graph shortlist hard constraints and accident action", () => {
+  const sedanNeed = { ...need, bodyStyle: "Sedan", milesMax: 100_000, budgetUsd: 22_000, budgetKnown: true, distanceMiles: 50 } as typeof need;
+  const jeepVin = "1C4RJEBG3LC366749";
+  const sedanVin = A;
+  const listingsPlusJeep = [
+    ...listings,
+    row(jeepVin, { year: 2020, make: "Jeep", model: "Grand Cherokee", priceUsd: 13995, miles: 99131, bodyStyle: "SUV", style: "SUV" }),
+  ];
+
+  it("never sends an ineligible SUV to the graph or into displayed alternatives, and counts only eligible cars", async () => {
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 6,
+        verdictReached: true,
+        verdict: {
+          summary: "Accord first.",
+          confidence: "medium",
+          picks: [{ vin: sedanVin, label: "2020 Honda Accord", action: "inspect_first", offerUsd: null, why: "clean" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map(listingsPlusJeep.map((l) => [l.vin, l])),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const brief = {
+      summary: "sedan",
+      budget: { maxUsd: 22_000, userQuote: "22k" },
+      zip: "75201",
+      radiusMi: 50,
+      notes: null,
+      hardConstraints: [{ key: "body", value: "sedan" }],
+    };
+    const capped = capFindDecideGraphPeers({
+      shortlistKeys: mapped.shortlistKeys,
+      bestDeal: mapped.bestDeal,
+      preferredKey: sedanVin,
+      maxCars: 5,
+      need: sedanNeed,
+      marketPool: mapped.offerPool,
+      brief,
+    });
+    expect(capped.shortlistKeys).toContain(sedanVin);
+    expect(capped.shortlistKeys).not.toContain(jeepVin);
+    expect(capped.peers.every((row) => row.make !== "Jeep")).toBe(true);
+    if (capped.shortlistCapped) {
+      expect(capped.shortlistCapped.from).toBeLessThan(mapped.offerPool.length + mapped.bestDeal.allRanked.length);
+    }
+
+    const { fetchImpl, calls } = graphFetch({
+      output_text: JSON.stringify({ decide, challenge: challengeAgree }),
+    });
+    const out = await runFindGraphDecide({
+      need: sedanNeed,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: mapped.offerPool,
+      brief,
+      servKey: "test-key",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    expect(out.decidedBy).toBe("graph");
+    const sent = JSON.parse(calls[0]!.instructions).permitted_car_keys as string[];
+    expect(sent).not.toContain(jeepVin);
+    expect(out.bestDeal.ranked.every((row) => row.vin !== jeepVin && row.make !== "Jeep")).toBe(true);
+    expect(out.secondPass.objection).toMatch(/^Decided by the review graph/);
+    expect(out.agentVerdict.serv_steps.at(-1)?.decided).toBe("Decided by the review graph.");
+  });
+
+  it("caps buy/negotiate to inspect first when the pick has a reported accident", async () => {
+    const wrecked = listings[0]!;
+    const mapped = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 1,
+        verdictReached: true,
+        verdict: {
+          summary: "Accord.",
+          confidence: "medium",
+          picks: [{ vin: wrecked.vin, label: "Accord", action: "negotiate", offerUsd: 20_000, why: "price" }],
+          relaxedConditions: [],
+          passReason: null,
+        },
+        droppedPicks: [],
+        listingsByVin: new Map([
+          [wrecked.vin, { ...wrecked, accidentCount: 1 }],
+        ]),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const { fetchImpl } = graphFetch({
+      output_text: JSON.stringify({
+        decide: {
+          ...decide,
+          pickKey: wrecked.vin,
+          action: "negotiate",
+          reasons: [{ text: "Have the reported accident assessed before proceeding.", evidenceIds: [`car:${wrecked.vin}`] }],
+        },
+        challenge: challengeAgree,
+      }),
+    });
+    const out = await runFindGraphDecide({
+      need: sedanNeed,
+      bestDeal: mapped.bestDeal,
+      agentVerdict: mapped.agentVerdict,
+      shortlistKeys: mapped.shortlistKeys,
+      marketPool: mapped.offerPool,
+      servKey: "test-key",
+      servBaseUrl: "https://serv.test/v1",
+      fetchImpl,
+      remainingRouteMs: 200_000,
+      graphId: "gr_check",
+    });
+    expect(out.decidedBy).toBe("graph");
+    expect(out.agentVerdict.verdict).toBe("needs_inspection");
+    expect(out.graphFinal?.action).toBe("inspect_first");
+    expect(out.agentVerdict.reasons.some((row) => /accident/i.test(row.text))).toBe(true);
   });
 });
