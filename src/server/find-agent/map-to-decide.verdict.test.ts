@@ -107,4 +107,41 @@ describe("mapFindAgentLoopToDecide chosen vs pass", () => {
     expect(mapped.bestDeal.pick?.distanceMiles).toBe(18);
     expect(mapped.agentVerdict.verdict).toBe("buy");
   });
+
+  it("keeps other live listings on allRanked so the graph can use them as alternatives", () => {
+    const pick = "1HGCM82633A004352";
+    const alt = "1HGCM82633A004353";
+    const rejected = "1HGCM82633A004354";
+    const agent = {
+      ok: true as const,
+      agentMode: "tools" as const,
+      toolRounds: 6,
+      verdictReached: true,
+      verdict: {
+        summary: "Buy the first Camry.",
+        confidence: "medium" as const,
+        picks: [
+          { vin: pick, label: "Camry", action: "buy" as const, offerUsd: 13_500, why: "Clean ask." },
+          { vin: rejected, label: "Camry 2", action: "pass" as const, offerUsd: null, why: "Accident." },
+        ],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      droppedPicks: [],
+      listingsByVin: new Map([
+        [pick, listing(pick)],
+        [alt, listing(alt)],
+        [rejected, listing(rejected)],
+      ]),
+      knownVins: [pick, alt, rejected],
+      journal: [],
+      relaxedConditions: [],
+    } as unknown as Extract<FindAgentLoopResult, { ok: true }>;
+
+    const mapped = mapFindAgentLoopToDecide({ agent });
+    expect(mapped.shortlistKeys).toEqual([pick]);
+    expect(mapped.bestDeal.ranked.map((row) => row.key)).toEqual([pick]);
+    expect(mapped.bestDeal.allRanked.map((row) => row.key)).toEqual([pick, alt]);
+    expect(mapped.offerPool.map((row) => row.vin)).toEqual([pick, alt, rejected]);
+  });
 });

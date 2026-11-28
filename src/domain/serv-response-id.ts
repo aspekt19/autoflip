@@ -64,3 +64,35 @@ export function providerResponseIdFromCall(input: {
   void input.ok;
   return providerResponseId(input.id);
 }
+
+/**
+ * Graph run ids come from the OpenServ `x-openserv-request-id` header and are
+ * often bare UUIDs. Those are real provider ids, unlike Radar's local callId
+ * (also a UUID) which must never be shown as an OpenServ response id.
+ * Keep UUIDs here; still drop synthetic-test and chatcmpl-<uuid> shapes.
+ */
+export function providerGraphRunId(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (isSyntheticChatCmplId(trimmed)) return null;
+  if (isSyntheticTestId(trimmed)) return null;
+  return trimmed;
+}
+
+/** True when this model/step is a SERV graph run (run ids may be UUIDs). */
+export function isGraphModelId(modelId: string | null | undefined): boolean {
+  if (typeof modelId !== "string") return false;
+  return /(?:^|\b)graph:/i.test(modelId.trim()) || /^graph$/i.test(modelId.trim());
+}
+
+/**
+ * Display/storage helper: keep UUID graph run ids when the model is a graph,
+ * otherwise use the regular provider-response-id filter.
+ */
+export function journalProviderRunId(
+  raw: string | null | undefined,
+  modelId?: string | null,
+): string | null {
+  return isGraphModelId(modelId) ? providerGraphRunId(raw) : providerResponseId(raw);
+}

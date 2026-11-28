@@ -110,7 +110,8 @@ function plainAction(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
   const cleaned = value.trim().toLowerCase();
   if (cleaned === "buy" || cleaned === "good_deal") return "Buy";
-  if (cleaned === "negotiate" || cleaned === "fair") return "Fair price";
+  if (cleaned === "fair") return "Fair price";
+  if (cleaned === "negotiate") return "Negotiate";
   if (cleaned === "pass" || cleaned === "walk_away" || cleaned === "overpriced" || cleaned === "skip") {
     return "Skip";
   }
@@ -227,6 +228,19 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
       return "Code gathered the public-record facts used for this decision.";
     case "find_triage":
       return "SERV shortlisted a few cars from the full pool for a closer look.";
+    case "find_agent_loop": {
+      const rounds = step.output.match(/toolRounds\s*=\s*(\d+)/i)?.[1] ?? step.inputSummary.match(/toolRounds\s*=\s*(\d+)/i)?.[1];
+      return rounds
+        ? `The search loop gathered the listings and facts (${rounds} rounds).`
+        : "The search loop gathered the listings and facts.";
+    }
+    case "find_graph_decide":
+      if (clamp) {
+        return `The review graph suggested ${clamp.from}. Code safety rules changed that to ${clamp.to}.`;
+      }
+      return action
+        ? `The review graph made the final decision and chose ${action}.`
+        : "The review graph made the final decision.";
     case "find_decide":
       if (clamp) {
         return `SERV reviewed the shortlist and suggested ${clamp.from}. Code safety rules changed that to ${clamp.to}.`;
@@ -316,7 +330,7 @@ export function formatJournalSecondCheckSentences(second: ServSecondCheckSummary
   if (second.role === "graph_decide" || second.role === "graph_fallback") {
     const detail = second.detail.trim();
     return detail || (second.role === "graph_decide"
-      ? "The SERV graph made the final decision."
+      ? "The review graph made the final decision."
       : "Decided by fallback: the graph did not run.");
   }
   if (second.answersAgree === true) {

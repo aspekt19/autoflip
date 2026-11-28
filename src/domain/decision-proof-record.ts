@@ -14,7 +14,7 @@
  */
 
 import { sha256Canonical } from "./hash";
-import { providerResponseId } from "./serv-response-id";
+import { isGraphModelId, providerGraphRunId, providerResponseId } from "./serv-response-id";
 import {
   DECISION_PROOF_SCHEMA,
   isDecisionProofRecord,
@@ -73,10 +73,11 @@ export function buildDecisionProofRecord(input: {
   graph?: DecisionProofGraphRun | null;
 }): DecisionProofRecord {
   const status = normalizeDecisionProofStatus(input.status);
-  const rawId = input.servResponseId ?? input.responseId ?? null;
-  // Keep a real provider response id even on failed validation/timeout proofs —
-  // still strip synthetic/local ids via providerResponseId.
-  const safeResponseId = providerResponseId(rawId);
+  const rawId = input.servResponseId ?? input.responseId ?? input.graph?.runId ?? null;
+  // Keep a real provider response id even on failed validation/timeout proofs.
+  // Graph run ids (x-openserv-request-id) are often UUIDs — do not strip those.
+  const graphRun = Boolean(input.graph) || isGraphModelId(input.model);
+  const safeResponseId = graphRun ? providerGraphRunId(rawId) : providerResponseId(rawId);
   // Principle 3: failed/skip never invent a pass/buy/negotiate verdict.
   const blocked = status !== "ok";
   const reasonText = (input.reason ?? input.detail)?.trim() || null;

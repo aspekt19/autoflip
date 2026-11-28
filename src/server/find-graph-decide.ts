@@ -24,6 +24,7 @@ import type {
 import {
   alignPublishedConfidence,
   cleanLowerMileAlternative,
+  selectBestDealOnEvidence,
   type BestDealCandidate,
   type BestDealResult,
 } from "@/domain/find-best-deal";
@@ -45,7 +46,7 @@ import {
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
 import type { DecisionProofGraphRun } from "@/domain/decision-proof-view";
-import { providerResponseId } from "@/domain/serv-response-id";
+import { providerGraphRunId } from "@/domain/serv-response-id";
 import {
   buildFindDecideFacts,
   parseFindDecideGraphOutput,
@@ -145,14 +146,18 @@ export type ExecuteFindDecideGraphInput = {
 
 /**
  * Cap the shortlist at the graph's max (v3: 5): the preferred (loop) pick first,
- * then code-ranked cars from the shortlist and, if room remains, from the market
- * pool already ranked on the best-deal result. Journal the keys that were cut.
+ * then other permitted cars already on the best-deal result, then — when the
+ * loop only handed over its pick — fill from the market/offer pool using the
+ * same evidence ranking as the cards. Skip cars excluded from the pick.
+ * Journal the keys that were cut.
  */
 export function capFindDecideGraphPeers(input: {
   shortlistKeys: readonly string[];
   bestDeal: BestDealResult;
   preferredKey?: string | null;
   maxCars: number;
+  need?: StructuredNeed;
+  marketPool?: readonly Listing[];
 }): { peers: BestDealCandidate[]; shortlistKeys: string[]; shortlistCapped: GraphShortlistCap | null } {
   const preferred = input.preferredKey?.trim().toUpperCase() || null;
   const rankedByKey = new Map(
@@ -165,12 +170,32 @@ export function capFindDecideGraphPeers(input: {
     seen.add(row.key);
     all.push(row);
   };
-  if (preferred) push(rankedByKey.get(preferred));
-  for (const key of input.shortlistKeys) push(rankedByKey.get(key));
+  if (preferred) push(rankedByKey.get(preferred) ?? rankedByKey.get(preferred.toUpperCase()));
+  for (const key of input.shortlistKeys) {
+    const normalized = key.trim().toUpperCase();
+    push(rankedByKey.get(key) ?? rankedByKey.get(normalized));
+  }
   const codeRank = new Map(input.bestDeal.ranked.map((row, index) => [row.key, index]));
   for (const row of input.bestDeal.ranked) {
     if (row.excludedFromPick) continue;
     push(row);
+  }
+  for (const row of input.bestDeal.allRanked ?? []) {
+    if (row.excludedFromPick) continue;
+    push(row);
+  }
+  if (all.length < input.maxCars && input.need && input.marketPool && input.marketPool.length > 0) {
+    const fromPool = selectBestDealOnEvidence({
+      need: input.need,
+      listings: input.marketPool,
+      marketPool: input.marketPool,
+      nowYear: new Date().getFullYear(),
+      shortlistMax: Math.max(input.maxCars, 5),
+    });
+    for (const row of [...fromPool.ranked, ...(fromPool.allRanked ?? [])]) {
+      if (row.excludedFromPick) continue;
+      push(row);
+    }
   }
   const rankOf = (row: BestDealCandidate) =>
     preferred && row.key.toUpperCase() === preferred ? -1 : (codeRank.get(row.key) ?? Number.MAX_SAFE_INTEGER);
@@ -214,6 +239,8 @@ export async function executeValidatedFindDecideGraph(
     bestDeal: input.bestDeal,
     preferredKey,
     maxCars,
+    need: input.need,
+    marketPool: input.marketPool,
   });
   if (capped.peers.length === 0) return empty("no shortlist to decide on", { ...capped });
 
@@ -390,7 +417,7 @@ export async function runFindGraphDecide(input: {
       confidenceBefore: input.agentVerdict.confidence,
       confidenceAfter: input.agentVerdict.confidence,
       profile: FIND_GRAPH_DECIDE_PROFILE,
-      responseId: executed.meta ? providerResponseId(executed.meta.runId ?? executed.meta.responseId) : null,
+      responseId: executed.meta ? providerGraphRunId(executed.meta.runId ?? executed.meta.responseId) : null,
     };
     const trailStep: AgentTrailStep = {
       decided: objection,
@@ -434,7 +461,21 @@ export async function runFindGraphDecide(input: {
         second_pass: secondPass,
         serv_steps: [...input.agentVerdict.serv_steps, trailStep],
       },
-      bestDeal: input.bestDeal,
+      bestDeal: executed.peers.length
+        ? {
+            ...input.bestDeal,
+            ranked: uniqueByKey([
+              ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
+              ...executed.peers,
+              ...input.bestDeal.ranked,
+            ]),
+            allRanked: uniqueByKey([
+              ...(input.bestDeal.pick ? [input.bestDeal.pick] : []),
+              ...executed.peers,
+              ...(input.bestDeal.allRanked ?? input.bestDeal.ranked),
+            ]),
+          }
+        : input.bestDeal,
       secondPass,
       proofRecords,
       graph: executed.meta,
@@ -473,10 +514,15 @@ export async function runFindGraphDecide(input: {
     secondCheckMissed: false,
   });
   decide = { ...decide, confidence: published.confidence, action: published.action };
+  decide = ensureHonestUnknownFairValueReason(
+    decide,
+    pickReport.fairValueUsd ?? null,
+    pickReport.compSampleSize ?? pickReport.comps.length,
+  );
   const withPick: BestDealResult = {
     ...input.bestDeal,
-    ranked: uniqueByKey([chosen, ...input.bestDeal.ranked]),
-    allRanked: uniqueByKey([chosen, ...(input.bestDeal.allRanked ?? input.bestDeal.ranked)]),
+    ranked: uniqueByKey([chosen, ...executed.peers, ...input.bestDeal.ranked]),
+    allRanked: uniqueByKey([chosen, ...executed.peers, ...(input.bestDeal.allRanked ?? input.bestDeal.ranked)]),
     evidenceSettled: true,
     settlementNote: "Public checks and the decision are finished.",
   };
@@ -499,7 +545,7 @@ export async function runFindGraphDecide(input: {
   const loopLabel = input.agentVerdict.pick?.label ?? loopPickKey ?? "the search loop's pick";
   const pickLabel = carLabel(chosen, decide.pickKey);
   const stepCount = executed.meta.steps?.length ?? null;
-  const runId = providerResponseId(executed.meta.runId ?? executed.meta.responseId);
+  const runId = providerGraphRunId(executed.meta.runId ?? executed.meta.responseId);
   const who = "Decided by the SERV graph.";
   const comparison =
     loopPickKey && !(samePick && sameAction)
@@ -592,6 +638,27 @@ export async function runFindGraphDecide(input: {
     graph: executed.meta,
     graphFinal: { pickKey: decide.pickKey, action: decide.action, confidence: decide.confidence },
     timeoutMs: executed.timeoutMs,
+  };
+}
+
+
+/** When the graph negotiates without a price lever, the published reason must say so. */
+export function ensureHonestUnknownFairValueReason(
+  decide: FindDecide,
+  fairValueUsd: number | null | undefined,
+  compCount: number,
+): FindDecide {
+  if (decide.action !== "negotiate") return decide;
+  const hasFair = typeof fairValueUsd === "number" && Number.isFinite(fairValueUsd) && fairValueUsd > 0;
+  if (hasFair && compCount >= 3) return decide;
+  const already = [...decide.reasons.map((row) => row.text), decide.confidenceWhy].join(" ");
+  if (/fair value is unavailable|cannot be judged|not enough similar/i.test(already)) return decide;
+  const sentence = hasFair
+    ? "There are too few similar cars on hand to judge the asking price against a fair value."
+    : "Fair value is unavailable, so the asking price cannot be judged against a comparison value.";
+  return {
+    ...decide,
+    reasons: [...decide.reasons, { text: sentence, evidenceIds: [`car:${decide.pickKey}`] }],
   };
 }
 

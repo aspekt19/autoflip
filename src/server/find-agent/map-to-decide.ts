@@ -106,11 +106,25 @@ export function mapFindAgentLoopToDecide(input: {
     offerPool.push(listing);
   }
 
-  // Include other known listings for comps context (capped).
+  // Other live listings stay available as comps and as graph-shortlist fill
+  // (the loop often names only its tentative pick; the rest used to be dropped).
+  const allRanked: BestDealCandidate[] = [...ranked];
+  const rejected = new Set(
+    input.agent.verdict.picks
+      .filter((pick) => pick.action === "pass")
+      .map((pick) => pick.vin.toUpperCase()),
+  );
   for (const [vin, listing] of listingsByVin) {
-    if (shortlistKeys.includes(vin)) continue;
-    if (offerPool.length >= 40) break;
-    offerPool.push(listing);
+    const key = vin.toUpperCase();
+    if (shortlistKeys.includes(key) || shortlistKeys.includes(vin)) {
+      if (offerPool.some((row) => row.vin?.toUpperCase() === key)) continue;
+      if (offerPool.length < 40) offerPool.push(listing);
+      continue;
+    }
+    if (offerPool.length < 40) offerPool.push(listing);
+    if (rejected.has(key)) continue;
+    if (allRanked.some((row) => row.key === key)) continue;
+    allRanked.push(candidateFromListing(listing, key));
   }
 
   const pick = ranked[0] ?? null;
@@ -139,7 +153,7 @@ export function mapFindAgentLoopToDecide(input: {
     settlementNote: "Find agent loop finished.",
     fairnessHeldOut: [],
     priceProvisional: true,
-    allRanked: ranked,
+    allRanked,
     baseline: {
       pick: pick
         ? {

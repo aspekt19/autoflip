@@ -22,6 +22,7 @@ import {
   plainBuyerPhrase,
   plainCompScope,
   plainDecisionAction,
+  plainDecisionEngineText,
   plainDecisionSource,
   plainFlagSource,
 } from "./find-buyer-copy";
@@ -747,5 +748,26 @@ describe("public-check copy stays plain and honest", () => {
     expect(joined).not.toMatch(/\(listing 1\) \(listing 1\)/);
     expect(joined).not.toMatch(/Toyota Camry/);
     expect(joined).toMatch(/Tucson/);
+  });
+});
+
+
+describe("plainDecisionEngineText graph and loop wording", () => {
+  it("does not turn SERV graph or loop lines into Our review graph nonsense", () => {
+    expect(plainDecisionEngineText("Decided by the SERV graph.")).toBe("Decided by the review graph.");
+    expect(plainDecisionEngineText("The SERV graph made the final decision.")).toBe(
+      "The review graph made the final decision.",
+    );
+    expect(plainDecisionEngineText("SERV agentic Find loop — mode=tools; toolRounds=6")).toBe(
+      "The search loop — mode=tools; toolRounds=6",
+    );
+    expect(plainDecisionEngineText("Our review")).toBe("Our review");
+    expect(plainDecisionEngineText("Decided by the SERV graph.")).not.toMatch(/Our review graph/);
+    expect(plainDecisionEngineText("Decided by the SERV graph.")).not.toMatch(/the Our review/);
+  });
+
+  it("labels the negotiate action as Negotiate, not Fair price", () => {
+    expect(plainDecisionAction("negotiate")).toBe("Negotiate");
+    expect(plainDecisionAction("fair")).toBe("Fair price");
   });
 });
