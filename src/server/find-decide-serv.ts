@@ -148,6 +148,7 @@ function parseDecidePayload(
 
 export { parseFindDecideGraphOutput } from "@/domain/find-decide-graph-output";
 import { parseFindDecideGraphOutput } from "@/domain/find-decide-graph-output";
+import { priceRiskFor } from "@/domain/price-risk";
 
 function emptySecondPass(
   objection: string,
@@ -213,6 +214,13 @@ export function buildFindDecideFacts(input: {
       fairRangeLowUsd: report.fairRangeLowUsd,
       fairRangeHighUsd: report.fairRangeHighUsd,
       compCount: report.compSampleSize ?? report.comps.length,
+      /** Named risk when the ask is far below the comparison (salvage, down payment, bait). */
+      priceRisk:
+        priceRiskFor({
+          priceUsd: row.priceUsd,
+          fairValueUsd: report.fairValueUsd,
+          compCount: report.compSampleSize ?? report.comps.length,
+        })?.text ?? null,
       recallsAvailable: report.recallsAvailable,
       openParkIt: report.openParkIt,
       openParkOutside: report.openParkOutside,
@@ -241,6 +249,8 @@ export function buildFindDecideFacts(input: {
     "Stop-level park-it/park-outside → action ≤ inspect_first and confidence ≤ medium.",
     "Recall data unavailable for the pick → confidence ≤ medium.",
     "Fewer than 3 comps → confidence ≤ medium; word price as limited comparison.",
+    "A car whose priceRisk is set (ask under 60% of the fair value) is never a safe buy: name that risk in your reasons; code caps the action at inspect_first and confidence at low.",
+    "A buy needs verified facts: with low confidence, or with both accident history and the price comparison unverified, code caps the action at inspect_first.",
     "fairValueUsd null/unknown for the pick → confidence at most medium, and say the price comparison is thin. Low only when the second check did not run.",
     "Reasons must say why this pick beats the runner-up with concrete fact differences — do not only restate buyer budget/ZIP/years/must-haves.",
     "offerUsd must be ≤ ask and near code fair value when set.",
@@ -873,6 +883,8 @@ export async function runFindDecideServ(input: {
     recallsUnavailable,
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
     fairValueUsd: pickReport.fairValueUsd ?? null,
+    priceUsd: pick.priceUsd,
+    accidentCount: pick.accidentCount ?? null,
     evidenceSettled: true,
     secondCheckMissed: secondPass.status !== "agreed" && secondPass.status !== "disagreed",
   });

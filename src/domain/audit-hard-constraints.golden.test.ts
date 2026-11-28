@@ -113,8 +113,8 @@ describe("golden: Colorado Springs distance from 80202", () => {
     const miles = distanceMilesBetweenZips("80202", "80903");
     expect(miles).toBe(64);
     expect(buyerDistanceText({ distanceMiles: miles, radiusCheck: "known" })).toBe("64 mi away");
-    expect(buyerDistanceText({ distanceMiles: null, radiusCheck: "unverified" })).toBe("unverified");
-    expect(buyerDistanceText({ distanceMiles: miles, radiusCheck: "unverified" })).toBe("unverified");
+    expect(buyerDistanceText({ distanceMiles: null, radiusCheck: "unverified" })).toBe("distance unknown");
+    expect(buyerDistanceText({ distanceMiles: miles, radiusCheck: "unverified" })).toBe("distance unknown");
   });
 });
 

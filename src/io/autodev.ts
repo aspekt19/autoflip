@@ -63,6 +63,8 @@ export type AutodevResult =
       cached: boolean;
       /** Provider rows left out because the ask is a placeholder ($1, $220). Never replaced with a guess. */
       placeholderPricesDropped?: number;
+      /** Provider sort orders that produced these rows (one call each). */
+      searchedSorts?: string[];
     }
   | { ok: false; error: "demo_limit"; message: string; quota: QuotaDecision & { ok: false } }
   | {
@@ -542,6 +544,64 @@ export async function autodevSearch(query: ListingQuery, deps: AutodevDeps): Pro
     console.info(`[autodev] listings_search error=${result.error} url=${url}`);
   }
   return result;
+}
+
+/** The provider only pages by one sort at a time, and every single sort shows a biased slice. */
+export const REPRESENTATIVE_SORTS = ["vehicle.year.desc", "retailListing.price.desc"] as const;
+
+/**
+ * Which provider sort orders a Find search runs.
+ * Cheapest-first is never used: the cheap end of a used-car feed is placeholders, bait, down-payment
+ * figures and salvage, so a search that only sees it never sees the market. Without an explicit
+ * "newest" or "price_high" the search covers both ends of the budget: newest model years and the
+ * highest asks still within budget (where late-model cars near the budget sit).
+ */
+export function representativeSortsFor(sort: string | null | undefined): string[] {
+  const key = (sort ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  if (["newest", "newestfirst", "latest", "year", "yeardesc", "vehicleyeardesc"].includes(key)) {
+    return ["vehicle.year.desc"];
+  }
+  if (["pricehigh", "pricedesc", "highestprice", "retaillistingpricedesc", "pricehighest"].includes(key)) {
+    return ["retailListing.price.desc"];
+  }
+  return [...REPRESENTATIVE_SORTS];
+}
+
+function interleaveByVin(lists: readonly Listing[][]): Listing[] {
+  const seen = new Set<string>();
+  const out: Listing[] = [];
+  const longest = Math.max(0, ...lists.map((rows) => rows.length));
+  for (let i = 0; i < longest; i += 1) {
+    for (const rows of lists) {
+      const row = rows[i];
+      if (!row) continue;
+      const id = row.vin?.trim().toUpperCase() || `row:${out.length}:${i}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/** One Find search over a representative slice of the market (see representativeSortsFor). */
+export async function autodevSearchRepresentative(
+  query: ListingQuery,
+  deps: AutodevDeps,
+): Promise<AutodevResult> {
+  const sorts = representativeSortsFor(query.sort);
+  const results = await Promise.all(sorts.map((sort) => autodevSearch({ ...query, sort }, deps)));
+  const oks = results.flatMap((row, index) => (row.ok ? [{ row, sort: sorts[index]! }] : []));
+  if (oks.length === 0) return results[0]!;
+  const last = oks[oks.length - 1]!.row;
+  return {
+    ok: true,
+    listings: interleaveByVin(oks.map((entry) => entry.row.listings)),
+    quota: last.quota,
+    cached: oks.every((entry) => entry.row.cached),
+    placeholderPricesDropped: oks.reduce((sum, entry) => sum + (entry.row.placeholderPricesDropped ?? 0), 0),
+    searchedSorts: oks.map((entry) => entry.sort),
+  };
 }
 
 export function autodevByVin(vin: string, deps: AutodevDeps): Promise<AutodevResult> {

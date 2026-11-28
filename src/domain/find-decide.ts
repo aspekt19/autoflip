@@ -7,6 +7,7 @@ import {
   type AgentVerdictConfidence,
 } from "./agent-verdict-schema";
 import { capConfidenceForHonesty } from "./confidence-cap";
+import { priceRiskFor } from "./price-risk";
 import { capConfidenceForStopFlags } from "./nhtsa-stop-flags";
 import {
   asFiniteNumber,
@@ -129,6 +130,10 @@ export type PublishFindConfidenceInput = {
   evidenceSettled?: boolean;
   /** True when the second check did not run. That, not a missing price comparison, forces Low. */
   secondCheckMissed?: boolean;
+  /** The pick's asking price. With fairValueUsd it drives the too-good-to-be-true guard. */
+  priceUsd?: number | null;
+  /** The pick's reported accident count. Pass null when history is unknown; omit to skip the buy-consistency check. */
+  accidentCount?: number | null;
 };
 
 export const MISSING_PRICE_COMPARISON_SENTENCE =
@@ -573,6 +578,33 @@ export function publishFindDecideConfidence(
   if (honesty.capped && honesty.reason) {
     confidence = honesty.confidence as FindDecideConfidence;
     reasons.push(honesty.reason);
+  }
+
+  // Too-good-to-be-true ask: the graph still chose the car, code keeps it from reading as a safe buy.
+  const risk = priceRiskFor({ priceUsd: input.priceUsd, fairValueUsd: input.fairValueUsd, compCount: comps });
+  if (risk) {
+    if (ACTION_RANK[action] < ACTION_RANK.inspect_first) {
+      action = "inspect_first";
+      reasons.push("Action capped at inspect_first: the asking price is far below the market comparison (possible salvage or rebuilt title, down payment or bait listing).");
+    }
+    if (confidence !== "low") {
+      confidence = "low";
+      reasons.push("Lowered to Low: the price comparison is not reliable for an ask this far below the market.");
+    }
+  }
+
+  // A buy must be consistent with its own confidence and with what is verified.
+  if (action === "buy") {
+    const accidentUnverified = "accidentCount" in input && input.accidentCount == null;
+    const priceUnverified =
+      input.fairValueUsd == null || (typeof comps === "number" && comps < 3) || risk != null;
+    if (confidence === "low") {
+      action = "inspect_first";
+      reasons.push("Action capped at inspect_first: a buy at Low confidence is contradictory.");
+    } else if (accidentUnverified && priceUnverified) {
+      action = "inspect_first";
+      reasons.push("Action capped at inspect_first: accident history and the price comparison are both unverified.");
+    }
   }
 
   return {

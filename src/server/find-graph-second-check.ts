@@ -9,6 +9,7 @@
  *
  * Credits: not charged; part of the same delivered Find result.
  */
+import { ensureSentenceEnd } from "@/domain/buyer-text";
 import type {
   AgentSecondPassResult,
   AgentTrailStep,
@@ -218,7 +219,7 @@ export async function runFindGraphSecondCheck(input: {
   const responseId = providerResponseId(executed.meta.runId ?? executed.meta.responseId);
   const trailStep: AgentTrailStep = {
     decided: agreed ? "Second check agreed." : "Second check disagreed.",
-    why: `${final.confidenceWhy}${stepCount ? ` (${stepCount} graph steps)` : ""}${
+    why: `${ensureSentenceEnd(final.confidenceWhy)}${stepCount ? ` (${stepCount} graph steps)` : ""}${
       executed.shortlistCapped
         ? ` Checked the top ${executed.shortlistCapped.to} of ${executed.shortlistCapped.from} shortlisted cars.`
         : ""

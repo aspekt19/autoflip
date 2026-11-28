@@ -60,7 +60,8 @@ export const ASSUMPTIONS = {
   /** Max SERV calls (verdict_decide) per saved search per cron/check-now run. */
   radarMaxServPerSearch: 3,
   radarCheckNowMs: 30 * 60 * 1000,
-  suspiciousPriceRatio: 0.4,
+  /** An ask under this fraction of the market comparison is too good to be true. Shared by reports, Find, Resale and Radar; see price-risk.ts. */
+  suspiciousPriceRatio: 0.6,
   suspiciousPriceFloorUsd: 800,
   belowMedianRatio: 0.92,
   cacheTtlMs: 6 * 60 * 60 * 1000,

@@ -38,6 +38,8 @@ import {
   type FindDecideShortlistMeta,
 } from "@/domain/find-decide";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
+import { priceRiskFor } from "@/domain/price-risk";
+import { ensureSentenceEnd } from "@/domain/buyer-text";
 import type { StructuredNeed } from "@/domain/need";
 import type { Listing } from "@/domain/types";
 import type { ShopperBrief } from "@/domain/shopper-brief";
@@ -91,6 +93,38 @@ export function findGraphCheckTimeoutMs(remainingRouteMs: number): number {
 
 function toVerdictAction(action: FindDecideAction): Exclude<AgentVerdict["verdict"], "withheld" | null> {
   return action === "inspect_first" ? "needs_inspection" : action;
+}
+
+/**
+ * The loop's own pick is published when the graph cannot decide. It passes the same shared
+ * price and consistency guard as a graph pick: a too-good ask or a buy it cannot support is capped.
+ */
+function guardLoopVerdict(input: {
+  agentVerdict: AgentVerdict;
+  bestDeal: BestDealResult;
+  marketPool: readonly Listing[];
+}): AgentVerdict {
+  const pick = input.bestDeal.pick;
+  const verdict = input.agentVerdict.verdict;
+  const confidence = input.agentVerdict.confidence;
+  if (!pick || !verdict || verdict === "withheld" || verdict === "pass") return input.agentVerdict;
+  if (confidence !== "high" && confidence !== "medium" && confidence !== "low") return input.agentVerdict;
+  const report = buildFindPickComputedReport(pick, input.bestDeal.ranked, input.marketPool);
+  const published = publishFindDecideConfidence({
+    c3: confidence,
+    action: verdict === "needs_inspection" ? "inspect_first" : verdict,
+    compCount: report.compSampleSize ?? report.comps.length,
+    fairValueUsd: report.fairValueUsd ?? null,
+    priceUsd: pick.priceUsd,
+    accidentCount: pick.accidentCount ?? null,
+    evidenceSettled: true,
+  });
+  const nextVerdict = toVerdictAction(published.action);
+  // Only the price guard and the buy-consistency guard apply here; other confidence caps belong to graph picks.
+  const risky = priceRiskFor({ priceUsd: pick.priceUsd, fairValueUsd: report.fairValueUsd ?? null });
+  const nextConfidence = risky ? published.confidence : confidence;
+  if (nextVerdict === verdict && nextConfidence === confidence) return input.agentVerdict;
+  return { ...input.agentVerdict, verdict: nextVerdict, confidence: nextConfidence };
 }
 
 function carLabel(row: { year: number; make: string; model: string; key?: string }, fallback?: string): string {
@@ -474,7 +508,7 @@ export async function runFindGraphDecide(input: {
       decided: objection,
       why: noCar
         ? "The review graph was not run because the search loop had no shortlist."
-        : `${capNote.trim()} The search loop's tentative pick was published.`.trim(),
+        : [capNote, "The search loop's tentative pick was published."].map((part) => ensureSentenceEnd(part)).filter(Boolean).join(" "),
       changed: null,
       model: executed.ran ? graphModel : null,
       responseId: secondPass.responseId,
@@ -510,7 +544,7 @@ export async function runFindGraphDecide(input: {
       decidedBy: "fallback",
       fallbackReason: executed.reason,
       agentVerdict: {
-        ...input.agentVerdict,
+        ...guardLoopVerdict(input),
         second_pass: secondPass,
         serv_steps: [...input.agentVerdict.serv_steps, trailStep],
       },
@@ -565,10 +599,30 @@ export async function runFindGraphDecide(input: {
     recallsUnavailable: !pickReport.recallsAvailable,
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
     fairValueUsd: pickReport.fairValueUsd ?? null,
+    priceUsd: chosen.priceUsd,
+    accidentCount: chosen.accidentCount ?? null,
     evidenceSettled: true,
     secondCheckMissed: false,
   });
+  const actionBeforeGuard = decide.action;
   decide = { ...decide, confidence: published.confidence, action: published.action };
+  const chosenPriceRisk = priceRiskFor({
+    priceUsd: chosen.priceUsd,
+    fairValueUsd: pickReport.fairValueUsd ?? null,
+    compCount: pickReport.compSampleSize ?? pickReport.comps.length,
+  });
+  if (chosenPriceRisk) {
+    decide = {
+      ...decide,
+      reasons: [...decide.reasons, { text: `Price risk: ${chosenPriceRisk.text}`, evidenceIds: [`fair:${chosen.key}`] }],
+    };
+  }
+  if (decide.action !== actionBeforeGuard) {
+    const why = published.reasons.find((line) => line.startsWith("Action capped at inspect_first"));
+    if (why && !chosenPriceRisk) {
+      decide = { ...decide, reasons: [...decide.reasons, { text: why, evidenceIds: [`car:${chosen.key}`] }] };
+    }
+  }
   if (
     (decide.action === "buy" || decide.action === "negotiate") &&
     typeof chosen.accidentCount === "number" &&
@@ -647,9 +701,18 @@ export async function runFindGraphDecide(input: {
   };
   const trailStep: AgentTrailStep = {
     decided: who,
-    why: `${decide.confidenceWhy}${stepCount != null ? ` The graph ran ${stepCount} steps.` : ""}${capNote}${comparison}${codeOverride ? ` ${codeOverride}` : ""}${
-      published.reasons.length ? ` ${published.reasons.join(" ")}` : ""
-    }`.trim(),
+    // Every piece ends with its own end mark so the cap note never runs into the reason.
+    why: [
+      decide.confidenceWhy,
+      stepCount != null ? `The graph ran ${stepCount} steps.` : "",
+      capNote,
+      comparison,
+      codeOverride ?? "",
+      ...published.reasons,
+    ]
+      .map((part) => ensureSentenceEnd(part))
+      .filter(Boolean)
+      .join(" "),
     changed:
       loopPickKey && !samePick
         ? `Published pick is the ${pickLabel}; the search loop had tentatively chosen the ${loopLabel}.`
