@@ -174,6 +174,8 @@ export function decisionPurposeLabel(purpose: string): string {
       return "Second check";
     case "find_graph_check":
       return "Second check (graph)";
+    case "find_graph_decide":
+      return "SERV graph decision";
     case "find_decide_graph":
       return "SERV graph decision";
     case "resale_plan_search":
@@ -240,6 +242,11 @@ export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): s
       if (failed) return "The second AI check did not finish.";
       if (verdict === "agreed") return "Second AI check agreed.";
       return verdict ? "Second AI check disagreed with the pick." : "A second AI check reviewed the pick.";
+    case "find_graph_decide":
+      if (failed) return record.reason?.trim() || "The step-by-step AI decision did not finish, so the search loop's pick was used.";
+      return verdict
+        ? `The step-by-step AI graph made the final decision (${verdict}).`
+        : "The step-by-step AI graph made the final decision.";
     case "find_decide_graph":
       return failed
         ? "The step-by-step AI decision did not finish; the two-step decision ran instead."

@@ -20,7 +20,7 @@ import {
   summarizeFindAgentJournal,
   type FindAgentLoopResult,
 } from "@/server/find-agent/loop";
-import { runFindGraphSecondCheck } from "@/server/find-graph-second-check";
+import { runFindGraphDecide } from "@/server/find-graph-decide";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import {
   findSearchIdempotencyKey,
@@ -136,7 +136,7 @@ export async function runFindChatTurn(input: {
   autodevKey: string;
   servBaseUrl?: string;
   fetchImpl?: typeof fetch;
-  /** SERV graph id for the second check. `undefined` reads SERV_GRAPH_FIND_DECIDE_ID; `null` turns it off. */
+  /** SERV graph id for the final Find decision. `undefined` reads SERV_GRAPH_FIND_DECIDE_ID; `null` skips the graph and publishes the loop pick. */
   graphId?: string | null;
 }): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const turnStartedAtMs = Date.now();
@@ -480,9 +480,9 @@ export async function runFindChatTurn(input: {
 
   const mappedLoop = mapFindAgentLoopToDecide({ agent });
   const need = needFromChat(transcript, agent.shopperFacts);
-  // Optional SERV graph second check (SERV_GRAPH_FIND_DECIDE_ID). Off → unchanged result.
-  // Not charged: the delivered Find result already carries its one credit (see find-graph-second-check).
-  const graphCheck = await runFindGraphSecondCheck({
+  // SERV graph is the primary final decider (SERV_GRAPH_FIND_DECIDE_ID). Off or failed → loop pick, with an honest fallback reason.
+  // Not charged: the delivered Find result already carries its one credit (see find-graph-decide).
+  const graphCheck = await runFindGraphDecide({
     need,
     bestDeal: mappedLoop.bestDeal,
     agentVerdict: mappedLoop.agentVerdict,

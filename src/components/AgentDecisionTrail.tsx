@@ -30,7 +30,7 @@ type Props = {
 /**
  * Collapsible "How this decision was made" panel.
  * Structured as decided → why → changed. Never invents steps.
- * Second check is always shown: either a real record or an honest not-run reason.
+ * A final-decision or second-check section is always shown: the record, or an honest not-run reason.
  */
 export function AgentDecisionTrail({
   verdict,
@@ -67,7 +67,13 @@ export function AgentDecisionTrail({
     return trailId ? ` (response ${trailId})` : "";
   })();
 
+  const graphDecide = second?.profile === "find_graph_decide";
   const secondPlain = (() => {
+    if (graphDecide) {
+      return second.objection?.trim() || (second.status === "agreed" || second.status === "disagreed"
+        ? "The SERV graph made the final decision."
+        : "Decided by fallback: the graph did not run.");
+    }
     if (!second || second.status === "not_run") {
       return `Second AI review not run: ${second?.objection ?? "no challenge record was attached to this run."}`;
     }
@@ -227,18 +233,26 @@ export function AgentDecisionTrail({
         </section>
       ) : null}
 
-      <section aria-label="Second check">
-        <h3>Second check</h3>
-        {!second || second.status === "not_run" ? (
+      <section aria-label={graphDecide ? "Final decision" : "Second check"}>
+        <h3>{graphDecide ? "Final decision" : "Second check"}</h3>
+        {graphDecide ? (
+          <p>
+            {second?.objection?.trim()
+              || (second?.status === "agreed" || second?.status === "disagreed"
+                ? "The SERV graph made the final decision."
+                : "Decided by fallback: the graph did not run.")}
+            {secondCite}
+          </p>
+        ) : !second || second.status === "not_run" ? (
           <p>
             Second check not run:{" "}
             {second?.objection ?? "no challenge record was attached to this run."}
           </p>
         ) : null}
-        {second?.status === "agreed" ? (
+        {!graphDecide && second?.status === "agreed" ? (
           <p>An independent review agreed with the verdict{secondCite}.</p>
         ) : null}
-        {second?.status === "disagreed" ? (
+        {!graphDecide && second?.status === "disagreed" ? (
           <p>
             An independent review disagreed
             {second.action
@@ -253,7 +267,7 @@ export function AgentDecisionTrail({
               : ""}
           </p>
         ) : null}
-        {second?.status === "unavailable" ? (
+        {!graphDecide && second?.status === "unavailable" ? (
           <>
             <p>{second.objection ?? "Second check unavailable: second check did not finish"}</p>
             {second.rawDump ? (
@@ -263,10 +277,10 @@ export function AgentDecisionTrail({
             ) : null}
           </>
         ) : null}
-        {second?.status === "skipped_no_budget" || second?.status === "skipped_no_key" ? (
+        {!graphDecide && (second?.status === "skipped_no_budget" || second?.status === "skipped_no_key") ? (
           <p>{second.objection ?? "Second check skipped."}</p>
         ) : null}
-        {second?.status === "ignored_malformed" || second?.status === "ignored_no_evidence" ? (
+        {!graphDecide && (second?.status === "ignored_malformed" || second?.status === "ignored_no_evidence") ? (
           <p>Second check returned nothing usable and was ignored.</p>
         ) : null}
       </section>

@@ -1,0 +1,1104 @@
+{
+  "schemaVersion": "lemonless.graph_vs_baseline.v3",
+  "arms": [
+    "loop_second_check",
+    "graph_primary"
+  ],
+  "generatedAt": "2026-11-28T04:35:03.738Z",
+  "dryRun": false,
+  "partial": false,
+  "graphId": "gr_28beee6b8bffe5a9",
+  "fixture": "eval/comparison/fixtures/find-cases.json",
+  "repeats": 2,
+  "summary": {
+    "loop_second_check": {
+      "attempts": 20,
+      "validatorPassRate": 1,
+      "repeatConsistency": 0.85,
+      "latencyP50Ms": 13614,
+      "latencyP95Ms": 15069,
+      "httpCalls": 20,
+      "tokens": 453545,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": 9,
+      "secondCheckDisagreed": 11,
+      "graphDecided": null,
+      "fallbacks": null,
+      "actionCounts": {
+        "buy": 4,
+        "negotiate": 12,
+        "inspect_first": 2,
+        "pass": 2
+      }
+    },
+    "graph_primary": {
+      "attempts": 20,
+      "validatorPassRate": 1,
+      "repeatConsistency": 0.9,
+      "latencyP50Ms": 13014,
+      "latencyP95Ms": 17398,
+      "httpCalls": 20,
+      "tokens": 415081,
+      "costUsd": null,
+      "graphFallbacks": null,
+      "secondCheckAgreed": null,
+      "secondCheckDisagreed": null,
+      "graphDecided": 20,
+      "fallbacks": 0,
+      "actionCounts": {
+        "buy": 4,
+        "negotiate": 12,
+        "inspect_first": 2,
+        "pass": 2
+      }
+    },
+    "decisionAgreement": null,
+    "graphPrimaryVsLoopStandIn": {
+      "sameCar": 0.9,
+      "sameCarAndAction": 0.5
+    }
+  },
+  "notes": [
+    "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
+    "Token and cost fields are copied from provider responses only; null means not returned.",
+    "Graph-arm attempts that fell back to the two-call path count as validator failures for the graph.",
+    "loop_second_check is the previous production path (loop pick published, graph as second check).",
+    "graph_primary is the new production path (graph publishes the pick; loop pick is fallback).",
+    "The loop pick is a frozen stand-in (code's top-ranked car, negotiate, high)."
+  ],
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HKRM4H75FH123456",
+        "KM8J3CA46HU123456",
+        "KNDPBCAC6G7123456",
+        "5J6RM4H37EL123456"
+      ],
+      "loopPick": "2HKRM4H75FH123456|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "2HKRM4H75FH123456|negotiate",
+        "graph_primary": "2HKRM4H75FH123456|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13815,
+          "httpCalls": 1,
+          "tokens": 20229,
+          "costUsd": null,
+          "runIds": [
+            "d5e38f1b-fd4c-4401-aa06-e92c7b350f72"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12710,
+          "httpCalls": 1,
+          "tokens": 20133,
+          "costUsd": null,
+          "runIds": [
+            "a9693d9f-6e20-4485-8bec-97d121945c19"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 12365,
+          "httpCalls": 1,
+          "tokens": 29147,
+          "costUsd": null,
+          "runIds": [
+            "e54b32b5-5133-4183-aa7b-21cc75cfe05d"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HKRM4H75FH123456",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12500,
+          "httpCalls": 1,
+          "tokens": 20106,
+          "costUsd": null,
+          "runIds": [
+            "b0ce6548-bfc3-472b-a058-40807550eb59"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2HKRM4H75FH123456",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1BF1FK5EU100001",
+        "1HGCR2F30EA200002",
+        "1N4AL3AP3EC400004",
+        "4T1BF1FK8EU300003"
+      ],
+      "loopPick": "4T1BF1FK5EU100001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "4T1BF1FK5EU100001|buy",
+        "graph_primary": "4T1BF1FK5EU100001|buy"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 13745,
+          "httpCalls": 1,
+          "tokens": 30388,
+          "costUsd": null,
+          "runIds": [
+            "2e2fc9db-93c2-4b7e-9744-e29c298bfcf0"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12849,
+          "httpCalls": 1,
+          "tokens": 29795,
+          "costUsd": null,
+          "runIds": [
+            "c03ad978-4f57-4be5-8195-e864dfa87f37"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13607,
+          "httpCalls": 1,
+          "tokens": 20083,
+          "costUsd": null,
+          "runIds": [
+            "1bf471da-e70c-4de3-affc-a5b616312024"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "buy"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1BF1FK5EU100001",
+          "action": "buy",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13585,
+          "httpCalls": 1,
+          "tokens": 19981,
+          "costUsd": null,
+          "runIds": [
+            "7d970ff7-884c-4326-8755-ea61f7daff41"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "4T1BF1FK5EU100001",
+          "publishedAction": "buy"
+        }
+      ]
+    },
+    {
+      "caseId": "find-teen-first-car-8k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2T1BU4EE5DC500001",
+        "1HGCP2F37CA600002",
+        "KNAGM4A75D5700003"
+      ],
+      "loopPick": "2T1BU4EE5DC500001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "1HGCP2F37CA600002|negotiate",
+        "graph_primary": "2T1BU4EE5DC500001|pass"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCP2F37CA600002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14058,
+          "httpCalls": 1,
+          "tokens": 20343,
+          "costUsd": null,
+          "runIds": [
+            "8ed4f83a-7cc0-4857-b55a-7421338d296c"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2T1BU4EE5DC500001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCP2F37CA600002",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 14514,
+          "httpCalls": 1,
+          "tokens": 29251,
+          "costUsd": null,
+          "runIds": [
+            "801f0d63-6b23-44d4-87eb-b317cfa5fd63"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2T1BU4EE5DC500001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13415,
+          "httpCalls": 1,
+          "tokens": 20421,
+          "costUsd": null,
+          "runIds": [
+            "1d47b211-3cc5-4b31-969d-fcc090e19eec"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2T1BU4EE5DC500001",
+          "publishedAction": "pass"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2T1BU4EE5DC500001",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 13014,
+          "httpCalls": 1,
+          "tokens": 19811,
+          "costUsd": null,
+          "runIds": [
+            "d905106e-15b1-49e2-a240-002f84b4a39a"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2T1BU4EE5DC500001",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-awd-winter-18k-msp",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JM3KE2DY5G0700001",
+        "5J6RM4H75GL800002",
+        "2T3ZF4DV5BW900003",
+        "3CZRE3H50BG000004"
+      ],
+      "loopPick": "JM3KE2DY5G0700001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "JM3KE2DY5G0700001|inspect_first",
+        "graph_primary": "JM3KE2DY5G0700001|inspect_first"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13085,
+          "httpCalls": 1,
+          "tokens": 20111,
+          "costUsd": null,
+          "runIds": [
+            "a019b97f-f085-44a4-be82-dec8cc665251"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JM3KE2DY5G0700001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11809,
+          "httpCalls": 1,
+          "tokens": 20058,
+          "costUsd": null,
+          "runIds": [
+            "94291646-3def-4d34-8aee-02d0cb50cde0"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JM3KE2DY5G0700001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13232,
+          "httpCalls": 1,
+          "tokens": 20373,
+          "costUsd": null,
+          "runIds": [
+            "acceb5d9-6852-4363-a10c-73f9f070151f"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JM3KE2DY5G0700001",
+          "publishedAction": "needs_inspection"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JM3KE2DY5G0700001",
+          "action": "inspect_first",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 12757,
+          "httpCalls": 1,
+          "tokens": 19872,
+          "costUsd": null,
+          "runIds": [
+            "ef2174c8-944e-48c5-82e5-4171c2305140"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JM3KE2DY5G0700001",
+          "publishedAction": "needs_inspection"
+        }
+      ]
+    },
+    {
+      "caseId": "find-low-mile-camry-20k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "4T1B11HK1JU700003",
+        "4T1B11HK5JU700001",
+        "4T1B11HK0JU700002"
+      ],
+      "loopPick": "4T1B11HK1JU700003|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "4T1B11HK1JU700003|buy",
+        "graph_primary": "4T1B11HK1JU700003|buy"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 12102,
+          "httpCalls": 1,
+          "tokens": 19155,
+          "costUsd": null,
+          "runIds": [
+            "32066931-6499-4ead-a272-c5d588fc2be4"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "4T1B11HK1JU700003",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "buy",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13614,
+          "httpCalls": 1,
+          "tokens": 19756,
+          "costUsd": null,
+          "runIds": [
+            "6aedfd40-f894-42af-be98-5137b3aaa0ee"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "4T1B11HK1JU700003",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 11830,
+          "httpCalls": 1,
+          "tokens": 18597,
+          "costUsd": null,
+          "runIds": [
+            "8bb51254-a220-4e63-9be7-3fd101949e8d"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "4T1B11HK1JU700003",
+          "publishedAction": "buy"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "4T1B11HK1JU700003",
+          "action": "buy",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 12807,
+          "httpCalls": 1,
+          "tokens": 19845,
+          "costUsd": null,
+          "runIds": [
+            "c86bce03-47b2-4775-8ba4-1c64b0b3862a"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "4T1B11HK1JU700003",
+          "publishedAction": "buy"
+        }
+      ]
+    },
+    {
+      "caseId": "find-truck-weekend-22k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "1FTER4EH5HLA00002",
+        "5TFRU5F18GX100001",
+        "5TFRU5F10DX200003"
+      ],
+      "loopPick": "1FTER4EH5HLA00002|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "1FTER4EH5HLA00002|negotiate",
+        "graph_primary": "1FTER4EH5HLA00002|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12012,
+          "httpCalls": 1,
+          "tokens": 19867,
+          "costUsd": null,
+          "runIds": [
+            "bd1be1cb-7ed4-4b06-8e7b-54137975d351"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "1FTER4EH5HLA00002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 13965,
+          "httpCalls": 1,
+          "tokens": 20365,
+          "costUsd": null,
+          "runIds": [
+            "7819fb41-a633-4ec0-94f8-8d5a3f4ba640"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "1FTER4EH5HLA00002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13458,
+          "httpCalls": 1,
+          "tokens": 20419,
+          "costUsd": null,
+          "runIds": [
+            "34bcb434-9726-4635-ae3d-6374889b24b4"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "1FTER4EH5HLA00002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1FTER4EH5HLA00002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 17398,
+          "httpCalls": 1,
+          "tokens": 21196,
+          "costUsd": null,
+          "runIds": [
+            "c22bc291-2250-449b-83b2-3610187a731d"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "1FTER4EH5HLA00002",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-hybrid-fuel-16k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JTDKN3DU5E0100001",
+        "4T1BF1FK5EU300003",
+        "JTDKB20U293200002"
+      ],
+      "loopPick": "JTDKN3DU5E0100001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "JTDKN3DU5E0100001|negotiate",
+        "graph_primary": "JTDKN3DU5E0100001|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12179,
+          "httpCalls": 1,
+          "tokens": 19271,
+          "costUsd": null,
+          "runIds": [
+            "2e5f5f9a-1083-4181-8668-b2d05b350b7f"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JTDKN3DU5E0100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 14064,
+          "httpCalls": 1,
+          "tokens": 30151,
+          "costUsd": null,
+          "runIds": [
+            "70aae7d3-df3c-47c5-89de-e54198f85e13"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JTDKN3DU5E0100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 11724,
+          "httpCalls": 1,
+          "tokens": 20198,
+          "costUsd": null,
+          "runIds": [
+            "c0e28b09-e1b4-4296-8108-5f3d304c60c8"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTDKN3DU5E0100001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTDKN3DU5E0100001",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "agreed",
+          "latencyMs": 12540,
+          "httpCalls": 1,
+          "tokens": 20129,
+          "costUsd": null,
+          "runIds": [
+            "a8170585-5e80-4bcc-8ca3-1c464136b3d9"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTDKN3DU5E0100001",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-luxury-stretch-25k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "58ABK1GG5GU400001",
+        "JTHBK1GG7E2500003",
+        "19UDE2F70GA500002"
+      ],
+      "loopPick": "58ABK1GG5GU400001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "58ABK1GG5GU400001|negotiate",
+        "graph_primary": "JTHBK1GG7E2500003|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "58ABK1GG5GU400001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13912,
+          "httpCalls": 1,
+          "tokens": 20018,
+          "costUsd": null,
+          "runIds": [
+            "b41bf0e2-d556-4e9f-804e-f2eb052b81e3"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "58ABK1GG5GU400001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 13660,
+          "httpCalls": 1,
+          "tokens": 20289,
+          "costUsd": null,
+          "runIds": [
+            "6ddd63d5-7ee7-4343-91fd-f23c97812fb9"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "58ABK1GG5GU400001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 11578,
+          "httpCalls": 1,
+          "tokens": 19767,
+          "costUsd": null,
+          "runIds": [
+            "06a75389-0503-40b8-b90f-8ea0a604fad3"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTHBK1GG7E2500003",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTHBK1GG7E2500003",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 13813,
+          "httpCalls": 1,
+          "tokens": 30316,
+          "costUsd": null,
+          "runIds": [
+            "428625de-05df-467b-92e5-4ed7b0a249a6"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTHBK1GG7E2500003",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-city-crossover-14k",
+      "synthetic": true,
+      "shortlistKeys": [
+        "JTMZF4DV5ED600001",
+        "JM3TB2CA5D0800003",
+        "SHSRD77805U700002"
+      ],
+      "loopPick": "JTMZF4DV5ED600001|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "JTMZF4DV5ED600001|negotiate",
+        "graph_primary": "JTMZF4DV5ED600001|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 11987,
+          "httpCalls": 1,
+          "tokens": 19736,
+          "costUsd": null,
+          "runIds": [
+            "be4597b7-79fd-43c5-a41f-a3915378feb6"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JTMZF4DV5ED600001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 15069,
+          "httpCalls": 1,
+          "tokens": 30127,
+          "costUsd": null,
+          "runIds": [
+            "2809cd91-3de0-44dd-b1fb-a55e67a091e6"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "JTMZF4DV5ED600001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 13785,
+          "httpCalls": 1,
+          "tokens": 20470,
+          "costUsd": null,
+          "runIds": [
+            "26b4a261-4be9-4829-955a-7a04757d468c"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTMZF4DV5ED600001",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "JTMZF4DV5ED600001",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 12077,
+          "httpCalls": 1,
+          "tokens": 19175,
+          "costUsd": null,
+          "runIds": [
+            "8bcbe965-3208-4391-ae9f-4bb04e09523b"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "JTMZF4DV5ED600001",
+          "publishedAction": "negotiate"
+        }
+      ]
+    },
+    {
+      "caseId": "find-cheapest-reliable-honda-33101",
+      "synthetic": true,
+      "shortlistKeys": [
+        "2HGFC2F59GH900002",
+        "1HGCM82633A800001"
+      ],
+      "loopPick": "2HGFC2F59GH900002|negotiate",
+      "modal": {
+        "two_call": null,
+        "graph": null,
+        "loop_second_check": "1HGCM82633A800001|negotiate",
+        "graph_primary": "2HGFC2F59GH900002|negotiate"
+      },
+      "agree": null,
+      "attempts": [
+        {
+          "arm": "loop_second_check",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCM82633A800001",
+          "action": "negotiate",
+          "confidence": "medium",
+          "secondPass": "disagreed",
+          "latencyMs": 13397,
+          "httpCalls": 1,
+          "tokens": 17925,
+          "costUsd": null,
+          "runIds": [
+            "4c4a0a87-b001-47a2-9c73-e65679493685"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2HGFC2F59GH900002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "loop_second_check",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "1HGCM82633A800001",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13127,
+          "httpCalls": 1,
+          "tokens": 26577,
+          "costUsd": null,
+          "runIds": [
+            "c99999cf-21fa-417e-bbc4-9428a653b383"
+          ],
+          "failure": null,
+          "decidedBy": null,
+          "publishedPickKey": "2HGFC2F59GH900002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 1,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "negotiate",
+          "confidence": "low",
+          "secondPass": "agreed",
+          "latencyMs": 12488,
+          "httpCalls": 1,
+          "tokens": 17601,
+          "costUsd": null,
+          "runIds": [
+            "2e639892-9561-4a97-8788-de77277344d7"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2HGFC2F59GH900002",
+          "publishedAction": "negotiate"
+        },
+        {
+          "arm": "graph_primary",
+          "repeat": 2,
+          "ok": true,
+          "usedGraph": true,
+          "pickKey": "2HGFC2F59GH900002",
+          "action": "pass",
+          "confidence": "low",
+          "secondPass": "disagreed",
+          "latencyMs": 13015,
+          "httpCalls": 1,
+          "tokens": 17574,
+          "costUsd": null,
+          "runIds": [
+            "bc0d19b9-06ee-4592-8ee3-eaa78fd1b341"
+          ],
+          "failure": null,
+          "decidedBy": "graph",
+          "publishedPickKey": "2HGFC2F59GH900002",
+          "publishedAction": "pass"
+        }
+      ]
+    }
+  ]
+}

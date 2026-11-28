@@ -44,7 +44,17 @@ describe("runFindDecideOrchestrator (offline)", () => {
 
     const result = await runFindDecideOrchestrator(
       { searchContextToken: record.token },
-      { kv, userId: "synthetic-test-user", servKey: null },
+      {
+        kv,
+        userId: "synthetic-test-user",
+        servKey: null,
+        runFreeGov: async () => ({
+          receipts: [] as FindFreeGovReceipt[],
+          evidenceChanged: false,
+          checkIds: [],
+          note: "synthetic-test empty wave",
+        }),
+      },
     );
 
     expect(result.ok).toBe(false);
@@ -64,7 +74,17 @@ describe("runFindDecideOrchestrator (offline)", () => {
     await storeFindSearchContext(kv, record);
     const result = await runFindDecideOrchestrator(
       { searchContextToken: record.token },
-      { kv, userId: "synthetic-test-user", servKey: null },
+      {
+        kv,
+        userId: "synthetic-test-user",
+        servKey: null,
+        runFreeGov: async () => ({
+          receipts: [] as FindFreeGovReceipt[],
+          evidenceChanged: false,
+          checkIds: [],
+          note: "synthetic-test empty wave",
+        }),
+      },
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -259,7 +279,7 @@ describe("runFindDecideOrchestrator (offline)", () => {
     return { result, pickVin, graphModels };
   }
 
-  it("runs the SERV graph as the second check when configured", async () => {
+  it("runs the SERV graph as the primary final decider when configured", async () => {
     const vin = listing(1).vin;
     const { result, graphModels } = await runWithGraph(() => {
       const decide = {
@@ -282,20 +302,25 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(graphModels).toEqual(["gr_orch"]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const graphProof = result.pickProofRecords.find((row) => row.purpose === "find_graph_check");
+    const graphProof = result.pickProofRecords.find((row) => row.purpose === "find_graph_decide");
     expect(graphProof?.graph?.runId).toBe("run_orch");
     expect(graphProof?.status).toBe("ok");
     expect(result.pickSecondPass?.status).toBe("agreed");
+    expect(result.pickSecondPass?.objection).toMatch(/^Decided by the SERV graph/);
     expect(result.pickAgentVerdict?.serv_steps.at(-1)?.model).toBe("graph:gr_orch");
+    expect(result.pickAgentVerdict?.verdict).toBe("negotiate");
+    expect(result.honesty).toMatch(/SERV graph made the final choice/);
   });
 
-  it("keeps 'second check not run' when the graph fails", async () => {
-    const { result, graphModels } = await runWithGraph(() => new Response("{}", { status: 502 }));
+  it("publishes the loop pick with an honest fallback when the graph fails", async () => {
+    const { result, pickVin, graphModels } = await runWithGraph(() => new Response("{}", { status: 502 }));
     expect(graphModels).toEqual(["gr_orch"]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.pickSecondPass?.status).toBe("not_run");
-    expect(result.pickSecondPass?.objection).toMatch(/Second check not run/);
-    expect(result.pickProofRecords.some((row) => row.purpose === "find_graph_check" && row.status === "failed")).toBe(true);
+    expect(result.pickSecondPass?.objection).toMatch(/^Decided by fallback:/);
+    expect(result.pickAgentVerdict?.pick?.key).toBe(pickVin);
+    expect(result.pickProofRecords.some((row) => row.purpose === "find_graph_decide" && row.status === "failed")).toBe(true);
+    expect(result.honesty).toMatch(/graph fallback/);
   });
 });

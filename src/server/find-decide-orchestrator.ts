@@ -26,7 +26,7 @@ import {
 } from "@/server/find-agent/loop";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
-import { runFindGraphSecondCheck } from "@/server/find-graph-second-check";
+import { runFindGraphDecide } from "@/server/find-graph-decide";
 import { findDecideGraphId } from "@/server/serv/graph";
 import {
   loadFindSearchContext,
@@ -111,7 +111,7 @@ export async function runFindDecideOrchestrator(
     shopperNote?: string | null;
     /** Inject parallel free-gov for offline tests. */
     runFreeGov?: typeof executeAllFindFreeGovParallel;
-    /** Route clock. The decision call waits for whatever is left after the second-check reserve. */
+    /** Route clock. The graph decision waits for whatever is left after the graph reserve. */
     budgetMs?: number;
     startedAtMs?: number;
     env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
@@ -325,8 +325,8 @@ export async function runFindDecideOrchestrator(
     }
     if (agent.ok) {
       const mappedLoop = mapFindAgentLoopToDecide({ agent });
-      // Optional SERV graph second check (SERV_GRAPH_FIND_DECIDE_ID). Off → unchanged result.
-      const graphCheck = await runFindGraphSecondCheck({
+      // SERV graph is the primary final decider (SERV_GRAPH_FIND_DECIDE_ID). Off or failed → loop pick.
+      const graphCheck = await runFindGraphDecide({
         need: record.need,
         bestDeal: mappedLoop.bestDeal,
         agentVerdict: mappedLoop.agentVerdict,
@@ -371,7 +371,7 @@ export async function runFindDecideOrchestrator(
             verdictReached: agent.verdictReached,
             pickVins: mapped.shortlistKeys,
           },
-          verdict: mapped.agentVerdict.verdict,
+          verdict: mappedLoop.agentVerdict.verdict,
         }),
         ...graphCheck.proofRecords,
       ];
@@ -381,14 +381,7 @@ export async function runFindDecideOrchestrator(
         searchContextToken: record.token,
         bestDeal: mapped.bestDeal,
         pickAgentVerdict: mapped.agentVerdict,
-        pickSecondPass: mapped.agentVerdict.second_pass ?? {
-          status: "not_run",
-          action: null,
-          objection: "Second check not run: agentic Find loop path.",
-          evidenceIds: [],
-          confidenceBefore: null,
-          confidenceAfter: null,
-        },
+        pickSecondPass: mapped.agentVerdict.second_pass ?? graphCheck.secondPass,
         pickProofRecords: proofRecords,
         freeGovReceipts: receipts,
         freeGovCoverage: coverage,
@@ -402,7 +395,10 @@ export async function runFindDecideOrchestrator(
           reason: "decide_settled",
           detail: `Agentic Find loop finished (mode=${agent.agentMode}, toolRounds=${agent.toolRounds}).`,
         },
-        honesty: "SERV agentic Find loop published under VIN/budget guardrails.",
+        honesty:
+          graphCheck.decidedBy === "graph"
+            ? "The SERV graph made the final choice from the facts the search loop gathered, under VIN/budget guardrails."
+            : "The search loop's pick was published (graph fallback), under VIN/budget guardrails.",
         needAfter: record.need,
         appliedCheckIds: record.appliedCheckIds,
         decisionLog: record.decisionLog ?? [],

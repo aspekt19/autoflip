@@ -65,6 +65,8 @@ export type ServSecondCheckSummary = {
   detail: string;
   modelId: string | null;
   runId: string | null;
+  /** graph_decide / graph_fallback: the SERV graph is the final Find decider, not a second check. */
+  role?: "second_check" | "graph_decide" | "graph_fallback";
 };
 
 export type ServDecisionJournalView = {
@@ -232,6 +234,21 @@ export function summarizeSecondCheck(
       detail: "A second check did not run, so confidence is Low.",
       modelId: null,
       runId: null,
+    };
+  }
+  if (second.profile === "find_graph_decide") {
+    const decided = second.status === "agreed" || second.status === "disagreed";
+    return {
+      status: second.status,
+      answersAgree: decided ? second.status === "agreed" : null,
+      detail:
+        second.objection?.trim() ||
+        (decided
+          ? "The SERV graph made the final decision."
+          : "Decided by fallback: the graph did not run."),
+      modelId: second.profile,
+      runId: second.responseId ?? null,
+      role: decided ? "graph_decide" : "graph_fallback",
     };
   }
   if (second.status === "agreed") {

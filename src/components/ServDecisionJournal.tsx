@@ -94,7 +94,7 @@ export function ServDecisionJournal({
         </ol>
       )}
 
-      <section aria-label="Second check">
+      <section aria-label={journal.secondCheck.role === "graph_decide" || journal.secondCheck.role === "graph_fallback" ? "Final decision" : "Second check"}>
         <p>{plainDecisionEngineText(secondSentences)}</p>
       </section>
 
@@ -132,7 +132,9 @@ export function ServDecisionJournal({
         )}
         {journal.secondCheck.runId || journal.secondCheck.modelId ? (
           <p className="hint">
-            Second check
+            {journal.secondCheck.role === "graph_decide" || journal.secondCheck.role === "graph_fallback"
+              ? "Final decision"
+              : "Second check"}
             {journal.secondCheck.modelId ? ` · ${journal.secondCheck.modelId}` : ""}
             {journal.secondCheck.runId
               ? ` · response ${providerResponseId(journal.secondCheck.runId)}`

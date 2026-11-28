@@ -9,11 +9,11 @@
  * Arms:
  *   - two_call          — runFindDecideServ with graphId null (find_decide + find_challenge)
  *   - graph             — runFindDecideServ with the graph (one run)
- *   - loop_second_check — the prod path: runFindGraphSecondCheck after the agentic Find loop,
- *                         exactly as /api/find/chat and /api/find/decide call it. The loop's
- *                         pick is a frozen stand-in (code's top-ranked car, "negotiate", high),
- *                         because the live loop needs live search tools; the graph input is the
- *                         same shortlist + code facts the prod path sends.
+ *   - loop_second_check — previous prod path: runFindGraphSecondCheck after the agentic Find loop.
+ *                         The loop's pick is a frozen stand-in (code's top-ranked car, "negotiate", high).
+ *                         Published pick stays the loop's; the graph is a second check.
+ *   - graph_primary     — new prod path: runFindGraphDecide. The graph publishes the pick/action/
+ *                         confidence; the loop stand-in is fallback if the graph cannot run.
  *
  * Reports per arm:
  *   - validator pass rate   — the arm's own answer passed validateFindDecide/validateFindChallenge
@@ -30,7 +30,7 @@
  *   EVAL_GRAPH_ALLOW_PAID=1 SERV_API_KEY=… SERV_GRAPH_FIND_DECIDE_ID=gr_… \
  *     npx tsx scripts/eval-graph-vs-baseline.ts --live --repeats 3 --cases 5
  *
- * Flags: --arms two_call,graph,loop_second_check (default all), --live, --repeats N (default 3), --cases N (default all), --shortlist N (default 5),
+ * Flags: --arms two_call,graph,loop_second_check,graph_primary (default all), --live, --repeats N (default 3), --cases N (default all), --shortlist N (default 5),
  *        --out PATH (default eval/results/graph-vs-baseline.json)
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -38,6 +38,7 @@ import { dirname, resolve } from "node:path";
 import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { explicitNeedFromText, type StructuredNeed } from "@/domain/need";
 import { runFindDecideServ, type FindDecideServResult } from "@/server/find-decide-serv";
+import { runFindGraphDecide, type FindGraphDecideResult } from "@/server/find-graph-decide";
 import { findDecideGraphId } from "@/server/serv/graph";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import {
@@ -53,7 +54,7 @@ import type { FindCaseFixture } from "../eval/comparison/types";
 const ROOT = resolve(__dirname, "..");
 const FIXTURE = resolve(ROOT, "eval/comparison/fixtures/find-cases.json");
 
-const ARMS = ["two_call", "graph", "loop_second_check"] as const;
+const ARMS = ["two_call", "graph", "loop_second_check", "graph_primary"] as const;
 type Arm = (typeof ARMS)[number];
 
 type Attempt = {
@@ -71,6 +72,9 @@ type Attempt = {
   costUsd: number | null;
   runIds: string[];
   failure: string | null;
+  decidedBy?: "graph" | "fallback" | "two_call" | null;
+  publishedPickKey?: string | null;
+  publishedAction?: string | null;
 };
 
 type CaseRow = {
@@ -177,6 +181,37 @@ function attemptFromCheck(
     costUsd: meter.costUsd,
     runIds: meter.runIds,
     failure: ok ? null : out.secondPass.objection,
+    decidedBy: null,
+    publishedPickKey: out.agentVerdict.pick?.key ?? null,
+    publishedAction: out.agentVerdict.verdict,
+  };
+}
+
+function attemptFromPrimary(
+  repeat: number,
+  out: FindGraphDecideResult,
+  ms: number,
+  meter: ReturnType<typeof meteredFetch>["meter"],
+): Attempt {
+  const ok = out.decidedBy === "graph" && out.graphFinal != null;
+  return {
+    arm: "graph_primary",
+    repeat,
+    ok,
+    usedGraph: out.decidedBy === "graph",
+    pickKey: out.graphFinal?.pickKey ?? out.agentVerdict.pick?.key ?? null,
+    action: out.graphFinal?.action ?? null,
+    confidence: out.graphFinal?.confidence ?? out.agentVerdict.confidence ?? null,
+    secondPass: out.secondPass.status,
+    latencyMs: ms,
+    httpCalls: meter.calls,
+    tokens: meter.tokens,
+    costUsd: meter.costUsd,
+    runIds: meter.runIds,
+    failure: ok ? null : out.fallbackReason,
+    decidedBy: out.decidedBy,
+    publishedPickKey: out.agentVerdict.pick?.key ?? null,
+    publishedAction: out.agentVerdict.verdict,
   };
 }
 
@@ -227,6 +262,9 @@ function attemptFrom(arm: Arm, repeat: number, out: FindDecideServResult, ms: nu
     costUsd: meter.costUsd,
     runIds: meter.runIds,
     failure: ok ? null : graphFallback?.reason ?? decideProof?.reason ?? "no SERV decision",
+    decidedBy: usedGraph ? "graph" : arm === "two_call" ? "two_call" : "fallback",
+    publishedPickKey: out.decide.pickKey || null,
+    publishedAction: out.decide.action ?? null,
   };
 }
 
@@ -258,88 +296,14 @@ function loopPickLabel(built: ReturnType<typeof buildCase>): string | null {
   return loop ? `${loop.agentVerdict.pick?.key ?? ""}|${loop.agentVerdict.verdict ?? ""}` : null;
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const fixtures = (JSON.parse(readFileSync(FIXTURE, "utf8")) as { cases: FindCaseFixture[] }).cases.slice(
-    0,
-    args.cases ?? undefined,
-  );
-  const apiKey = process.env.SERV_API_KEY?.trim() || "";
-  const graphId = findDecideGraphId();
-  const paidOk = process.env.EVAL_GRAPH_ALLOW_PAID === "1" && Boolean(apiKey) && Boolean(graphId);
-  if (args.live && !paidOk) {
-    console.error(
-      "Live run needs EVAL_GRAPH_ALLOW_PAID=1, SERV_API_KEY and SERV_GRAPH_FIND_DECIDE_ID=gr_… (values are not printed).",
-    );
-    process.exit(2);
-  }
-  const live = args.live && paidOk;
 
-  const rows: CaseRow[] = [];
-  for (const fixture of fixtures) {
-    const built = buildCase(fixture, args.shortlist);
-    const attempts: Attempt[] = [];
-    if (live && built.shortlistKeys.length > 0) {
-      for (const arm of args.arms) {
-        for (let repeat = 1; repeat <= args.repeats; repeat += 1) {
-          if (arm === "loop_second_check") {
-            const loop = loopStandIn(built);
-            if (!loop) break;
-            const { impl, meter } = meteredFetch();
-            const started = Date.now();
-            const out = await runFindGraphSecondCheck({
-              need: built.need,
-              bestDeal: loop.bestDeal,
-              agentVerdict: loop.agentVerdict,
-              shortlistKeys: loop.shortlistKeys,
-              marketPool: built.marketPool,
-              servKey: apiKey,
-              fetchImpl: impl,
-              remainingRouteMs: FIND_GRAPH_CHECK_MAX_MS + FIND_GRAPH_CHECK_SAFETY_MS,
-              graphId,
-            });
-            attempts.push(attemptFromCheck(repeat, out, Date.now() - started, meter));
-            console.log(`${fixture.id} ${arm} #${repeat}: ${attempts.at(-1)!.ok ? "ok" : "FAIL"}`);
-            continue;
-          }
-          const { impl, meter } = meteredFetch();
-          const started = Date.now();
-          const out = await runFindDecideServ({
-            need: built.need,
-            bestDeal: built.bestDeal,
-            shortlistKeys: built.shortlistKeys,
-            receipts: [],
-            marketPool: built.marketPool,
-            servKey: apiKey,
-            fetchImpl: impl,
-            graphId: arm === "graph" ? graphId : null,
-          });
-          attempts.push(attemptFrom(arm, repeat, out, Date.now() - started, meter));
-          console.log(`${fixture.id} ${arm} #${repeat}: ${attempts.at(-1)!.ok ? "ok" : "FAIL"}`);
-        }
-      }
-    }
-    const byArm = (arm: Arm) => attempts.filter((a) => a.arm === arm);
-    const modalTwo = modal(byArm("two_call"));
-    const modalGraph = modal(byArm("graph"));
-    rows.push({
-      caseId: fixture.id,
-      synthetic: fixture.synthetic,
-      shortlistKeys: built.shortlistKeys,
-      loopPick: loopPickLabel(built),
-      plannedCalls: live
-        ? undefined
-        : {
-            two_call: args.arms.includes("two_call") ? 2 * args.repeats : 0,
-            graph: args.arms.includes("graph") ? args.repeats : 0,
-            loop_second_check: args.arms.includes("loop_second_check") ? args.repeats : 0,
-          },
-      modal: { two_call: modalTwo, graph: modalGraph, loop_second_check: modal(byArm("loop_second_check")) },
-      agree: modalTwo != null && modalGraph != null ? modalTwo === modalGraph : null,
-      attempts,
-    });
-  }
-
+function buildReport(
+  rows: CaseRow[],
+  args: Args,
+  live: boolean,
+  graphId: string | null,
+  partial = false,
+) {
   const all = rows.flatMap((row) => row.attempts);
   const summary = Object.fromEntries(
     args.arms.map((arm) => {
@@ -367,31 +331,190 @@ async function main() {
             arm === "loop_second_check" ? list.filter((a) => a.secondPass === "agreed").length : null,
           secondCheckDisagreed:
             arm === "loop_second_check" ? list.filter((a) => a.secondPass === "disagreed").length : null,
+          graphDecided: arm === "graph_primary" ? list.filter((a) => a.decidedBy === "graph").length : null,
+          fallbacks: arm === "graph_primary" ? list.filter((a) => a.decidedBy === "fallback").length : null,
+          actionCounts: Object.fromEntries(
+            ["buy", "negotiate", "inspect_first", "pass"].map((action) => [
+              action,
+              list.filter((a) => a.action === action).length,
+            ]),
+          ),
         },
       ];
     }),
   );
   const agreeRows = rows.filter((row) => row.agree != null);
-  const report = {
-    schemaVersion: "lemonless.graph_vs_baseline.v2",
+  const primaryVsLoop = rows
+    .map((row) => {
+      const pub = row.attempts.filter((a) => a.arm === "graph_primary" && a.ok);
+      if (pub.length === 0 || !row.loopPick) return null;
+      const sameCar = pub.filter((a) => a.publishedPickKey && row.loopPick!.startsWith(`${a.publishedPickKey}|`)).length;
+      const sameBoth = pub.filter((a) => `${a.publishedPickKey}|${a.publishedAction}` === row.loopPick).length;
+      return { sameCar: sameCar / pub.length, sameBoth: sameBoth / pub.length };
+    })
+    .filter((v): v is { sameCar: number; sameBoth: number } => v != null);
+  return {
+    schemaVersion: "lemonless.graph_vs_baseline.v3",
     arms: args.arms,
     generatedAt: new Date().toISOString(),
     dryRun: !live,
+    partial,
     graphId: live ? graphId : null,
     fixture: "eval/comparison/fixtures/find-cases.json",
     repeats: args.repeats,
     summary: {
       ...summary,
       decisionAgreement: agreeRows.length ? agreeRows.filter((row) => row.agree).length / agreeRows.length : null,
+      graphPrimaryVsLoopStandIn:
+        primaryVsLoop.length > 0
+          ? {
+              sameCar: primaryVsLoop.reduce((a, b) => a + b.sameCar, 0) / primaryVsLoop.length,
+              sameCarAndAction: primaryVsLoop.reduce((a, b) => a + b.sameBoth, 0) / primaryVsLoop.length,
+            }
+          : null,
     },
     notes: [
       "Same fact sheet for both arms; public-record (free-gov) checks are not fetched in this eval.",
       "Token and cost fields are copied from provider responses only; null means not returned.",
       "Graph-arm attempts that fell back to the two-call path count as validator failures for the graph.",
-      "loop_second_check runs the prod second-check module; the loop pick is a frozen stand-in (code's top-ranked car).",
+      "loop_second_check is the previous production path (loop pick published, graph as second check).",
+      "graph_primary is the new production path (graph publishes the pick; loop pick is fallback).",
+      "The loop pick is a frozen stand-in (code's top-ranked car, negotiate, high).",
     ],
     cases: rows,
   };
+}
+
+function writePartial(
+  outPath: string,
+  completedRows: CaseRow[],
+  currentAttempts: Attempt[],
+  fixture: FindCaseFixture,
+  built: ReturnType<typeof buildCase>,
+  args: Args,
+  live: boolean,
+  graphId: string | null,
+) {
+  const current: CaseRow = {
+    caseId: fixture.id,
+    synthetic: fixture.synthetic,
+    shortlistKeys: built.shortlistKeys,
+    loopPick: loopPickLabel(built),
+    modal: {
+      two_call: modal(currentAttempts.filter((a) => a.arm === "two_call")),
+      graph: modal(currentAttempts.filter((a) => a.arm === "graph")),
+      loop_second_check: modal(currentAttempts.filter((a) => a.arm === "loop_second_check")),
+      graph_primary: modal(currentAttempts.filter((a) => a.arm === "graph_primary")),
+    },
+    agree: null,
+    attempts: currentAttempts,
+  };
+  const report = buildReport([...completedRows, current], args, live, graphId, true);
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, JSON.stringify(report, null, 2) + "\n");
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const fixtures = (JSON.parse(readFileSync(FIXTURE, "utf8")) as { cases: FindCaseFixture[] }).cases.slice(
+    0,
+    args.cases ?? undefined,
+  );
+  const apiKey = process.env.SERV_API_KEY?.trim() || "";
+  const graphId = findDecideGraphId();
+  const paidOk = process.env.EVAL_GRAPH_ALLOW_PAID === "1" && Boolean(apiKey) && Boolean(graphId);
+  if (args.live && !paidOk) {
+    console.error(
+      "Live run needs EVAL_GRAPH_ALLOW_PAID=1, SERV_API_KEY and SERV_GRAPH_FIND_DECIDE_ID=gr_… (values are not printed).",
+    );
+    process.exit(2);
+  }
+  const live = args.live && paidOk;
+
+  const rows: CaseRow[] = [];
+  for (const fixture of fixtures) {
+    const built = buildCase(fixture, args.shortlist);
+    const attempts: Attempt[] = [];
+    if (live && built.shortlistKeys.length > 0) {
+      for (const arm of args.arms) {
+        for (let repeat = 1; repeat <= args.repeats; repeat += 1) {
+          if (arm === "loop_second_check" || arm === "graph_primary") {
+            const loop = loopStandIn(built);
+            if (!loop) break;
+            const { impl, meter } = meteredFetch();
+            const started = Date.now();
+            if (arm === "graph_primary") {
+              const out = await runFindGraphDecide({
+                need: built.need,
+                bestDeal: loop.bestDeal,
+                agentVerdict: loop.agentVerdict,
+                shortlistKeys: loop.shortlistKeys,
+                marketPool: built.marketPool,
+                servKey: apiKey,
+                fetchImpl: impl,
+                remainingRouteMs: FIND_GRAPH_CHECK_MAX_MS + FIND_GRAPH_CHECK_SAFETY_MS,
+                graphId,
+              });
+              attempts.push(attemptFromPrimary(repeat, out, Date.now() - started, meter));
+            } else {
+              const out = await runFindGraphSecondCheck({
+                need: built.need,
+                bestDeal: loop.bestDeal,
+                agentVerdict: loop.agentVerdict,
+                shortlistKeys: loop.shortlistKeys,
+                marketPool: built.marketPool,
+                servKey: apiKey,
+                fetchImpl: impl,
+                remainingRouteMs: FIND_GRAPH_CHECK_MAX_MS + FIND_GRAPH_CHECK_SAFETY_MS,
+                graphId,
+              });
+              attempts.push(attemptFromCheck(repeat, out, Date.now() - started, meter));
+            }
+            console.log(`${fixture.id} ${arm} #${repeat}: ${attempts.at(-1)!.ok ? "ok" : "FAIL"}`);
+            writePartial(args.out, rows, attempts, fixture, built, args, live, graphId);
+            continue;
+          }
+          const { impl, meter } = meteredFetch();
+          const started = Date.now();
+          const out = await runFindDecideServ({
+            need: built.need,
+            bestDeal: built.bestDeal,
+            shortlistKeys: built.shortlistKeys,
+            receipts: [],
+            marketPool: built.marketPool,
+            servKey: apiKey,
+            fetchImpl: impl,
+            graphId: arm === "graph" ? graphId : null,
+          });
+          attempts.push(attemptFrom(arm, repeat, out, Date.now() - started, meter));
+          console.log(`${fixture.id} ${arm} #${repeat}: ${attempts.at(-1)!.ok ? "ok" : "FAIL"}`);
+          writePartial(args.out, rows, attempts, fixture, built, args, live, graphId);
+        }
+      }
+    }
+    const byArm = (arm: Arm) => attempts.filter((a) => a.arm === arm);
+    const modalTwo = modal(byArm("two_call"));
+    const modalGraph = modal(byArm("graph"));
+    rows.push({
+      caseId: fixture.id,
+      synthetic: fixture.synthetic,
+      shortlistKeys: built.shortlistKeys,
+      loopPick: loopPickLabel(built),
+      plannedCalls: live
+        ? undefined
+        : {
+            two_call: args.arms.includes("two_call") ? 2 * args.repeats : 0,
+            graph: args.arms.includes("graph") ? args.repeats : 0,
+            loop_second_check: args.arms.includes("loop_second_check") ? args.repeats : 0,
+            graph_primary: args.arms.includes("graph_primary") ? args.repeats : 0,
+          },
+      modal: { two_call: modalTwo, graph: modalGraph, loop_second_check: modal(byArm("loop_second_check")), graph_primary: modal(byArm("graph_primary")) },
+      agree: modalTwo != null && modalGraph != null ? modalTwo === modalGraph : null,
+      attempts,
+    });
+  }
+
+  const report = buildReport(rows, args, live, live ? graphId : null, false);
   mkdirSync(dirname(args.out), { recursive: true });
   writeFileSync(args.out, JSON.stringify(report, null, 2) + "\n");
   console.log(`${live ? "LIVE" : "DRY RUN (no HTTP, nothing spent)"}: ${rows.length} cases → ${args.out}`);
