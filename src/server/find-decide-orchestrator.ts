@@ -400,7 +400,9 @@ export async function runFindDecideOrchestrator(
         honesty:
           graphCheck.decidedBy === "graph"
             ? "The SERV graph made the final choice from the facts the search loop gathered, under VIN/budget guardrails."
-            : "The search loop's pick was published (graph fallback), under VIN/budget guardrails.",
+            : graphCheck.agentVerdict.second_pass?.noCar
+              ? "No car met the brief in this search, so no car was chosen and nothing was published."
+              : "The search loop's pick was published (graph fallback), under VIN/budget guardrails.",
         needAfter: record.need,
         appliedCheckIds: record.appliedCheckIds,
         decisionLog: record.decisionLog ?? [],

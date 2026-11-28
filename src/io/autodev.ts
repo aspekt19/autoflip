@@ -3,7 +3,7 @@ import { TtlCache } from "./cache";
 import { monthKey, reserveCall, type MonthlyCounter, type QuotaDecision } from "./quota";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { providerBodyStyleParam } from "@/domain/body-style";
-import { excludeImplausiblyPriced } from "@/domain/find-hard-eligibility";
+import { PLACEHOLDER_PRICE_BELOW_USD, excludeImplausiblyPriced } from "@/domain/find-hard-eligibility";
 import type { Listing, ListingSource } from "@/domain/types";
 import type { ListingQuery } from "./marketcheck";
 import { combineAbortSignals } from "./abort-signal";
@@ -56,7 +56,14 @@ export type AutodevUpstreamCause =
   | "unknown";
 
 export type AutodevResult =
-  | { ok: true; listings: Listing[]; quota: QuotaDecision & { ok: true }; cached: boolean }
+  | {
+      ok: true;
+      listings: Listing[];
+      quota: QuotaDecision & { ok: true };
+      cached: boolean;
+      /** Provider rows left out because the ask is a placeholder ($1, $220). Never replaced with a guess. */
+      placeholderPricesDropped?: number;
+    }
   | { ok: false; error: "demo_limit"; message: string; quota: QuotaDecision & { ok: false } }
   | {
       ok: false;
@@ -75,6 +82,21 @@ export function autodevOrigin(env: Record<string, string | undefined> = process.
   return "https://api.auto.dev";
 }
 
+/**
+ * The provider sorts and pages by price, so a `1-<max>` range fills the first page with
+ * $1/$220 placeholder rows and leaves no room for real cars. Ask the provider for real prices only.
+ * Accepts "min-max", "min-" and "-max"; anything else is passed through untouched.
+ */
+export function realPriceRangeParam(range: string | undefined): string | undefined {
+  if (!range) return range;
+  const m = /^\s*(\d+)?\s*-\s*(\d+)?\s*$/.exec(range);
+  if (!m || (m[1] == null && m[2] == null)) return range;
+  const min = Math.max(m[1] != null ? Number(m[1]) : 0, PLACEHOLDER_PRICE_BELOW_USD);
+  const max = m[2] != null ? Number(m[2]) : null;
+  if (max != null && max < min) return range;
+  return `${min}-${max ?? ""}`;
+}
+
 export function listingsSearchUrl(query: ListingQuery): string {
   const params = new URLSearchParams();
   if (query.make) params.set("vehicle.make", query.make);
@@ -83,7 +105,7 @@ export function listingsSearchUrl(query: ListingQuery): string {
   else if (query.year) params.set("vehicle.year", String(query.year));
   const bodyStyle = providerBodyStyleParam(query.bodyStyle);
   if (bodyStyle) params.set("vehicle.bodyStyle", bodyStyle);
-  if (query.priceRange) params.set("retailListing.price", query.priceRange);
+  if (query.priceRange) params.set("retailListing.price", realPriceRangeParam(query.priceRange) ?? query.priceRange);
   if (query.milesRange) params.set("retailListing.miles", query.milesRange);
   if (query.used) params.set("retailListing.used", "true");
   if (query.zip) params.set("zip", query.zip);
@@ -497,17 +519,20 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
   };
 }
 
+function withoutPlaceholderPrices(fetched: AutodevResult & { ok: true }): AutodevResult & { ok: true } {
+  const listings = excludeImplausiblyPriced(fetched.listings);
+  return { ...fetched, listings, placeholderPricesDropped: fetched.listings.length - listings.length };
+}
+
 export async function autodevSearch(query: ListingQuery, deps: AutodevDeps): Promise<AutodevResult> {
   const url = listingsSearchUrl(query);
   console.info(`[autodev] listings_search url=${url}`);
   const fetched = await cachedGet(url, deps);
   // Placeholder asks ($1, $220) never enter the shopping pool: one choke point for Find, Resale, Radar and MCP.
-  const result = fetched.ok
-    ? { ...fetched, listings: excludeImplausiblyPriced(fetched.listings) }
-    : fetched;
+  const result = fetched.ok ? withoutPlaceholderPrices(fetched) : fetched;
   if (result.ok) {
     console.info(
-      `[autodev] listings_search ok cached=${result.cached} count=${result.listings.length} url=${url}`,
+      `[autodev] listings_search ok cached=${result.cached} count=${result.listings.length} placeholder_prices_dropped=${result.placeholderPricesDropped ?? 0} url=${url}`,
     );
   } else if (result.error === "upstream") {
     console.info(

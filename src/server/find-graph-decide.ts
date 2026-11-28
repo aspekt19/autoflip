@@ -454,7 +454,11 @@ export async function runFindGraphDecide(input: {
     : "";
 
   if (!executed.ok) {
-    const objection = fallbackLine(executed.reason);
+    // No shortlist = no car at all: nothing to decide, nothing was published.
+    const noCar = executed.reason === "no shortlist to decide on" || executed.reason === "no chosen car to decide on";
+    const objection = noCar
+      ? "No car was chosen: the search found no cars that meet the brief."
+      : fallbackLine(executed.reason);
     const secondPass: AgentSecondPassResult = {
       status: "not_run",
       action: null,
@@ -464,10 +468,13 @@ export async function runFindGraphDecide(input: {
       confidenceAfter: input.agentVerdict.confidence,
       profile: FIND_GRAPH_DECIDE_PROFILE,
       responseId: executed.meta ? providerGraphRunId(executed.meta.runId ?? executed.meta.responseId) : null,
+      ...(noCar ? { noCar: true } : {}),
     };
     const trailStep: AgentTrailStep = {
       decided: objection,
-      why: `${executed.reason}${capNote} The search loop's tentative pick was published.`,
+      why: noCar
+        ? "The review graph was not run because the search loop had no shortlist."
+        : `${capNote.trim()} The search loop's tentative pick was published.`.trim(),
       changed: null,
       model: executed.ran ? graphModel : null,
       responseId: secondPass.responseId,

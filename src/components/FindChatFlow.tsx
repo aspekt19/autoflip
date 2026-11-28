@@ -97,7 +97,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
         </section>
       ) : null}
 
-      {runId ? (
+      {runId && ranked.length > 0 ? (
         <p className="btn-row">
           <Link className="quiet" href={`/run/${runId}`}>
             Open match report

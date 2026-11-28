@@ -90,6 +90,8 @@ export type AgentSecondPassResult = {
   profile?: string | null;
   /** Upstream response id for the challenge call — cite in UI when agreed/disagreed. */
   responseId?: string | null;
+  /** Find: the search produced no shortlist, so nothing was decided and no pick exists to publish. */
+  noCar?: boolean;
 };
 
 export type AgentServSpend = {

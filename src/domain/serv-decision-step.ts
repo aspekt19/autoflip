@@ -67,6 +67,8 @@ export type ServSecondCheckSummary = {
   runId: string | null;
   /** graph_decide / graph_fallback: the SERV graph is the final Find decider, not a second check. */
   role?: "second_check" | "graph_decide" | "graph_fallback";
+  /** Find found no shortlist: no car was chosen, so there is no saved decision to check. */
+  noCar?: boolean;
 };
 
 export type ServDecisionJournalView = {
@@ -253,6 +255,7 @@ export function summarizeSecondCheck(
       modelId: second.profile,
       runId: second.responseId ?? null,
       role: decided ? "graph_decide" : "graph_fallback",
+      ...(second.noCar ? { noCar: true } : {}),
     };
   }
   if (second.status === "agreed") {

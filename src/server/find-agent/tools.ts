@@ -1411,7 +1411,7 @@ export async function executeFindAgentTool(
       duplicate != null
         ? `search_listings → DUPLICATE of call #${duplicate.priorCallIndex}; change a relaxable filter (raw=${funnel[0]?.count ?? 0})`
         : totalReturned === 0
-          ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
+          ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}${(search.placeholderPricesDropped ?? 0) > 0 ? `; placeholder_price_rows_ignored=${search.placeholderPricesDropped}` : ""}); hints=${relaxHints.join(",") || "—"}`
           : `search_listings → ${totalReturned} provider hits (funnel would keep ${funnelKeptCount}), returning ${cars.length}`;
     return {
       name,
@@ -1439,6 +1439,8 @@ export async function executeFindAgentTool(
         callIndex: state.searchFingerprints.length,
         duplicateSearch: duplicate,
         totalReturned,
+        /** Provider rows with a placeholder ask ($1, $220) that were left out; not real offers. */
+        placeholderPriceRowsIgnored: search.placeholderPricesDropped ?? 0,
         funnel,
         funnelWouldKeep: funnelKeptCount,
         productFiltersWouldDrop: proxy.productFiltersWouldDrop,

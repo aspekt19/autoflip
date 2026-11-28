@@ -13,7 +13,12 @@ import {
 } from "./find-graph-decide";
 import { journalProviderRunId } from "@/domain/serv-response-id";
 import { buildServDecisionJournal } from "@/domain/serv-decision-step";
-import { journalStepViews, formatJournalSecondCheckSentences } from "@/domain/serv-decision-journal-copy";
+import {
+  journalStepViews,
+  formatJournalSecondCheckSentences,
+  journalIntroFor,
+  journalServUsedLabel,
+} from "@/domain/serv-decision-journal-copy";
 import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
 
 const A = "1HGCV1F30LA000001";
@@ -668,5 +673,36 @@ describe("graph shortlist hard constraints and accident action", () => {
     expect(out.agentVerdict.verdict).toBe("needs_inspection");
     expect(out.graphFinal?.action).toBe("inspect_first");
     expect(out.agentVerdict.reasons.some((row) => /accident/i.test(row.text))).toBe(true);
+  });
+});
+
+describe("no shortlist (no car) wording", () => {
+  it("says nothing was chosen, never that a tentative pick was published, and says it once", async () => {
+    const empty = mapFindAgentLoopToDecide({
+      agent: {
+        ok: true,
+        agentMode: "tools",
+        toolRounds: 6,
+        verdictReached: true,
+        verdict: { summary: "", confidence: "low", picks: [], relaxedConditions: [], passReason: null },
+        droppedPicks: [],
+        listingsByVin: new Map(),
+        journal: [],
+        relaxedConditions: [],
+      } as never,
+    });
+    const { fetchImpl, calls } = graphFetch({});
+    const out = await decideRun(empty, fetchImpl);
+    expect(calls).toHaveLength(0);
+    expect(out.decidedBy).toBe("fallback");
+    expect(out.secondPass.noCar).toBe(true);
+    const step = out.agentVerdict.serv_steps.at(-1)!;
+    const text = [out.secondPass.objection, step.decided, step.why].join(" ");
+    expect(text).not.toMatch(/tentative pick|pick was published|Decided by fallback/i);
+    expect(text.match(/no shortlist/gi) ?? []).toHaveLength(1);
+    const journal = buildServDecisionJournal({ proofRecords: out.proofRecords, agentVerdict: out.agentVerdict });
+    expect(journal.secondCheck.noCar).toBe(true);
+    expect(journalIntroFor(journal)).not.toMatch(/tentative pick/i);
+    expect(journalServUsedLabel(journal)).toBe("no car to decide on");
   });
 });

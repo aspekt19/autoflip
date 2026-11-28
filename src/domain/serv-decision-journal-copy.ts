@@ -457,7 +457,14 @@ export const JOURNAL_INTRO =
 export const JOURNAL_INTRO_GRAPH_DECIDE =
   "The search loop gathered the listings and facts. The review graph makes the final decision. If the graph cannot run, we publish the search loop's tentative pick and say so.";
 
-export function journalIntroFor(journal: { secondCheck?: { role?: string | null } | null }): string {
+/** Intro when the search found no car: nothing was decided or published. */
+export const JOURNAL_INTRO_NO_CAR =
+  "The search loop looked for cars that fit the brief and found none, so no car was chosen.";
+
+export function journalIntroFor(journal: {
+  secondCheck?: { role?: string | null; noCar?: boolean } | null;
+}): string {
+  if (journal.secondCheck?.noCar) return JOURNAL_INTRO_NO_CAR;
   const role = journal.secondCheck?.role;
   if (role === "graph_decide" || role === "graph_fallback") return JOURNAL_INTRO_GRAPH_DECIDE;
   return JOURNAL_INTRO;
@@ -465,8 +472,9 @@ export function journalIntroFor(journal: { secondCheck?: { role?: string | null 
 
 export function journalServUsedLabel(journal: {
   servUsed: boolean;
-  secondCheck?: { role?: string | null } | null;
+  secondCheck?: { role?: string | null; noCar?: boolean } | null;
 }): string | null {
+  if (journal.secondCheck?.noCar) return "no car to decide on";
   if (!journal.servUsed) return "calculated checks only";
   const role = journal.secondCheck?.role;
   if (role === "graph_decide") return "the review graph decided";
