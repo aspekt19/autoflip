@@ -495,3 +495,40 @@ export function journalMainText(journal: ServDecisionJournalView): string {
   ];
   return parts.join(" ");
 }
+
+/** Buyer-facing labeled provenance lines. Skip internal labels like graph step counts. */
+const BUYER_PROVENANCE_LABELS = new Set([
+  "Decided by",
+  "Shortlist",
+  "Search loop's tentative pick",
+  "Code rule",
+  "Safety rule",
+]);
+
+export function formatJournalProvenanceLines(
+  notes: ReadonlyArray<{ label: string; text: string }> | null | undefined,
+): Array<{ label: string; text: string }> {
+  if (!notes?.length) return [];
+  const out: Array<{ label: string; text: string }> = [];
+  const seen = new Set<string>();
+  for (const note of notes) {
+    if (!BUYER_PROVENANCE_LABELS.has(note.label)) continue;
+    const text = (note.text ?? "").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    const key = `${note.label}:${text.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: note.label, text });
+  }
+  return out;
+}
+
+/** The review-graph trail step, when one was recorded. */
+export function graphDecisionTrailFromVerdict(verdict: { serv_steps?: Array<{ decided: string; why: string; notes?: Array<{ label: string; text: string }> | null }> } | null | undefined) {
+  const steps = verdict?.serv_steps ?? [];
+  return (
+    steps.find((step) => Array.isArray(step.notes) && step.notes.length > 0) ??
+    steps.find((step) => /Decided by the review graph/i.test(step.decided)) ??
+    null
+  );
+}

@@ -18,4 +18,23 @@ describe("normalizeAutoDevListing", () => {
     expect(listings.every((item) => item.bodyStyle === "Car")).toBe(true);
     expect(listings.every((item) => item.transmission != null && item.transmission.length > 0)).toBe(true);
   });
+
+  it("reads a numeric ZIP and alternate postal fields", () => {
+    const base = {
+      vin: "3N1AB8CV1SY362757",
+      vehicle: { year: 2025, make: "Nissan", model: "Sentra", vin: "3N1AB8CV1SY362757" },
+      retailListing: { price: 13995, miles: 20791, city: "Garland", state: "TX", zip: 75042 },
+      location: [0, 0],
+    };
+    const listed = normalizeAutoDevListing(base, "autodev");
+    expect(listed?.zip).toBe("75042");
+    const postal = normalizeAutoDevListing(
+      {
+        ...base,
+        retailListing: { price: 13995, miles: 20791, city: "Garland", state: "TX", postalCode: "75042-1234" },
+      },
+      "autodev",
+    );
+    expect(postal?.zip).toBe("75042");
+  });
 });

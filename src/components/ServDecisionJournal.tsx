@@ -6,6 +6,8 @@ import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import {
   formatJournalSecondCheckSentences,
+  formatJournalProvenanceLines,
+  graphDecisionTrailFromVerdict,
   journalIntroFor,
   journalServUsedLabel,
   collapseRepeatedStepViews,
@@ -49,6 +51,9 @@ export function ServDecisionJournal({
   const stepViews = journalStepViews(journal.steps);
   const shownSteps = collapseRepeatedStepViews(stepViews);
   const secondSentences = formatJournalSecondCheckSentences(journal.secondCheck);
+  const graphTrail = graphDecisionTrailFromVerdict(agentVerdict);
+  const graphReason = graphTrail?.why?.trim() || null;
+  const provenance = formatJournalProvenanceLines(graphTrail?.notes);
   const noCar = journal.secondCheck.noCar === true;
   const unknowns = agentVerdict?.unknowns ?? [];
   const spendNote = agentVerdict ? agentSpend(agentVerdict)?.costNote ?? "" : "";
@@ -93,7 +98,18 @@ export function ServDecisionJournal({
       )}
 
       <section aria-label={journal.secondCheck.role === "graph_decide" || journal.secondCheck.role === "graph_fallback" ? "Final decision" : "Second check"}>
-        <p>{plainDecisionEngineText(secondSentences)}</p>
+        {graphReason ? <p>{plainDecisionEngineText(graphReason)}</p> : <p>{plainDecisionEngineText(secondSentences)}</p>}
+        {provenance.length > 0 ? (
+          <ul className="hint">
+            {provenance.map((row) => (
+              <li key={`${row.label}:${row.text}`}>
+                <strong>{row.label}:</strong> {row.text}
+              </li>
+            ))}
+          </ul>
+        ) : graphReason ? (
+          <p className="hint">{plainDecisionEngineText(secondSentences)}</p>
+        ) : null}
       </section>
 
       <details className="onboarding-note">

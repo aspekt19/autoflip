@@ -120,13 +120,63 @@ export function enrichListingDistanceFromCentroidTable<T extends {
   zip?: string | null;
   latitude?: number | null;
   longitude?: number | null;
-}>(listings: readonly T[], buyerZip: string | null | undefined): T[] {
-  const buyer = centroidForZip(buyerZip);
+}>(
+  listings: readonly T[],
+  buyerZip: string | null | undefined,
+  center?: { latitude?: number | null; longitude?: number | null } | null,
+): T[] {
+  const buyer = isUsableGeoPoint(center) ? center : centroidForZip(buyerZip);
   return listings.map((row) => {
     if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) return row;
     const dealerPoint = isUsableGeoPoint(row) ? row : centroidForZip(row.zip);
     if (!buyer || !isUsableGeoPoint(dealerPoint)) return row;
     const miles = roundedDistanceMiles(buyer, dealerPoint);
+    if (miles == null) return row;
+    return { ...row, distanceMiles: miles };
+  });
+}
+
+/**
+ * When the listing has a city and state but no ZIP (or the ZIP was not in the
+ * centroid table and the live lookup failed), geocode the city/state and compute miles.
+ */
+export async function enrichListingDistanceFromCityState<T extends {
+  distanceMiles?: number | null;
+  city?: string | null;
+  state?: string | null;
+}>(
+  listings: readonly T[],
+  center: { latitude?: number | null; longitude?: number | null } | null | undefined,
+  lookupPlace: (city: string, state: string) => Promise<GeoPoint | null>,
+): Promise<T[]> {
+  if (!isUsableGeoPoint(center)) return [...listings];
+  const need = new Map<string, { city: string; state: string }>();
+  for (const row of listings) {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) continue;
+    const city = typeof row.city === "string" ? row.city.trim() : "";
+    const state = typeof row.state === "string" ? row.state.trim() : "";
+    if (!city || !state) continue;
+    need.set(`${city.toLowerCase()}|${state.toLowerCase()}`, { city, state });
+  }
+  if (need.size === 0) return [...listings];
+
+  const points = new Map<string, GeoPoint>();
+  await Promise.all(
+    [...need].map(async ([key, place]) => {
+      const lookedUp = await lookupPlace(place.city, place.state);
+      if (isUsableGeoPoint(lookedUp)) points.set(key, lookedUp);
+    }),
+  );
+  if (points.size === 0) return [...listings];
+
+  return listings.map((row) => {
+    if (row.distanceMiles != null && Number.isFinite(row.distanceMiles)) return row;
+    const city = typeof row.city === "string" ? row.city.trim() : "";
+    const state = typeof row.state === "string" ? row.state.trim() : "";
+    if (!city || !state) return row;
+    const dealer = points.get(`${city.toLowerCase()}|${state.toLowerCase()}`);
+    if (!dealer) return row;
+    const miles = roundedDistanceMiles(center, dealer);
     if (miles == null) return row;
     return { ...row, distanceMiles: miles };
   });

@@ -7,8 +7,10 @@ import {
   buyerDistanceText,
   enrichListingDistanceFromCenter,
   enrichListingDistanceFromCentroidTable,
+  enrichListingDistanceFromCityState,
   enrichListingDistanceFromDealerZip,
   stampRadiusCheck,
+  type GeoPoint,
 } from "@/domain/geo";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import {
@@ -34,7 +36,7 @@ import {
   listingsSearchUrl,
   type AutodevDeps,
 } from "@/io/autodev";
-import { complaintsFor, decodeVin, recallsFor, type GovDeps } from "@/io/gov";
+import { complaintsFor, decodeVin, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import {
   enrichListingWithVpic,
@@ -204,6 +206,8 @@ export type FindAgentToolState = {
   vpicEnrichedVins: Set<string>;
   /** Dealer ZIP → point, resolved once per run so later searches never lose a distance. */
   zipPoints: Map<string, Promise<{ latitude: number; longitude: number } | null>>;
+  /** City+state → point, resolved once per run when a listing has no usable ZIP. */
+  placePoints: Map<string, Promise<{ latitude: number; longitude: number } | null>>;
 };
 
 export type FindAgentToolDeps = {
@@ -746,6 +750,56 @@ export function findAgentResponsesTools(): Array<{
   }));
 }
 
+
+async function enrichFindListingDistances<T extends {
+  distanceMiles?: number | null;
+  zip?: string | null;
+  city?: string | null;
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}>(input: {
+  listings: readonly T[];
+  center: { latitude?: number | null; longitude?: number | null; zip?: string | null } | null | undefined;
+  buyerZip: string | null | undefined;
+  state: FindAgentToolState;
+  autodevDeps: AutodevDeps;
+  govDeps: GovDeps;
+  deadline: AgentLoopDeadline | null | undefined;
+}): Promise<T[]> {
+  const afterCoords = enrichListingDistanceFromCenter(input.listings, input.center);
+  // Local Census ZCTA centroids first — no Auto.dev budget, works for every US ZIP in the table.
+  const afterCentroids = enrichListingDistanceFromCentroidTable(afterCoords, input.buyerZip, input.center);
+  const afterZip = await enrichListingDistanceFromDealerZip(afterCentroids, input.center, async (zip) => {
+    const cached = input.state.zipPoints.get(zip);
+    if (cached) return cached;
+    if (!agentLoopMayStartAutodevCall(input.deadline)) {
+      return null;
+    }
+    const pending = autodevZipLookup(zip, input.autodevDeps).then((dealerLookup) =>
+      dealerLookup.ok
+        ? { latitude: dealerLookup.location.latitude, longitude: dealerLookup.location.longitude }
+        : null,
+    );
+    input.state.zipPoints.set(zip, pending);
+    const point = await pending;
+    if (!point) input.state.zipPoints.delete(zip);
+    return point;
+  });
+  return enrichListingDistanceFromCityState(afterZip, input.center, async (city, stateCode) => {
+    const key = `${city.toLowerCase()}|${stateCode.toLowerCase()}`;
+    const cached = input.state.placePoints.get(key);
+    if (cached) return cached;
+    const pending: Promise<GeoPoint | null> = geocodeZipCity({ city, state: stateCode }, input.govDeps).then((point) =>
+      point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude) ? point : null,
+    );
+    input.state.placePoints.set(key, pending);
+    const point = await pending;
+    if (!point) input.state.placePoints.delete(key);
+    return point;
+  });
+}
+
 export function listingToCard(listing: Listing): ListingCard | null {
   const vin = listing.vin?.trim().toUpperCase();
   if (!vin) return null;
@@ -1041,6 +1095,7 @@ export function createFindAgentToolState(
     searchCenter: null,
     vpicEnrichedVins: new Set(),
     zipPoints: new Map(),
+    placePoints: new Map(),
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -1372,32 +1427,19 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
-    // Code distance: feed → listing lat/lon → dealer ZIP via /api/zip when feed omits it.
+    // Code distance: listing coords, then local ZIP centroids (no provider call),
+    // then a live ZIP lookup only for leftovers, then city/state when ZIP is missing.
     const center = state.searchCenter ?? locationResolution;
-    const afterLatLon = enrichListingDistanceFromCenter(search.listings, center);
     const listingsWithDistance = stampRadiusCheck(
-      enrichListingDistanceFromCentroidTable(
-        await enrichListingDistanceFromDealerZip(
-          afterLatLon,
-          center,
-          async (zip) => {
-            const cached = state.zipPoints.get(zip);
-            if (cached) return cached;
-            if (!agentLoopMayStartAutodevCall(deps.deadline)) return null;
-            const pending = autodevZipLookup(zip, autodevDeps).then((dealerLookup) =>
-              dealerLookup.ok
-                ? { latitude: dealerLookup.location.latitude, longitude: dealerLookup.location.longitude }
-                : null,
-            );
-            state.zipPoints.set(zip, pending);
-            const point = await pending;
-            // A failed lookup is not remembered: a later search may try again.
-            if (!point) state.zipPoints.delete(zip);
-            return point;
-          },
-        ),
-        resolvedZip ?? state.shopperFacts.zip,
-      ),
+      await enrichFindListingDistances({
+        listings: search.listings,
+        center,
+        buyerZip: resolvedZip ?? state.shopperFacts.zip,
+        state,
+        autodevDeps,
+        govDeps,
+        deadline: deps.deadline,
+      }),
     );
     // Observational funnel for SERV's eyes — product filters must not drop returned rows.
     const { listings: funnelKept, funnel } = applySearchListingsFunnel(listingsWithDistance, parsed.value);

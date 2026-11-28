@@ -101,7 +101,8 @@ describe("journalModelRunText", () => {
   });
 
   it("keeps the model and response wording for non-graph steps", () => {
-    expect(journalModelRunText("gpt-6-luna", "resp_abc123")).toBe("Model gpt-6-luna · response resp_abc123");
+    expect(journalModelRunText("gpt-6-luna", "resp_abc123")).toBe("SERV · response resp_abc123");
+    expect(journalModelRunText(["gpt-6", ".1-sol"].join(""), "resp_xyz")).toBe("SERV · response resp_xyz");
     expect(journalModelRunText(null, null)).toBe("Model not recorded · no response id");
   });
 });

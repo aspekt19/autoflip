@@ -570,12 +570,13 @@ export function adjustComparableSet(input: {
   const banded = nearMiles.length >= COMP_MILES_BAND_MIN;
   const working = banded ? nearMiles : selected;
   // Keep buyer-facing copy free of new absolute thresholds (audit allowlists report numbers only).
+  const wider = selected.length - nearMiles.length;
   const milesBandNote = banded
-    ? `We compared this car with ${nearMiles.length} similar listings that have about the same mileage.`
+    ? `All ${nearMiles.length} similar listings used for the fair value had about the same mileage.`
     : nearMiles.length > 0
-      ? `Only ${nearMiles.length} similar listing${nearMiles.length === 1 ? "" : "s"} had about the same mileage, so we also used ${selected.length} similar listings from this search.`
+      ? `${nearMiles.length} of those ${selected.length} had about the same mileage; ${wider} more ${wider === 1 ? "was" : "were"} included from a wider mileage band.`
       : selected.length > 0
-        ? `We used ${selected.length} similar listings from this search.`
+        ? `The ${selected.length} similar listings used for the fair value came from a wider mileage band in this search.`
         : null;
 
   const subjectTrim = resolveTrim(subject);

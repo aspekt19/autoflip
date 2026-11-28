@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   enrichListingDistanceFromCenter,
+  enrichListingDistanceFromCentroidTable,
+  enrichListingDistanceFromCityState,
   enrichListingDistanceFromDealerZip,
   roundedDistanceMiles,
 } from "./geo";
+import { centroidForZip } from "./data/zip-centroids";
 
 describe("roundedDistanceMiles", () => {
   it("returns rounded miles between two points", () => {
@@ -95,5 +98,52 @@ describe("enrichListingDistanceFromDealerZip", () => {
     );
     expect(enriched.distanceMiles).toBe(18);
     expect(calls).toBe(0);
+  });
+});
+
+describe("local ZIP centroids and city/state (prod check 6)", () => {
+  it("knows Dallas-area ZIPs so a failed live lookup still yields a distance", async () => {
+    expect(centroidForZip("75201")).toEqual(expect.objectContaining({ latitude: expect.any(Number), longitude: expect.any(Number) }));
+    expect(centroidForZip("75042")).not.toBeNull(); // Garland
+    expect(centroidForZip("75080")).not.toBeNull(); // Richardson
+    const center = centroidForZip("75201")!;
+    let lookups = 0;
+    const [garland] = await enrichListingDistanceFromDealerZip(
+      [{ vin: "3N1AB8CV1SY362757", distanceMiles: null, zip: "75042", city: "Garland", state: "TX", latitude: 0, longitude: 0 }],
+      center,
+      async () => {
+        lookups += 1;
+        return null;
+      },
+    );
+    expect(lookups).toBe(1);
+    // Dealer-zip helper itself falls back to the centroid table when lookup returns null.
+    expect(garland.distanceMiles).toEqual(expect.any(Number));
+    expect(garland.distanceMiles!).toBeGreaterThan(0);
+    expect(garland.distanceMiles!).toBeLessThan(50);
+
+    const [fromTable] = enrichListingDistanceFromCentroidTable(
+      [{ vin: "x", distanceMiles: null, zip: "75080", latitude: null, longitude: null }],
+      "75201",
+      center,
+    );
+    expect(fromTable.distanceMiles).toEqual(expect.any(Number));
+    expect(fromTable.distanceMiles!).toBeLessThan(50);
+  });
+
+  it("computes distance from city and state when the listing has no ZIP", async () => {
+    const center = centroidForZip("75201")!;
+    const [row] = await enrichListingDistanceFromCityState(
+      [{ vin: "x", distanceMiles: null, city: "Garland", state: "TX", zip: null }],
+      center,
+      async (city, state) => {
+        expect(city).toBe("Garland");
+        expect(state).toBe("TX");
+        return centroidForZip("75042");
+      },
+    );
+    expect(row.distanceMiles).toEqual(expect.any(Number));
+    expect(row.distanceMiles!).toBeGreaterThan(0);
+    expect(row.distanceMiles!).toBeLessThan(50);
   });
 });

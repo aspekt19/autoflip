@@ -10,7 +10,7 @@ import { formatUsd } from "@/domain/format";
 import { plainDecisionAction } from "@/domain/find-buyer-copy";
 import { accidentHistoryBuyerLine } from "@/domain/accident-hard-constraint";
 import { buyerDistanceText } from "@/domain/geo";
-import { clipBuyerText } from "@/domain/normalized-vehicle";
+import { clipAtSentenceBoundary } from "@/domain/buyer-text";
 import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
 import { SourcesCheckedLine } from "@/components/SourcesCheckedLine";
 import { PriceBadgeView } from "@/components/PriceBadge";
@@ -71,7 +71,10 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
     string,
     Array<{ source?: string; status?: string; label?: string }>
   >;
-  const summaryWhy = bestDeal?.why?.trim() || verdict?.reasons?.[0]?.text || null;
+  const summaryWhy =
+    bestDeal?.choice?.reasons?.[0]?.trim() ||
+    verdict?.reasons?.[0]?.text?.trim() ||
+    null;
   const poolByVin = new Map(
     offerPool
       .filter((row) => typeof row.vin === "string" && row.vin.trim())
@@ -118,10 +121,21 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
               decisionText: summaryWhy,
               carReason: (vin && whyByVin.get(vin)) || null,
             });
-            // Clip only at display — SERV why is stored untruncated (word boundary).
-            const why = whyRaw ? clipBuyerText(whyRaw, 400) : null;
             const pool = vin ? poolByVin.get(vin) : null;
-            const distance = car.distanceMiles ?? pool?.distanceMiles ?? null;
+            const poolKnown =
+              pool?.radiusCheck === "known" &&
+              typeof pool.distanceMiles === "number" &&
+              Number.isFinite(pool.distanceMiles);
+            const carKnown =
+              car.radiusCheck === "known" &&
+              typeof car.distanceMiles === "number" &&
+              Number.isFinite(car.distanceMiles);
+            const distance = carKnown
+              ? car.distanceMiles
+              : poolKnown
+                ? pool!.distanceMiles
+                : (car.distanceMiles ?? pool?.distanceMiles ?? null);
+            const radiusCheck = carKnown || poolKnown ? "known" as const : (car.radiusCheck ?? pool?.radiusCheck);
             const historyLine = accidentHistoryBuyerLine(car.accidentCount ?? pool?.accidentCount);
             const body = buyerBodyLabel(car.bodyStyle ?? pool?.bodyStyle ?? null, car.style ?? pool?.style ?? null);
             const drivetrain = car.drivetrain ?? pool?.drivetrain ?? null;
@@ -140,7 +154,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                     {car.miles != null ? ` · ${car.miles.toLocaleString("en-US")} mi` : ""}
                     {` · ${buyerDistanceText({
                       distanceMiles: distance,
-                      radiusCheck: car.radiusCheck ?? pool?.radiusCheck,
+                      radiusCheck,
                     })}`}
                     {historyLine ? ` · ${historyLine}` : ""}
                   </p>
@@ -153,7 +167,7 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
                       {[car.city, car.state].filter(Boolean).join(", ")}
                     </p>
                   ) : null}
-                  {why ? <p>{why}</p> : null}
+                  {whyRaw ? <ExpandableReason text={whyRaw} /> : null}
                   {isWinner && verdict?.verdict ? (
                     <p>
                       <strong>{plainDecisionAction(verdict.verdict)}</strong>
@@ -178,5 +192,17 @@ export function FindChatFlow({ initialNote = null }: { initialNote?: string | nu
 
       <ServDecisionJournal agentVerdict={verdict} defaultOpen verifyId={runId} />
     </div>
+  );
+}
+
+/** Show the full reason when it fits; otherwise clip at a sentence and let the buyer expand it. */
+function ExpandableReason({ text }: { text: string }) {
+  const { text: preview, clipped } = clipAtSentenceBoundary(text, 1200);
+  if (!clipped) return <p>{text}</p>;
+  return (
+    <details>
+      <summary>{preview}</summary>
+      <p>{text}</p>
+    </details>
   );
 }

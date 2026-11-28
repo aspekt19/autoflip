@@ -37,6 +37,12 @@ export type AgentTrailStep = {
   recordedAt?: string | null;
   /** Raw SERV response for this step when recorded — never invent. */
   rawResponse?: string | null;
+  /**
+   * Provenance for "How this decision was made": labeled lines such as
+   * who decided, how many shortlisted cars were sent, and the loop's tentative pick (once).
+   * The `why` field is the decision reason only — do not repeat these lines there.
+   */
+  notes?: Array<{ label: string; text: string }> | null;
 };
 
 export type AgentMultipathPathId = "price_first" | "risk_first" | "total_cost_first";

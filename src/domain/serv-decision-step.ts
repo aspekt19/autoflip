@@ -223,7 +223,7 @@ export function stepFromAgentTrailStep(step: AgentTrailStep, index: number): Ser
       step.evidenceIds && step.evidenceIds.length > 0
         ? `Evidence: ${step.evidenceIds.slice(0, 6).join(", ")}`
         : "Evidence ids not listed for this step",
-    output: [step.decided, step.why, step.changed].filter(Boolean).join(" — "),
+    output: step.why?.trim() || step.decided,
     latencyMs: null,
     costUsd: null,
     status: notRun ? "not_run" : "ran",

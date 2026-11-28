@@ -2,6 +2,7 @@
  * C3 Find decide + C4 challenge validation, and published confidence = min(C3, C4, guardrails).
  */
 
+import { limitBuyerText } from "@/domain/buyer-text";
 import {
   moreConservativeConfidence,
   type AgentVerdictConfidence,
@@ -273,7 +274,7 @@ function readCitedLines(
   for (const [index, item] of raw.entries()) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const row = item as Record<string, unknown>;
-    const text = typeof row.text === "string" ? row.text.trim().slice(0, 400) : "";
+    const text = typeof row.text === "string" ? limitBuyerText(row.text.trim()) : "";
     if (!text) {
       dropped.push(`${field}[${index}].text`);
       continue;
@@ -333,7 +334,7 @@ export function validateFindDecide(
   }
 
   const confidenceWhy =
-    typeof raw.confidenceWhy === "string" ? raw.confidenceWhy.trim().slice(0, 280) : "";
+    typeof raw.confidenceWhy === "string" ? limitBuyerText(raw.confidenceWhy.trim()) : "";
   const softCarEvidence = `car:${pickKey}`;
   const reasons = readCitedLines(raw.reasons, allowed, dropped, "reasons", softCarEvidence);
   const watchOuts = readCitedLines(raw.watchOuts, allowed, dropped, "watchOuts", softCarEvidence);
@@ -358,7 +359,7 @@ export function validateFindDecide(
         continue;
       }
       if (alternatives.some((alt) => alt.key === key)) continue;
-      const whyNot = typeof row.whyNot === "string" ? row.whyNot.trim().slice(0, 280) : "";
+      const whyNot = typeof row.whyNot === "string" ? limitBuyerText(row.whyNot.trim()) : "";
       alternatives.push({ key, whyNot: whyNot || "Not the pick." });
     }
   }
@@ -438,7 +439,7 @@ export function validateFindChallenge(
         dropped.push(`issues[${index}].kind`);
         continue;
       }
-      const text = typeof row.text === "string" ? row.text.trim().slice(0, 400) : "";
+      const text = typeof row.text === "string" ? limitBuyerText(row.text.trim()) : "";
       if (!text) {
         dropped.push(`issues[${index}].text`);
         continue;

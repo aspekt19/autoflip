@@ -676,15 +676,24 @@ export async function runFindGraphDecide(input: {
   const stepCount = executed.meta.steps?.length ?? null;
   const runId = providerGraphRunId(executed.meta.runId ?? executed.meta.responseId);
   const who = "Decided by the review graph.";
-  const comparison =
-    loopPickKey && !(samePick && sameAction)
-      ? ` The search loop's tentative pick was the ${loopLabel}${
-          input.agentVerdict.verdict ? ` (${String(input.agentVerdict.verdict).replace("needs_inspection", "inspect first")})` : ""
-        }.`
-      : loopPickKey
-        ? " It matched the search loop's tentative pick."
-        : "";
-  const objection = `${who}${comparison}${codeOverride ? ` ${codeOverride}` : ""}`.trim();
+  const loopTentative = loopPickKey && !(samePick && sameAction)
+    ? `The search loop's tentative pick was the ${loopLabel}${
+        input.agentVerdict.verdict ? ` (${String(input.agentVerdict.verdict).replace("needs_inspection", "inspect first")})` : ""
+      }.`
+    : loopPickKey
+      ? "It matched the search loop's tentative pick."
+      : "";
+  const shortlistSent = capNote.trim();
+  const provenanceNotes = [
+    { label: "Decided by", text: who },
+    shortlistSent ? { label: "Shortlist", text: ensureSentenceEnd(shortlistSent) } : null,
+    loopTentative ? { label: "Search loop's tentative pick", text: ensureSentenceEnd(loopTentative) } : null,
+    codeOverride ? { label: "Code rule", text: ensureSentenceEnd(codeOverride) } : null,
+    ...published.reasons.map((text) => ({ label: "Safety rule", text: ensureSentenceEnd(text) })),
+    stepCount != null ? { label: "Graph steps", text: `The graph ran ${stepCount} steps.` } : null,
+  ].filter((row): row is { label: string; text: string } => Boolean(row));
+  // Provenance stays off the reason paragraph; the journal renders it as labeled lines.
+  const objection = who;
   const evidenceIds = [
     ...decide.reasons.flatMap((line) => line.evidenceIds),
     ...decide.watchOuts.flatMap((line) => line.evidenceIds),
@@ -701,24 +710,10 @@ export async function runFindGraphDecide(input: {
   };
   const trailStep: AgentTrailStep = {
     decided: who,
-    // Every piece ends with its own end mark so the cap note never runs into the reason.
-    why: [
-      decide.confidenceWhy,
-      stepCount != null ? `The graph ran ${stepCount} steps.` : "",
-      capNote,
-      comparison,
-      codeOverride ?? "",
-      ...published.reasons,
-    ]
-      .map((part) => ensureSentenceEnd(part))
-      .filter(Boolean)
-      .join(" "),
-    changed:
-      loopPickKey && !samePick
-        ? `Published pick is the ${pickLabel}; the search loop had tentatively chosen the ${loopLabel}.`
-        : loopPickKey && !sameAction
-          ? `Published action is ${decide.action.replace("_", " ")}; the search loop had tentatively chosen ${String(input.agentVerdict.verdict).replace("needs_inspection", "inspect first")}.`
-          : null,
+    // The reason paragraph is the graph's reason only. Provenance goes in notes.
+    why: ensureSentenceEnd(decide.confidenceWhy),
+    changed: null,
+    notes: provenanceNotes,
     evidenceIds,
     model: graphModel,
     responseId: runId,

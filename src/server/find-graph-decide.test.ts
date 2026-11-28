@@ -161,12 +161,16 @@ describe("Find graph as the primary final decider", () => {
     expect(out.agentVerdict.confidence).toBe("medium");
     expect(out.bestDeal.pick?.key).toBe(A);
     expect(out.secondPass.profile).toBe(FIND_GRAPH_DECIDE_PROFILE);
-    expect(out.secondPass.objection).toMatch(/^Decided by the review graph/);
-    expect(out.secondPass.objection).toMatch(/tentative pick/);
-    expect(out.secondPass.responseId).toBe("run_chk1");
+    expect(out.secondPass.objection).toBe("Decided by the review graph.");
     const last = out.agentVerdict.serv_steps.at(-1)!;
     expect(last.decided).toBe("Decided by the review graph.");
-    expect(last.why).toMatch(/3 steps/);
+    expect(last.why).not.toMatch(/Decided by the review graph|tentative pick|Sent the top|3 steps/);
+    expect(last.notes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Decided by", text: "Decided by the review graph." }),
+      expect.objectContaining({ label: "Search loop's tentative pick" }),
+      expect.objectContaining({ label: "Graph steps", text: "The graph ran 3 steps." }),
+    ]));
+    expect(out.secondPass.responseId).toBe("run_chk1");
     expect(last.model).toBe("graph:gr_check");
     expect(last.responseId).toBe("run_chk1");
     const proof = out.proofRecords[0]!;
@@ -192,8 +196,10 @@ describe("Find graph as the primary final decider", () => {
     expect(out.agentVerdict.verdict).toBe("needs_inspection");
     expect(out.bestDeal.pick?.key).toBe(A);
     expect(out.secondPass.status).toBe("disagreed");
-    expect(out.secondPass.objection).toMatch(/buy/);
-    expect(out.agentVerdict.serv_steps.at(-1)?.changed).toMatch(/inspect first/);
+    expect(out.secondPass.objection).toBe("Decided by the review graph.");
+    const notes = out.agentVerdict.serv_steps.at(-1)?.notes ?? [];
+    expect(notes.some((note) => /tentative pick/i.test(note.text) && /buy|inspect first/i.test(note.text))).toBe(true);
+    expect(out.agentVerdict.serv_steps.at(-1)?.changed).toBeNull();
   });
 
   it("lets code override a riskier graph pick and records that honestly", async () => {
@@ -207,7 +213,9 @@ describe("Find graph as the primary final decider", () => {
     const out = await decideRun(mapped, fetchImpl);
     expect(out.decidedBy).toBe("graph");
     expect(out.agentVerdict.pick?.key).toBe(A);
-    expect(out.secondPass.objection).toMatch(/fewer miles and no reported accident/);
+    expect(out.secondPass.objection).toBe("Decided by the review graph.");
+    expect(out.agentVerdict.serv_steps.at(-1)?.why).toMatch(/fewer miles and no reported accident/);
+    expect(out.agentVerdict.serv_steps.at(-1)?.notes?.some((note) => note.label === "Code rule")).toBe(true);
   });
 
   it("maps a slot pick back to its key and falls back on an unknown slot", async () => {
@@ -797,10 +805,12 @@ describe("far-below-market pick and run-on notes (prod check 5)", () => {
       remainingRouteMs: 200_000,
       graphId: "gr_check",
     });
-    const why = out.agentVerdict.serv_steps.at(-1)!.why ?? "";
-    expect(why).toMatch(/Sent the top 5 of 7 shortlisted cars\./);
-    expect(why).not.toMatch(/[^.!?)] Sent the top/);
-    expect(why).not.toMatch(/[^.!?)] The search loop|[^.!?)] Code /);
+    const step = out.agentVerdict.serv_steps.at(-1)!;
+    expect(step.why).not.toMatch(/Sent the top|tentative pick|Decided by the review graph/);
+    const shortlist = step.notes?.find((note) => note.label === "Shortlist")?.text ?? "";
+    expect(shortlist).toMatch(/Sent the top 5 of 7 shortlisted cars\./);
+    const labels = (step.notes ?? []).map((note) => note.label);
+    expect(labels.filter((label) => label === "Search loop's tentative pick")).toHaveLength(1);
   });
 
   it("the loop's own pick passes the same guard when the graph cannot decide", async () => {
