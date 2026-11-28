@@ -844,7 +844,16 @@ export function capListingCards(listings: readonly Listing[], limit = LISTING_DE
 }
 
 function rememberListings(state: FindAgentToolState, listings: readonly Listing[]): void {
-  for (const row of listings) {
+  const buyerZip = state.shopperFacts.zip ?? state.searchCenter?.zip ?? null;
+  // Sync fallback so a path that skipped the async enrich still gets miles from coords or dealer ZIP.
+  const stamped = stampRadiusCheck(
+    enrichListingDistanceFromCentroidTable(
+      enrichListingDistanceFromCenter(listings, state.searchCenter),
+      buyerZip,
+      state.searchCenter,
+    ),
+  );
+  for (const row of stamped) {
     const vin = row.vin?.trim().toUpperCase();
     if (!vin) continue;
     state.knownVins.add(vin);
@@ -1843,6 +1852,13 @@ export async function executeFindAgentTool(
           };
         }
         compsZip = lookup.location.zip;
+        if (!state.searchCenter) {
+          state.searchCenter = {
+            zip: lookup.location.zip,
+            latitude: lookup.location.latitude,
+            longitude: lookup.location.longitude,
+          };
+        }
         if (!agentLoopMayStartAutodevCall(deps.deadline)) {
           return autodevBudgetDeferred("get_market_comps");
         }
@@ -1861,9 +1877,23 @@ export async function executeFindAgentTool(
         autodevDeps,
       );
       if (search.ok) {
-        rememberListings(state, search.listings);
+        // Same distance enrich as search_listings. Comps used to remember raw provider
+        // rows (coords/ZIP present, distanceMiles unset, no radiusCheck), which is why
+        // later shortlist cards showed "distance unknown" for cars found only here.
+        const listingsWithDistance = stampRadiusCheck(
+          await enrichFindListingDistances({
+            listings: search.listings,
+            center: state.searchCenter,
+            buyerZip: compsZip ?? state.shopperFacts.zip,
+            state,
+            autodevDeps,
+            govDeps,
+            deadline: deps.deadline,
+          }),
+        );
+        rememberListings(state, listingsWithDistance);
         const merged = new Map<string, Listing>();
-        for (const row of [...inHand, ...search.listings]) {
+        for (const row of [...inHand, ...listingsWithDistance]) {
           const vin = row.vin?.trim().toUpperCase();
           if (vin) merged.set(vin, row);
         }

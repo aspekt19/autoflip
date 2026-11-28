@@ -372,7 +372,8 @@ describe("serv-decision-journal-copy", () => {
 
   it("uses the graph-decide intro and labels instead of second-check leftovers", () => {
     const intro = journalIntroFor({ secondCheck: { role: "graph_decide" } });
-    expect(intro).toMatch(/review graph makes the final decision/i);
+    expect(intro).toMatch(/If the graph cannot run, we publish the search loop's tentative pick and say so/);
+    expect(intro).not.toMatch(/search loop gathered the listings and facts/i);
     expect(intro).not.toMatch(/second review has to agree/i);
     expect(journalServUsedLabel({ servUsed: true, secondCheck: { role: "graph_decide" } })).toBe(
       "the review graph decided",

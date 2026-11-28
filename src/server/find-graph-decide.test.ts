@@ -166,7 +166,7 @@ describe("Find graph as the primary final decider", () => {
     expect(last.decided).toBe("Decided by the review graph.");
     expect(last.why).not.toMatch(/Decided by the review graph|tentative pick|Sent the top|3 steps/);
     expect(last.notes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Decided by", text: "Decided by the review graph." }),
+      expect.objectContaining({ label: "Decided by", text: "review graph" }),
       expect.objectContaining({ label: "Search loop's tentative pick" }),
       expect.objectContaining({ label: "Graph steps", text: "The graph ran 3 steps." }),
     ]));

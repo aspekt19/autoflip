@@ -128,6 +128,9 @@ describe("Find decide graph input", () => {
     expect(b.asking_price).toBeNull();
     expect(new Set(cars.map((c) => c.slot)).size).toBe(cars.length);
     expect(run.slotToKey.get(String(a.slot))).toBe(A);
+    expect(String(a.listing_text)).toMatch(/10 miles from the shopper/);
+    const carEv = (run.input as { evidence_records: Array<{ id: string; content: string }> }).evidence_records.find((r) => r.id === `car:${A}`);
+    expect(carEv?.content).toMatch(/10 miles from the shopper/);
   });
 
   it("resolves slot picks from our own map and refuses unknown slots", () => {
@@ -170,5 +173,30 @@ describe("graph text names cars, not slots or bare VINs", () => {
 
   it("labels a car without price or miles by year make model only", () => {
     expect(graphCarLabel({ year: 2017, make: "Toyota", model: "Camry" })).toBe("2017 Toyota Camry");
+  });
+
+  it("names an ambiguous 'The Sentra' as This year make model (price, miles) on first mention", () => {
+    const pick = "3N1AB8CVXSY210038";
+    const alt = "3N1AB8CV7SY400105";
+    const labels = new Map([
+      [pick, graphCarLabel({ year: 2025, make: "Nissan", model: "Sentra", priceUsd: 14_216, miles: 58_185 })],
+      [alt, graphCarLabel({ year: 2025, make: "Nissan", model: "Sentra", priceUsd: 14_750, miles: 9_354 })],
+    ]);
+    const payload = {
+      decide: {
+        pickKey: pick,
+        confidenceWhy:
+          "The Sentra's ask is below its fair value, and it has 0 reported accidents; the strongest alternative, 2025 Nissan Sentra ($14,750, 9,354 mi), has fewer miles but unknown accident and owner history.",
+        reasons: [],
+      },
+      challenge: { agree: true, issues: [] },
+    };
+    const out = resolveFindDecideGraphSlots(payload, new Map(), labels, [
+      { key: pick, make: "Nissan", model: "Sentra" },
+      { key: alt, make: "Nissan", model: "Sentra" },
+    ])!;
+    expect((out.decide as { confidenceWhy: string }).confidenceWhy).toBe(
+      "This 2025 Nissan Sentra ($14,216, 58,185 mi)'s ask is below its fair value, and it has 0 reported accidents; the strongest alternative, 2025 Nissan Sentra ($14,750, 9,354 mi), has fewer miles but unknown accident and owner history.",
+    );
   });
 });

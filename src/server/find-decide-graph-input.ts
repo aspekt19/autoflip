@@ -74,6 +74,14 @@ function fairRange(row: Row): string | null {
   return low && high ? `${low} to ${high}` : null;
 }
 
+function knownDistanceText(row: { distanceMiles?: number | null; radiusCheck?: string | null }): string | null {
+  if (row.radiusCheck === "unverified") return null;
+  if (typeof row.distanceMiles === "number" && Number.isFinite(row.distanceMiles)) {
+    return `${Math.round(row.distanceMiles)} miles from the shopper`;
+  }
+  return null;
+}
+
 function listingText(row: Row): string | null {
   const bits: string[] = [];
   const label = carLabel(row);
@@ -82,6 +90,8 @@ function listingText(row: Row): string | null {
   if (row.fuel) bits.push(`fuel ${row.fuel}`);
   if (row.cpo === true) bits.push("certified pre-owned");
   if (row.drivetrainConfirmedAwd) bits.push("all-wheel drive confirmed");
+  const distance = knownDistanceText(row);
+  if (distance) bits.push(distance);
   const factors = row.factors.map((f) => f.detail).filter((d): d is string => typeof d === "string" && d.trim() !== "");
   if (factors.length) bits.push(`our notes: ${factors.join("; ")}`);
   return bits.length ? bits.join("; ").slice(0, 1500) : null;
@@ -101,6 +111,7 @@ function evidenceContent(id: string, rows: Map<string, Row>): string {
           row.drivetrain ? `drivetrain ${row.drivetrain}` : "drivetrain unknown",
           row.accidentCountReported != null ? `${row.accidentCountReported} reported accidents` : "accident history unknown",
           row.ownerCount != null ? `${row.ownerCount} owners` : "owner count unknown",
+          knownDistanceText(row) ?? "distance from the shopper unknown",
         ];
         return `${facts.join("; ")}.`;
       }
@@ -397,10 +408,44 @@ export function graphCarLabel(row: {
  * named by year, make, model and price, so a reason never points at a VIN the card does not show.
  * Without a label the slot falls back to its key.
  */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * When several shortlisted cars share a make/model, rewrite the first ambiguous
+ * "The Sentra" / "The Nissan Sentra" mention of the pick to a specific label
+ * ("This 2025 Nissan Sentra ($14,216, 58,185 mi)").
+ */
+export function rewriteAmbiguousPickMention(
+  text: string,
+  input: {
+    pickKey: string;
+    pickLabel: string;
+    pickMake: string;
+    pickModel: string;
+    peerModels: readonly string[];
+  },
+): string {
+  const model = input.pickModel.trim();
+  if (!model || !input.pickLabel.trim()) return text;
+  const sameModel = input.peerModels.filter((name) => name.trim().toLowerCase() === model.toLowerCase()).length;
+  if (sameModel < 2) return text;
+  if (text.includes(`This ${input.pickLabel}`)) return text;
+  const make = input.pickMake.trim();
+  const makePart = make ? `(?:${escapeRegExp(make)}\\s+)?` : "";
+  const ambiguous = new RegExp(`\\b(?:The|This|the|this)\\s+${makePart}${escapeRegExp(model)}(?:['\u2019]s)?`);
+  return text.replace(ambiguous, (match) => {
+    const suffix = /['\u2019]s$/i.test(match) ? match.slice(-2) : "";
+    return `This ${input.pickLabel}${suffix}`;
+  });
+}
+
 export function resolveFindDecideGraphSlots<T extends { decide: unknown; challenge: unknown }>(
   payload: T | null,
   slotToKey: ReadonlyMap<string, string>,
   labelByKey: ReadonlyMap<string, string> = new Map(),
+  peers?: ReadonlyArray<{ key: string; make: string; model: string }> | null,
 ): T | null {
   if (!payload || (slotToKey.size === 0 && labelByKey.size === 0)) return payload;
   const decide = payload.decide as Record<string, unknown>;
@@ -412,15 +457,27 @@ export function resolveFindDecideGraphSlots<T extends { decide: unknown; challen
     pickKey = mapped;
   }
   const nameOf = (key: string) => labelByKey.get(key) ?? labelByKey.get(key.toUpperCase()) ?? key;
-  const swap = (text: unknown) =>
-    typeof text === "string"
-      ? text
-          .replace(SLOT_TOKEN, (slot) => {
-            const key = slotToKey.get(slot);
-            return key ? nameOf(key) : slot;
-          })
-          .replace(VIN_TOKEN, (vin) => labelByKey.get(vin.toUpperCase()) ?? vin)
-      : text;
+  const swap = (text: unknown) => {
+    if (typeof text !== "string") return text;
+    const named = text
+      .replace(SLOT_TOKEN, (slot) => {
+        const key = slotToKey.get(slot);
+        return key ? nameOf(key) : slot;
+      })
+      .replace(VIN_TOKEN, (vin) => labelByKey.get(vin.toUpperCase()) ?? vin);
+    if (!peers?.length) return named;
+    const pickRow =
+      peers.find((row) => row.key.toUpperCase() === pickKey.toUpperCase()) ??
+      peers.find((row) => row.key.toUpperCase() === nameOf(pickKey).toUpperCase());
+    if (!pickRow) return named;
+    return rewriteAmbiguousPickMention(named, {
+      pickKey,
+      pickLabel: nameOf(pickKey),
+      pickMake: pickRow.make,
+      pickModel: pickRow.model,
+      peerModels: peers.map((row) => row.model),
+    });
+  };
   const swapLines = (lines: unknown) =>
     Array.isArray(lines)
       ? lines.map((line) =>
