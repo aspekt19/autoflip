@@ -507,15 +507,21 @@ const BUYER_PROVENANCE_LABELS = new Set([
 
 export function formatJournalProvenanceLines(
   notes: ReadonlyArray<{ label: string; text: string }> | null | undefined,
+  /** The reason paragraph already shown above; a line that repeats it is dropped. */
+  reason?: string | null,
 ): Array<{ label: string; text: string }> {
   if (!notes?.length) return [];
   const out: Array<{ label: string; text: string }> = [];
+  const norm = (value: string) => value.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "").toLowerCase();
+  const shownReason = reason ? norm(reason) : "";
   const seen = new Set<string>();
   for (const note of notes) {
     if (!BUYER_PROVENANCE_LABELS.has(note.label)) continue;
     const text = (note.text ?? "").replace(/\s+/g, " ").trim();
     if (!text) continue;
-    const key = `${note.label}:${text.toLowerCase()}`;
+    // Each sentence once, whatever its label, and never a copy of the reason paragraph.
+    const key = norm(text);
+    if (shownReason && (shownReason === key || shownReason.includes(key))) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ label: note.label, text });

@@ -262,29 +262,6 @@ export function reportedAccidentCount(row: { accidentCount?: number | null }): n
     : 0;
 }
 
-/**
- * A reported accident loses to a lower-mileage car with no reported accident.
- * Unknown history is "no reported accident", not a claim the car is clean.
- */
-export function cleanLowerMileAlternative<
-  T extends { key: string; miles?: number | null; accidentCount?: number | null; excludedFromPick?: boolean },
->(pick: T, pool: readonly T[]): T | null {
-  const dirtyMiles = pick.miles != null && pick.miles >= BEST_DEAL_HIGH_MILES_HARD;
-  if ((reportedAccidentCount(pick) <= 0 && !dirtyMiles) || pick.miles == null || pick.excludedFromPick) return null;
-  const cleaner = pool.filter(
-    (car) =>
-      car.key !== pick.key &&
-      !car.excludedFromPick &&
-      reportedAccidentCount(car) === 0 &&
-      car.miles != null &&
-      car.miles < pick.miles! &&
-      car.miles < BEST_DEAL_HIGH_MILES_HARD,
-  );
-  if (cleaner.length === 0) return null;
-  cleaner.sort((a, b) => a.miles! - b.miles! || a.key.localeCompare(b.key));
-  return cleaner[0] ?? null;
-}
-
 /** One confidence level and one sentence, so the header and the card cannot disagree. */
 export function alignPublishedConfidence(
   deal: BestDealResult,

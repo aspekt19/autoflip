@@ -23,7 +23,6 @@ import type {
 } from "@/domain/agent-verdict-schema";
 import {
   alignPublishedConfidence,
-  cleanLowerMileAlternative,
   selectBestDealOnEvidence,
   type BestDealCandidate,
   type BestDealResult,
@@ -41,6 +40,12 @@ import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import { priceRiskFor } from "@/domain/price-risk";
 import { ensureSentenceEnd } from "@/domain/buyer-text";
 import type { StructuredNeed } from "@/domain/need";
+import {
+  enforceFindHardEligibility,
+  findCandidateMeetsHardConstraints,
+  findCandidateRejection,
+  hardLimitLabel,
+} from "@/domain/find-publish-eligibility";
 import type { Listing } from "@/domain/types";
 import type { ShopperBrief } from "@/domain/shopper-brief";
 import {
@@ -64,6 +69,7 @@ import {
   findDecideGraphMaxCars,
   prepareFindDecideGraphRun,
   graphCarLabel,
+  rewriteAmbiguousPickMention,
   resolveFindDecideGraphSlots,
 } from "@/server/find-decide-graph-input";
 import { buildFindPickComputedReport, publishBestDeal } from "@/server/find-settle-serv";
@@ -116,12 +122,14 @@ function guardLoopVerdict(input: {
     compCount: report.compSampleSize ?? report.comps.length,
     fairValueUsd: report.fairValueUsd ?? null,
     priceUsd: pick.priceUsd,
+    year: pick.year,
+    miles: pick.miles,
     accidentCount: pick.accidentCount ?? null,
     evidenceSettled: true,
   });
   const nextVerdict = toVerdictAction(published.action);
   // Only the price guard and the buy-consistency guard apply here; other confidence caps belong to graph picks.
-  const risky = priceRiskFor({ priceUsd: pick.priceUsd, fairValueUsd: report.fairValueUsd ?? null });
+  const risky = priceRiskFor({ priceUsd: pick.priceUsd, fairValueUsd: report.fairValueUsd ?? null, year: pick.year, miles: pick.miles });
   const nextConfidence = risky ? published.confidence : confidence;
   if (nextVerdict === verdict && nextConfidence === confidence) return input.agentVerdict;
   return { ...input.agentVerdict, verdict: nextVerdict, confidence: nextConfidence };
@@ -452,7 +460,7 @@ function fallbackLine(reason: string): string {
   return `Decided by fallback: ${reason}.`;
 }
 
-export async function runFindGraphDecide(input: {
+export async function runFindGraphDecide(rawInput: {
   need: StructuredNeed;
   bestDeal: BestDealResult;
   agentVerdict: AgentVerdict;
@@ -467,9 +475,10 @@ export async function runFindGraphDecide(input: {
   remainingRouteMs: number;
   graphId?: string | null;
 }): Promise<FindGraphDecideResult> {
+  const input = gateFindGraphDecideInput(rawInput);
   const recordedAt = new Date().toISOString();
   const loopPickKey = input.agentVerdict.pick?.key ?? null;
-  const executed = await executeValidatedFindDecideGraph({
+  const executedRaw = await executeValidatedFindDecideGraph({
     need: input.need,
     bestDeal: input.bestDeal,
     shortlistKeys: input.shortlistKeys,
@@ -484,6 +493,9 @@ export async function runFindGraphDecide(input: {
     remainingRouteMs: input.remainingRouteMs,
     graphId: input.graphId,
   });
+  // Defense in depth: the graph only sees eligible cars, but a pick that breaks a hard limit is
+  // rejected (never swapped for another car); the eligible loop pick or no pick is published.
+  const executed = rejectIneligibleGraphPick(executedRaw, input);
   const graphId =
     executed.proofGraph?.graphId ?? (input.graphId === undefined ? findDecideGraphId() : input.graphId);
   const graphModel = graphId ? `graph:${graphId}` : "graph";
@@ -582,19 +594,10 @@ export async function runFindGraphDecide(input: {
     [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked, ...executed.peers].map((row) => [row.key, row]),
   );
   let decide = executed.final;
-  let chosen = rankedByKey.get(decide.pickKey) ?? executed.peers[0]!;
-  const safer = cleanLowerMileAlternative(chosen, executed.peers);
-  let codeOverride: string | null = null;
-  if (safer && decide.pickKey !== safer.key) {
-    codeOverride =
-      "Code overrode the graph pick: a car with fewer miles and no reported accident outranks the one with a reported accident.";
-    decide = {
-      ...decide,
-      pickKey: safer.key,
-      confidenceWhy: codeOverride,
-    };
-    chosen = safer;
-  }
+  // The graph's car is the published car. Code never swaps it; it only caps the action below.
+  const chosen = rankedByKey.get(decide.pickKey) ?? executed.peers[0]!;
+  const codeOverride: string | null = null;
+  decide = { ...decide, confidenceWhy: namePublishedCarInReason(decide.confidenceWhy, chosen, executed.peers) };
   const pickReport = buildFindPickComputedReport(chosen, executed.peers, input.marketPool);
   const published = publishFindDecideConfidence({
     c3: decide.confidence,
@@ -605,6 +608,8 @@ export async function runFindGraphDecide(input: {
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
     fairValueUsd: pickReport.fairValueUsd ?? null,
     priceUsd: chosen.priceUsd,
+    year: chosen.year,
+    miles: chosen.miles,
     accidentCount: chosen.accidentCount ?? null,
     evidenceSettled: true,
     secondCheckMissed: false,
@@ -615,6 +620,8 @@ export async function runFindGraphDecide(input: {
     priceUsd: chosen.priceUsd,
     fairValueUsd: pickReport.fairValueUsd ?? null,
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
+    year: chosen.year,
+    miles: chosen.miles,
   });
   if (chosenPriceRisk) {
     decide = {
@@ -652,7 +659,7 @@ export async function runFindGraphDecide(input: {
   );
   const { ctx: eligibilityCtx, pool: eligibilityPool } = eligibilityFor(input);
   const keepEligible = (rows: BestDealCandidate[]) =>
-    uniqueByKey(rows.filter((row) => row.key === chosen.key || candidateMeetsHardConstraints(row, eligibilityCtx, eligibilityPool)));
+    uniqueByKey(rows.filter((row) => candidateMeetsHardConstraints(row, eligibilityCtx, eligibilityPool)));
   const withPick: BestDealResult = {
     ...input.bestDeal,
     ranked: keepEligible([chosen, ...executed.peers, ...input.bestDeal.ranked]),
@@ -813,29 +820,90 @@ function eligibilityFor(input: {
   };
 }
 
+/**
+ * The reason must name the published car. The graph's ambiguous "This Sentra" becomes
+ * "This 2025 Nissan Sentra ($13,995, 20,791 mi)"; a reason that names no car gets the label first.
+ */
+export function namePublishedCarInReason(
+  reason: string,
+  chosen: BestDealCandidate,
+  peers: readonly BestDealCandidate[],
+): string {
+  const label = graphCarLabel(chosen);
+  const text = rewriteAmbiguousPickMention(reason ?? "", {
+    pickKey: chosen.key,
+    pickLabel: label,
+    pickMake: chosen.make,
+    pickModel: chosen.model,
+    peerModels: [chosen, ...peers.filter((row) => row.key !== chosen.key)].map((row) => row.model),
+  });
+  const base = `${chosen.year} ${chosen.make} ${chosen.model}`;
+  if (text.includes(base)) return text;
+  const modelOnly = new RegExp(`\\b${chosen.model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const sameModel = peers.filter((row) => row.model.toLowerCase() === chosen.model.toLowerCase()).length;
+  if (modelOnly.test(text) && sameModel < 2) return text;
+  return text.trim() ? `${label}: ${text.trim()}` : `${label}.`;
+}
+
 function candidateMeetsHardConstraints(
   row: BestDealCandidate,
   ctx: FindEligibilityContext,
   pool: readonly Listing[],
 ): boolean {
-  const listing = pool.find((item) => (item.vin ?? "").toUpperCase() === row.key.toUpperCase() || item.vin === row.vin);
-  return listingMeetsFindHardConstraints(
-    {
-      vin: row.vin,
-      year: row.year,
-      make: row.make,
-      model: row.model,
-      bodyStyle: row.bodyStyle ?? listing?.bodyStyle ?? null,
-      style: row.style ?? listing?.style ?? null,
-      priceUsd: row.priceUsd,
-      miles: row.miles,
-      distanceMiles: row.distanceMiles ?? listing?.distanceMiles ?? null,
-      accidentCount: row.accidentCount ?? listing?.accidentCount ?? null,
-      titleBrand: row.titleBrand ?? listing?.titleBrand ?? null,
-      usageType: row.usageType ?? listing?.usageType ?? null,
-    },
-    ctx,
+  return findCandidateMeetsHardConstraints(row, ctx, pool);
+}
+
+type FindGraphDecideInput = Parameters<typeof runFindGraphDecide>[0];
+
+/**
+ * Chokepoint before graph input: drop every ranked / allRanked / loop-pick row that breaks a hard
+ * limit. A rejected loop pick is not replaced; the graph decides from the eligible rows.
+ */
+export function gateFindGraphDecideInput(input: FindGraphDecideInput): FindGraphDecideInput {
+  const { ctx, pool } = eligibilityFor(input);
+  const gate = enforceFindHardEligibility(input.bestDeal, ctx, pool);
+  const loopKey = input.agentVerdict.pick?.key?.toUpperCase() ?? null;
+  const loopRejected = loopKey != null && gate.droppedKeys.some((key) => key.toUpperCase() === loopKey);
+  const shortlistKeys = input.shortlistKeys.filter(
+    (key) => !gate.droppedKeys.some((dropped) => dropped.toUpperCase() === key.toUpperCase()),
   );
+  if (gate.droppedKeys.length === 0) return input;
+  return {
+    ...input,
+    bestDeal: gate.bestDeal,
+    shortlistKeys,
+    agentVerdict: loopRejected
+      ? {
+          ...input.agentVerdict,
+          pick: null,
+          verdict: "withheld",
+          unknowns: [
+            ...(input.agentVerdict.unknowns ?? []),
+            `The search loop's pick was removed because it breaks the ${hardLimitLabel(gate.rejectedPick?.reason ?? "")}.`,
+          ],
+        }
+      : input.agentVerdict,
+  };
+}
+
+export function rejectIneligibleGraphPick<T extends Awaited<ReturnType<typeof executeValidatedFindDecideGraph>>>(
+  executed: T,
+  input: FindGraphDecideInput,
+): Awaited<ReturnType<typeof executeValidatedFindDecideGraph>> {
+  if (!executed.ok) return executed;
+  const { ctx, pool } = eligibilityFor(input);
+  const rows = [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked, ...executed.peers];
+  const chosen = rows.find((row) => row.key.toUpperCase() === executed.final.pickKey.toUpperCase());
+  const reason = chosen ? findCandidateRejection(chosen, ctx, pool) : "unknown";
+  if (!reason) return executed;
+  return {
+    ...executed,
+    ok: false,
+    skipped: false,
+    final: null,
+    reason: `the graph's pick breaks the ${hardLimitLabel(reason)}`,
+    issues: [],
+  } as Awaited<ReturnType<typeof executeValidatedFindDecideGraph>>;
 }
 
 function uniqueByKey(rows: BestDealCandidate[]): BestDealCandidate[] {

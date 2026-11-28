@@ -53,7 +53,7 @@ export function ServDecisionJournal({
   const secondSentences = formatJournalSecondCheckSentences(journal.secondCheck);
   const graphTrail = graphDecisionTrailFromVerdict(agentVerdict);
   const graphReason = graphTrail?.why?.trim() || null;
-  const provenance = formatJournalProvenanceLines(graphTrail?.notes);
+  const provenance = formatJournalProvenanceLines(graphTrail?.notes, graphReason);
   const noCar = journal.secondCheck.noCar === true;
   const unknowns = agentVerdict?.unknowns ?? [];
   const spendNote = agentVerdict ? agentSpend(agentVerdict)?.costNote ?? "" : "";
