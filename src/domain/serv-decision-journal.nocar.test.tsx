@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { ServDecisionJournal } from "./ServDecisionJournal";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import type { ServDecisionJournalView } from "@/domain/serv-decision-step";
 
 afterEach(cleanup);
