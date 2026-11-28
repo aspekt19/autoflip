@@ -3,6 +3,7 @@
  * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
+import { gateFindPublishedResult } from "@/domain/find-publish-eligibility";
 import { pickUserFormConstraints } from "@/domain/constraint-provenance";
 import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
 import {
@@ -341,10 +342,17 @@ export async function runFindDecideOrchestrator(
         remainingRouteMs: remainingMs(),
         graphId: findDecideGraphId(env),
       });
-      const mapped = {
-        ...mappedLoop,
+      // Final chokepoint before publishing: same hard-eligibility rule as before graph input.
+      const published = gateFindPublishedResult({
         bestDeal: graphCheck.bestDeal,
         agentVerdict: graphCheck.agentVerdict,
+        ctx: findEligibilityContextFrom({ need: record.need }),
+        pool: mappedLoop.offerPool,
+      });
+      const mapped = {
+        ...mappedLoop,
+        bestDeal: published.bestDeal,
+        agentVerdict: published.agentVerdict,
       };
       record = await updateFindSearchContext(deps.kv, record, {
         loopSettled: true,

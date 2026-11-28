@@ -135,6 +135,9 @@ export type PublishFindConfidenceInput = {
   priceUsd?: number | null;
   /** The pick's reported accident count. Pass null when history is unknown; omit to skip the buy-consistency check. */
   accidentCount?: number | null;
+  /** Model year and miles: with no comparison, a near-new car with an implausibly low ask is a named risk. */
+  year?: number | null;
+  miles?: number | null;
 };
 
 export const MISSING_PRICE_COMPARISON_SENTENCE =
@@ -582,11 +585,21 @@ export function publishFindDecideConfidence(
   }
 
   // Too-good-to-be-true ask: the graph still chose the car, code keeps it from reading as a safe buy.
-  const risk = priceRiskFor({ priceUsd: input.priceUsd, fairValueUsd: input.fairValueUsd, compCount: comps });
+  const risk = priceRiskFor({
+    priceUsd: input.priceUsd,
+    fairValueUsd: input.fairValueUsd,
+    compCount: comps,
+    year: input.year ?? null,
+    miles: input.miles ?? null,
+  });
   if (risk) {
     if (ACTION_RANK[action] < ACTION_RANK.inspect_first) {
       action = "inspect_first";
-      reasons.push("Action capped at inspect_first: the asking price is far below the market comparison (possible salvage or rebuilt title, down payment or bait listing).");
+      reasons.push(
+        risk.kind === "too_good_for_year"
+          ? "Action capped at inspect_first: the asking price is implausibly low for the model year and there are no similar cars to compare (possible salvage or rebuilt title, down payment or bait listing)."
+          : "Action capped at inspect_first: the asking price is far below the market comparison (possible salvage or rebuilt title, down payment or bait listing).",
+      );
     }
     if (confidence !== "low") {
       confidence = "low";

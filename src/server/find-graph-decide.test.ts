@@ -202,7 +202,7 @@ describe("Find graph as the primary final decider", () => {
     expect(out.agentVerdict.serv_steps.at(-1)?.changed).toBeNull();
   });
 
-  it("lets code override a riskier graph pick and records that honestly", async () => {
+  it("never swaps the graph's car; a reported accident only caps the action", async () => {
     const mapped = loopResult("buy");
     const challenge = {
       agree: false,
@@ -212,10 +212,13 @@ describe("Find graph as the primary final decider", () => {
     const { fetchImpl } = graphFetch({ output_text: JSON.stringify({ decide, challenge }) });
     const out = await decideRun(mapped, fetchImpl);
     expect(out.decidedBy).toBe("graph");
-    expect(out.agentVerdict.pick?.key).toBe(A);
-    expect(out.secondPass.objection).toBe("Decided by the review graph.");
-    expect(out.agentVerdict.serv_steps.at(-1)?.why).toMatch(/fewer miles and no reported accident/);
-    expect(out.agentVerdict.serv_steps.at(-1)?.notes?.some((note) => note.label === "Code rule")).toBe(true);
+    // B has a reported accident and more miles than A; the graph chose B, so B is published.
+    expect(out.agentVerdict.pick?.key).toBe(B);
+    expect(out.bestDeal.pick?.key).toBe(B);
+    expect(out.agentVerdict.verdict).toBe("needs_inspection");
+    const last = out.agentVerdict.serv_steps.at(-1)!;
+    expect(last.why).not.toMatch(/overrode|outranks/i);
+    expect(last.notes?.some((note) => note.label === "Code rule")).toBe(false);
   });
 
   it("maps a slot pick back to its key and falls back on an unknown slot", async () => {

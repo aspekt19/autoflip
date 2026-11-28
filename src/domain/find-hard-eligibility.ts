@@ -45,14 +45,16 @@ export type FindEligibilityContext = {
   openToOtherMakes?: boolean;
 };
 
-const BODY_KEYS = new Set(["body", "bodystyle", "bodyfamily", "body_type", "type", "vehicletype", "vehicle_type"]);
-const MILES_KEYS = new Set(["miles", "mileage", "milesmax", "maxmiles", "miles_max", "max_miles"]);
-const YEAR_MIN_KEYS = new Set(["yearmin", "year_min", "minyear", "min_year"]);
-const YEAR_MAX_KEYS = new Set(["yearmax", "year_max", "maxyear", "max_year"]);
-const MAKE_KEYS = new Set(["make", "makes"]);
+// Keys are compared after normKey, so "bodyStyle", "body_style", "Body style" and "body-style" are one key.
+const BODY_KEYS = new Set(["body", "bodystyle", "bodyfamily", "bodytype", "type", "vehicletype", "vehiclebody", "vehiclestyle", "style"]);
+const MILES_KEYS = new Set(["miles", "mileage", "milesmax", "maxmiles", "maxmileage", "mileagemax", "odometer"]);
+const YEAR_MIN_KEYS = new Set(["yearmin", "minyear", "yearfrom", "fromyear"]);
+const YEAR_MAX_KEYS = new Set(["yearmax", "maxyear", "yearto", "toyear"]);
+const MAKE_KEYS = new Set(["make", "makes", "brand", "brands"]);
 
-function normKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[\s-]+/g, "");
+/** Lowercase and drop every separator: SERV writes the same key as bodyStyle, body_style or "body style". */
+export function normKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function firstNumber(value: string): number | null {

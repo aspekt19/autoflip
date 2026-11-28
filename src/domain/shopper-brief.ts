@@ -302,7 +302,10 @@ export function validateResaleProfitFirstBrief(
     for (const row of hard) {
       const inventedBody =
         RESALE_INVENTED_BODY_KEYS.has(row.key) ||
-        RESALE_INVENTED_BODY_KEYS.has(row.key.toLowerCase());
+        RESALE_INVENTED_BODY_KEYS.has(row.key.toLowerCase()) ||
+        ["body", "bodystyle", "bodyfamily", "bodytype", "type", "vehicletype"].includes(
+          row.key.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+        );
       issues.push({
         field: "hardConstraints",
         message: inventedBody

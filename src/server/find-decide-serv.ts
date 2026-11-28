@@ -22,7 +22,6 @@ import {
 import { isAwdDrivetrain } from "@/domain/find-car-consistency";
 import {
   alignPublishedConfidence,
-  cleanLowerMileAlternative,
   type BestDealCandidate,
   type BestDealResult,
 } from "@/domain/find-best-deal";
@@ -222,6 +221,8 @@ export function buildFindDecideFacts(input: {
           priceUsd: row.priceUsd,
           fairValueUsd: report.fairValueUsd,
           compCount: report.compSampleSize ?? report.comps.length,
+          year: row.year,
+          miles: row.miles,
         })?.text ?? null,
       recallsAvailable: report.recallsAvailable,
       openParkIt: report.openParkIt,
@@ -864,16 +865,8 @@ export async function runFindDecideServ(input: {
     };
   }
 
-  const chosen = rankedByKey.get(decide.pickKey) ?? codePick;
-  const safer = cleanLowerMileAlternative(chosen, peers);
-  const pick = safer ?? chosen;
-  if (safer && decide.pickKey !== safer.key) {
-    decide = {
-      ...decide,
-      pickKey: safer.key,
-      confidenceWhy: "A car with fewer miles and no reported accident outranks the one with a reported accident.",
-    };
-  }
+  // SERV's car is the published car; code never swaps it (it only caps action/confidence below).
+  const pick = rankedByKey.get(decide.pickKey) ?? codePick;
   const pickReport = buildFindPickComputedReport(pick, peers, input.marketPool ?? []);
   const hasStop = Boolean(pickReport.openParkIt || pickReport.openParkOutside);
   const recallsUnavailable = !pickReport.recallsAvailable;
@@ -886,6 +879,8 @@ export async function runFindDecideServ(input: {
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
     fairValueUsd: pickReport.fairValueUsd ?? null,
     priceUsd: pick.priceUsd,
+    year: pick.year,
+    miles: pick.miles,
     accidentCount: pick.accidentCount ?? null,
     evidenceSettled: true,
     secondCheckMissed: secondPass.status !== "agreed" && secondPass.status !== "disagreed",

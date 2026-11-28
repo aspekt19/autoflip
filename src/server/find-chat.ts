@@ -4,6 +4,7 @@
  * commit on a chosen car; release on nothing-fits / error / no car.
  */
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
+import { gateFindPublishedResult } from "@/domain/find-publish-eligibility";
 import { emptyNeed, type StructuredNeed } from "@/domain/need";
 import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
 import { chargeOutcomeFromAgentSettlement } from "@/domain/serv-boundary";
@@ -504,10 +505,17 @@ export async function runFindChatTurn(input: {
     remainingRouteMs: FIND_CHAT_ROUTE_CAP_MS - (Date.now() - turnStartedAtMs),
     graphId: input.graphId,
   });
-  const mapped = {
-    ...mappedLoop,
+  // Final chokepoint before publishing: same hard-eligibility rule as before graph input.
+  const published = gateFindPublishedResult({
     bestDeal: graphCheck.bestDeal,
     agentVerdict: graphCheck.agentVerdict,
+    ctx: findEligibilityContextFrom({ need, brief: session.confirmedBrief }),
+    pool: mappedLoop.offerPool,
+  });
+  const mapped = {
+    ...mappedLoop,
+    bestDeal: published.bestDeal,
+    agentVerdict: published.agentVerdict,
   };
   const journalMeta = summarizeFindAgentJournal(agent.journal);
   const chosenVin = mapped.bestDeal.pick?.vin ?? null;
